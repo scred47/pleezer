@@ -1,0 +1,285 @@
+use std::{
+    num::NonZeroU32,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use async_trait::async_trait;
+use governor::{
+    clock::MonotonicClock,
+    middleware::NoOpMiddleware,
+    state::{InMemoryState, NotKeyed},
+    Quota, RateLimiter,
+};
+use rand::Rng;
+use reqwest::{self, cookie::CookieStore};
+use serde::Deserialize;
+use sysinfo::{self, SystemExt};
+use thiserror::Error;
+
+use crate::{
+    config::Config,
+    gateway,
+    token::{UserToken, UserTokenError, UserTokenProvider},
+};
+
+#[derive(Debug)]
+pub struct Session {
+    client_id: usize,
+    http_client: reqwest::Client,
+    cookie_jar: Arc<reqwest::cookie::Jar>,
+    rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, MonotonicClock, NoOpMiddleware>>,
+    user_data: Option<gateway::UserData>,
+}
+
+#[derive(Error, Debug)]
+pub enum SessionError {
+    #[error("assertion failed: {0}")]
+    Assertion(String),
+    #[error("http client error: {0}")]
+    HttpClientError(#[from] reqwest::Error),
+    #[error("parsing url failed: {0}")]
+    UrlParseError(#[from] url::ParseError),
+}
+
+pub type SessionResult<T> = Result<T, SessionError>;
+
+impl Session {
+    pub fn new(config: &Config, arl: &str) -> SessionResult<Self> {
+        let app_name = &config.app_name;
+        let app_version = &config.app_version;
+        let app_lang = &config.app_lang;
+
+        // Set `User-Agent` to be served like Deezer on desktop.
+        let os_name = match std::env::consts::OS {
+            "macos" => "osx",
+            other => other,
+        };
+        let os_version = sysinfo::System::new()
+            .os_version()
+            .unwrap_or_else(|| String::from("0"));
+        let user_agent =
+            format!("{app_name}/{app_version} (Rust; {os_name}/{os_version}; Desktop; {app_lang})");
+        debug!("User-Agent: {user_agent}");
+
+        // `reqwest::cookie` does not check for valid cookie values, so do it here.
+        for chr in arl.chars() {
+            if !arl.is_ascii()
+                || chr.is_ascii_control()
+                || chr.is_ascii_whitespace()
+                || vec!['\"', ',', ';', '\\'].contains(&chr)
+            {
+                return Err(SessionError::Assertion(format!(
+                    "arl contains invalid characters"
+                )));
+            }
+        }
+
+        // `arl`s expire in about 190 days but users cannot simply copy & paste
+        // the expiration from their browser into the `arl_file`, because there
+        // they are displayed in human-readable and internationalized form.
+        // Instead we will try to detect ARL expiration when API requests fail.
+        let arl_cookie = format!("arl={arl}; Domain=deezer.com; Path=/; Secure; HttpOnly");
+        let lang_cookie =
+            format!("dz_lang={app_lang}; Domain=deezer.com; Path=/; Secure; HttpOnly");
+        let cookie_origin =
+            reqwest::Url::parse("https://www.deezer.com/desktop/login/electron/callback")?;
+
+        // Create a new cookie jar and put the cookies in.
+        let cookie_jar = reqwest::cookie::Jar::default();
+        cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
+        cookie_jar.add_cookie_str(&lang_cookie, &cookie_origin);
+
+        // The functions above are infallible. Check if the cookies are in.
+        let cookie_check = cookie_jar.cookies(&cookie_origin);
+        let cookie_count = cookie_check.map_or(0, |header_value| {
+            header_value
+                .to_str()
+                .map_or(0, |result: &str| result.split(';').count())
+        });
+        if cookie_count != 2 {
+            return Err(SessionError::Assertion(String::from(
+                "cookie count invalid",
+            )));
+        }
+
+        // `Arc` wrap the jar for use in a asynchronous context and build a
+        // HTTP client with it.
+        let cookie_jar = Arc::new(cookie_jar);
+        let http_client = reqwest::Client::builder()
+            .cookie_provider(Arc::clone(&cookie_jar))
+            .tcp_keepalive(Duration::from_secs(60))
+            .timeout(Duration::from_secs(60))
+            .user_agent(user_agent)
+            .build()?;
+
+        // Rate limit own requests as to not DoS the Deezer infrastructure.
+        // Wrap in `Arc` to pass around threads without invalidating references.
+        const CALLS_PER_INTERVAL: usize = 50;
+        let replenish_interval_ns = Duration::from_secs(5).as_nanos() / CALLS_PER_INTERVAL as u128;
+        let quota = Quota::with_period(Duration::from_nanos(replenish_interval_ns as u64))
+            .ok_or_else(|| SessionError::Assertion(String::from("quota time interval is zero")))?
+            .allow_burst(NonZeroU32::new(CALLS_PER_INTERVAL as u32).ok_or_else(|| {
+                SessionError::Assertion(String::from("calls per interval is zero"))
+            })?);
+        let rate_limiter = Arc::new(governor::RateLimiter::direct(quota));
+
+        // Deezer on desktop uses a new `cid` on every start.
+        let client_id = rand::thread_rng().gen_range(100000000..=999999999);
+        debug!("client id: {client_id}");
+
+        Ok(Self {
+            client_id,
+            http_client,
+            cookie_jar,
+            rate_limiter,
+            user_data: None,
+        })
+    }
+
+    pub async fn refresh(&mut self) -> SessionResult<gateway::UserData> {
+        match self.request::<gateway::UserDataResponse>("{}").await {
+            Ok(response) => {
+                let user_data = self.set_user_data(response.results)?;
+
+                if let Some(expiration) = self.expires_at() {
+                    if let Ok(time_to_live) = expiration.duration_since(SystemTime::now()) {
+                        debug!("user data is valid for {} seconds", time_to_live.as_secs());
+                    }
+                }
+
+                Ok(user_data)
+            }
+            Err(SessionError::HttpClientError(e)) => {
+                // For an invalid or expired `arl`, the response has some
+                // fields as integer `0` which are normally typed as string,
+                // which causes JSON deserialization to fail.
+                if e.is_decode() {
+                    return Err(SessionError::Assertion(format!("{e}: check your arl")));
+                }
+                Err(e.into())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn request<T>(&mut self, body: impl Into<reqwest::Body>) -> SessionResult<T>
+    where
+        T: for<'a> gateway::Method<'a> + for<'de> Deserialize<'de>,
+    {
+        let method = format!("deezer.{}", T::METHOD);
+        let api_token = self
+            .user_data
+            .as_ref()
+            .map_or_else(|| String::from(""), |data| data.api_token.clone());
+        let url_str = format!("https://www.deezer.com/ajax/gw-light.php?method={method}&input=3&api_version=1.0&api_token={api_token}&cid={}", self.client_id);
+
+        // Check the URL early to not needlessly hit the rate limiter below.
+        let url = url_str.parse::<reqwest::Url>()?;
+
+        // No need to await with jitter because the level of concurrency is low.
+        self.rate_limiter.until_ready().await;
+
+        let response = self.http_client.post(url).body(body).send().await?;
+        response.json::<T>().await.map_err(Into::into)
+    }
+
+    #[must_use]
+    pub fn expires_at(&self) -> Option<SystemTime> {
+        if let Some(data) = &self.user_data {
+            let now = SystemTime::now();
+            let now_from_epoch = now
+                .duration_since(UNIX_EPOCH)
+                .expect("system time is before epoch")
+                .as_secs();
+
+            let mut time_to_live = data
+                .user
+                .options
+                .expiration_timestamp
+                .saturating_sub(now_from_epoch);
+
+            // Make tokens expire some while before the indicated expiration.
+            // This prevents failed API requests shortly after checking for
+            // expiration with only a few more seconds to live.
+            time_to_live = time_to_live.saturating_sub(60);
+
+            return now.checked_add(Duration::from_secs(time_to_live));
+        }
+
+        None
+    }
+
+    #[must_use]
+    pub fn is_expired(&self) -> bool {
+        self.expires_at()
+            .map_or(true, |expires_at| SystemTime::now() >= expires_at)
+    }
+
+    pub fn set_user_data(&mut self, data: gateway::UserData) -> SessionResult<gateway::UserData> {
+        if data.user.id == 0 {
+            return Err(SessionError::Assertion(format!(
+                "invalid user id; check your arl",
+            )));
+        }
+
+        debug!("user id: {}", data.user.id);
+        debug!("plan: {}", data.plan);
+        info!(
+            "casting quality: {}",
+            data.user.audio_settings.connected_device_streaming_preset
+        );
+        self.user_data = Some(data.to_owned());
+
+        Ok(data)
+    }
+
+    #[must_use]
+    pub fn user_data(&self) -> Option<gateway::UserData> {
+        self.user_data.clone()
+    }
+}
+
+#[async_trait]
+impl UserTokenProvider for Session {
+    async fn user_token(&mut self) -> Result<UserToken, UserTokenError> {
+        if self.is_expired() {
+            self.refresh().await?;
+        }
+
+        let data = self
+            .user_data
+            .as_ref()
+            .ok_or(UserTokenError::ProviderError(
+                "user data unavailable".into(),
+            ))?;
+        if !data.gatekeeps.remote_control {
+            return Err(UserTokenError::PermissionDenied(format!(
+                "remote control is disabled for this account",
+            )));
+        }
+        if data.user.options.too_many_devices {
+            return Err(UserTokenError::PermissionDenied(format!(
+                "too many devices; remove one or more in your account settings",
+            )));
+        }
+
+        let expires_at = self.expires_at().ok_or(UserTokenError::ProviderError(
+            "user token unavailable".into(),
+        ))?;
+        UserToken::new(data.user.id, &data.user_token, expires_at)
+    }
+
+    fn expire_token(&mut self) {
+        if let Some(data) = self.user_data.as_mut() {
+            debug!("expiring user token");
+            data.user.options.expiration_timestamp = 0;
+        }
+    }
+}
+
+impl From<SessionError> for UserTokenError {
+    fn from(e: SessionError) -> Self {
+        Self::ProviderError(e.into())
+    }
+}
