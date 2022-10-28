@@ -4,7 +4,7 @@ use clap::{command, Parser, ValueHint};
 use log::{debug, error, info, LevelFilter};
 use rand::Rng;
 
-use pleezer::{arl, config::Config, connect::Connect, session::Session};
+use pleezer::{arl::Arl, config::Config, remote, session::Session};
 
 /// Profile to display when not built in release mode.
 #[cfg(debug_assertions)]
@@ -97,8 +97,8 @@ fn init_logger(config: &Args) {
 ///
 /// Will return `Err` if:
 /// - loading `arl_file` fails
-fn load_arl(arl_file: &str) -> io::Result<String> {
-    let arl = arl::load(arl_file);
+fn load_arl(arl_file: &str) -> io::Result<Arl> {
+    let arl = Arl::from_file(arl_file);
 
     if let Err(ref e) = arl {
         if e.kind() == io::ErrorKind::NotFound {
@@ -121,12 +121,22 @@ async fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     config.device_name = player_name;
 
     let session = Session::new(&config, &arl)?;
-    Connect::new(&config, session, true).await?;
-    
-    loop here not there
-    also do not immediatey start on new()
+    let mut client = remote::Client::new(&config, session, true)?;
 
-    Ok(())
+    // Main application loop. This starts a new remote client when it gets
+    // disconnected for whatever reason. This could be from a network failure
+    // on either end or simply a disconnection from the user. In this case, the
+    // session is refreshed with possibly new user data
+    loop {
+        if let Err(e) = client.start().await {
+            error!("client error: {e}");
+        }
+
+        // Sleep with jitter to prevent thundering herds.
+        let sleep_with_jitter = rand::thread_rng().gen_range(5..=7);
+        info!("retrying in {sleep_with_jitter} seconds...");
+        tokio::time::sleep(Duration::from_secs(sleep_with_jitter)).await;
+    }
 }
 
 /// Gets the system hostname.
@@ -166,14 +176,8 @@ async fn main() {
 
     info!("starting {name}/{version}; {BUILD_PROFILE}; {lang}");
 
-    loop {
-        if let Err(e) = run(&args).await {
-            error!("{e}");
-
-            // Sleep with jitter to prevent thundering herds.
-            let sleep_with_jitter = rand::thread_rng().gen_range(1..=5);
-            info!("retrying in {sleep_with_jitter} seconds...");
-            tokio::time::sleep(Duration::from_secs(sleep_with_jitter)).await;
-        }
+    if let Err(e) = run(&args).await {
+        error!("{e}");
+        process::exit(1);
     }
 }

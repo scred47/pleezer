@@ -23,7 +23,7 @@ pub enum UserTokenError {
 #[async_trait]
 pub trait UserTokenProvider {
     async fn user_token(&mut self) -> Result<UserToken, UserTokenError>;
-    fn expire_token(&mut self);
+    fn flush_user_token(&mut self);
 }
 
 impl UserToken {
@@ -45,6 +45,21 @@ impl UserToken {
     #[must_use]
     pub fn is_expired(&self) -> bool {
         SystemTime::now() >= self.expires_at
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.token
+    }
+
+    #[must_use]
+    pub fn user_id(&self) -> u64 {
+        self.user_id
+    }
+
+    #[must_use]
+    pub fn expires_at(&self) -> SystemTime {
+        self.expires_at
     }
 }
 

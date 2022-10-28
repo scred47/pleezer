@@ -14,6 +14,23 @@ pub enum ConfigError {
     Invalid(String),
 }
 
+impl Config {
+    pub fn semver(&self) -> Result<Vec<usize>, ConfigError> {
+        let parts: Vec<usize> = self
+            .app_version
+            .split('.')
+            .filter_map(|part| part.parse::<usize>().ok())
+            .collect();
+        if parts.len() != 3 {
+            return Err(ConfigError::Invalid(format!(
+                "application version not in SemVer format"
+            )));
+        }
+
+        Ok(parts)
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {

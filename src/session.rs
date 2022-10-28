@@ -18,8 +18,9 @@ use sysinfo::{self, SystemExt};
 use thiserror::Error;
 
 use crate::{
+    arl::Arl,
     config::Config,
-    gateway,
+    protocol::gateway::{self, UserData, UserDataResponse},
     token::{UserToken, UserTokenError, UserTokenProvider},
 };
 
@@ -27,9 +28,8 @@ use crate::{
 pub struct Session {
     client_id: usize,
     http_client: reqwest::Client,
-    cookie_jar: Arc<reqwest::cookie::Jar>,
-    rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, MonotonicClock, NoOpMiddleware>>,
-    user_data: Option<gateway::UserData>,
+    rate_limiter: RateLimiter<NotKeyed, InMemoryState, MonotonicClock, NoOpMiddleware>,
+    user_data: Option<UserData>,
 }
 
 #[derive(Error, Debug)]
@@ -45,12 +45,25 @@ pub enum SessionError {
 pub type SessionResult<T> = Result<T, SessionError>;
 
 impl Session {
-    pub fn new(config: &Config, arl: &str) -> SessionResult<Self> {
+    pub fn new(config: &Config, arl: &Arl) -> SessionResult<Self> {
         let app_name = &config.app_name;
         let app_version = &config.app_version;
         let app_lang = &config.app_lang;
 
-        // Set `User-Agent` to be served like Deezer on desktop.
+        // Additional `User-Agent` string checks on top of `reqwest`.
+        let illegal_chars = |chr| chr == '/' || chr == ';';
+        if app_name.is_empty()
+            || app_name.contains(illegal_chars)
+            || app_version.is_empty()
+            || app_version.contains(illegal_chars)
+            || app_lang.chars().count() != 2
+            || app_lang.contains(illegal_chars)
+        {
+            return Err(SessionError::Assertion(format!(
+                "application name, version and/or language invalid (\"{app_name}\"; \"{app_version}\"; \"{app_lang}\")"
+            )));
+        }
+
         let os_name = match std::env::consts::OS {
             "macos" => "osx",
             other => other,
@@ -58,22 +71,20 @@ impl Session {
         let os_version = sysinfo::System::new()
             .os_version()
             .unwrap_or_else(|| String::from("0"));
+        if os_name.is_empty()
+            || os_name.contains(illegal_chars)
+            || os_version.is_empty()
+            || os_version.contains(illegal_chars)
+        {
+            return Err(SessionError::Assertion(format!(
+                "os name and/or version invalid (\"{os_name}\"; \"{os_version}\")"
+            )));
+        }
+
+        // Set `User-Agent` to be served like Deezer on desktop.
         let user_agent =
             format!("{app_name}/{app_version} (Rust; {os_name}/{os_version}; Desktop; {app_lang})");
         debug!("User-Agent: {user_agent}");
-
-        // `reqwest::cookie` does not check for valid cookie values, so do it here.
-        for chr in arl.chars() {
-            if !arl.is_ascii()
-                || chr.is_ascii_control()
-                || chr.is_ascii_whitespace()
-                || vec!['\"', ',', ';', '\\'].contains(&chr)
-            {
-                return Err(SessionError::Assertion(format!(
-                    "arl contains invalid characters"
-                )));
-            }
-        }
 
         // `arl`s expire in about 190 days but users cannot simply copy & paste
         // the expiration from their browser into the `arl_file`, because there
@@ -90,7 +101,8 @@ impl Session {
         cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
         cookie_jar.add_cookie_str(&lang_cookie, &cookie_origin);
 
-        // The functions above are infallible. Check if the cookies are in.
+        // The functions above are infallible. Check if the jar really contains
+        // the cookies now.
         let cookie_check = cookie_jar.cookies(&cookie_origin);
         let cookie_count = cookie_check.map_or(0, |header_value| {
             header_value
@@ -114,7 +126,6 @@ impl Session {
             .build()?;
 
         // Rate limit own requests as to not DoS the Deezer infrastructure.
-        // Wrap in `Arc` to pass around threads without invalidating references.
         const CALLS_PER_INTERVAL: usize = 50;
         let replenish_interval_ns = Duration::from_secs(5).as_nanos() / CALLS_PER_INTERVAL as u128;
         let quota = Quota::with_period(Duration::from_nanos(replenish_interval_ns as u64))
@@ -122,7 +133,7 @@ impl Session {
             .allow_burst(NonZeroU32::new(CALLS_PER_INTERVAL as u32).ok_or_else(|| {
                 SessionError::Assertion(String::from("calls per interval is zero"))
             })?);
-        let rate_limiter = Arc::new(governor::RateLimiter::direct(quota));
+        let rate_limiter = governor::RateLimiter::direct(quota);
 
         // Deezer on desktop uses a new `cid` on every start.
         let client_id = rand::thread_rng().gen_range(100000000..=999999999);
@@ -131,20 +142,20 @@ impl Session {
         Ok(Self {
             client_id,
             http_client,
-            cookie_jar,
             rate_limiter,
             user_data: None,
+            timestamp: None,
         })
     }
 
-    pub async fn refresh(&mut self) -> SessionResult<gateway::UserData> {
-        match self.request::<gateway::UserDataResponse>("{}").await {
+    pub async fn refresh(&mut self) -> SessionResult<UserData> {
+        match self.request::<UserDataResponse>("{}").await {
             Ok(response) => {
                 let user_data = self.set_user_data(response.results)?;
 
                 if let Some(expiration) = self.expires_at() {
                     if let Ok(time_to_live) = expiration.duration_since(SystemTime::now()) {
-                        debug!("user data is valid for {} seconds", time_to_live.as_secs());
+                        debug!("user data time to live: {} seconds", time_to_live.as_secs());
                     }
                 }
 
@@ -184,6 +195,7 @@ impl Session {
         response.json::<T>().await.map_err(Into::into)
     }
 
+    // Assumes that client and server system times are synchronized.
     #[must_use]
     pub fn expires_at(&self) -> Option<SystemTime> {
         if let Some(data) = &self.user_data {
@@ -216,7 +228,7 @@ impl Session {
             .map_or(true, |expires_at| SystemTime::now() >= expires_at)
     }
 
-    pub fn set_user_data(&mut self, data: gateway::UserData) -> SessionResult<gateway::UserData> {
+    pub fn set_user_data(&mut self, data: UserData) -> SessionResult<gateway::UserData> {
         if data.user.id == 0 {
             return Err(SessionError::Assertion(format!(
                 "invalid user id; check your arl",
@@ -224,9 +236,9 @@ impl Session {
         }
 
         debug!("user id: {}", data.user.id);
-        debug!("plan: {}", data.plan);
+        debug!("user plan: {}", data.plan);
         info!(
-            "casting quality: {}",
+            "user casting quality: {}",
             data.user.audio_settings.connected_device_streaming_preset
         );
         self.user_data = Some(data.to_owned());
@@ -270,9 +282,10 @@ impl UserTokenProvider for Session {
         UserToken::new(data.user.id, &data.user_token, expires_at)
     }
 
-    fn expire_token(&mut self) {
+    fn flush_user_token(&mut self) {
         if let Some(data) = self.user_data.as_mut() {
-            debug!("expiring user token");
+            // Force refreshing user data, but do not set `user_data` to
+            // `None` so we can continue using the `api_token` it contains.
             data.user.options.expiration_timestamp = 0;
         }
     }
