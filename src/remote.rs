@@ -1,4 +1,4 @@
-use std::{ops::ControlFlow, time::SystemTime};
+use std::{ops::ControlFlow, time::Duration};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use thiserror::Error;
@@ -77,11 +77,9 @@ impl Client {
 
     pub async fn start(&mut self) -> ClientResult<()> {
         let user_token = self.provider.user_token().await?;
-        let user_id = user_token.user_id();
-        let token = user_token.as_str();
-        self.user_token = Some(user_token.to_owned());
 
         // Token must be a base62 encoded string of 64 characters.
+        let token = user_token.as_str();
         let count = token.chars().count();
         if count != 64 || token.contains(|chr| chr < '0' || chr > 'z') {
             return Err(token::UserTokenError::Invalid(format!(
@@ -90,13 +88,18 @@ impl Client {
             .into());
         }
 
-        // Set timer for user token expiration.
-        let time_to_live = user_token
-            .expires_at()
-            .duration_since(SystemTime::now())
-            .map_err(|e| ClientError::InvalidData(format!("system time error: {e}")))?;
-        let expiry = tokio::time::sleep(time_to_live);
+        // Set timer for user token expiration. Wake a short while before
+        // actual expiration. This prevents API request errors when the
+        // expiration is checked with only a few seconds on the clock.
+        let expiry = tokio::time::Instant::from_std(user_token.expires_at());
+        const EXPIRATION_THRESHOLD: Duration = Duration::from_secs(60);
+        let expiry = tokio::time::sleep_until(expiry.checked_sub(EXPIRATION_THRESHOLD).ok_or(
+            token::UserTokenError::Invalid("expiration out of bounds".to_string()),
+        )?);
         tokio::pin!(expiry);
+
+        let user_id = user_token.user_id();
+        self.user_token = Some(user_token.to_owned());
 
         let url = format!(
             "{}://live.deezer.com/ws/{}?version={}",

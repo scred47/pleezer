@@ -106,10 +106,12 @@ pub struct RemoteBody {
 impl RemoteBody {
     pub fn payload(&self) -> Result<RemotePayload, serde_json::Error> {
         match &self.payload {
-            Some(payload) => if self.message_type != "playbackQueue" {
-                serde_json::from_slice(payload.as_ref())
-            } else {
-                unimplemented!()
+            Some(payload) => {
+                if self.message_type != "playbackQueue" {
+                    serde_json::from_slice(payload.as_ref())
+                } else {
+                    unimplemented!()
+                }
             }
             None => Err(serde_json::Error::custom("payload empty")),
         }

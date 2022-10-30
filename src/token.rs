@@ -1,4 +1,7 @@
-use std::{fmt, time::SystemTime};
+use std::{
+    fmt,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 use thiserror::Error;
@@ -7,7 +10,7 @@ use thiserror::Error;
 pub struct UserToken {
     user_id: u64,
     token: String,
-    expires_at: SystemTime,
+    expires_at: Instant,
 }
 
 #[derive(Error, Debug)]
@@ -27,7 +30,7 @@ pub trait UserTokenProvider {
 }
 
 impl UserToken {
-    pub fn new(user_id: u64, token: &str, expires_at: SystemTime) -> Result<Self, UserTokenError> {
+    pub fn new(user_id: u64, token: &str, expires_at: Instant) -> Result<Self, UserTokenError> {
         let chars = token.chars().count();
         if chars != 64 {
             return Err(UserTokenError::Invalid(format!(
@@ -42,10 +45,6 @@ impl UserToken {
         })
     }
 
-    #[must_use]
-    pub fn is_expired(&self) -> bool {
-        SystemTime::now() >= self.expires_at
-    }
 
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -58,8 +57,18 @@ impl UserToken {
     }
 
     #[must_use]
-    pub fn expires_at(&self) -> SystemTime {
+    pub fn time_to_live(&self) -> Duration {
+        self.expires_at.saturating_duration_since(Instant::now())
+    }
+
+    #[must_use]
+    pub fn expires_at(&self) -> Instant {
         self.expires_at
+    }
+
+    #[must_use]
+    pub fn is_expired(&self) -> bool {
+        Instant::now() >= self.expires_at
     }
 }
 

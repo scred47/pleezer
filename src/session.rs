@@ -1,7 +1,7 @@
 use std::{
     num::NonZeroU32,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
@@ -30,6 +30,7 @@ pub struct Session {
     http_client: reqwest::Client,
     rate_limiter: RateLimiter<NotKeyed, InMemoryState, MonotonicClock, NoOpMiddleware>,
     user_data: Option<UserData>,
+    timestamp: Option<Instant>,
 }
 
 #[derive(Error, Debug)]
@@ -149,15 +150,16 @@ impl Session {
     }
 
     pub async fn refresh(&mut self) -> SessionResult<UserData> {
+        let timestamp = Instant::now();
         match self.request::<UserDataResponse>("{}").await {
             Ok(response) => {
                 let user_data = self.set_user_data(response.results)?;
 
-                if let Some(expiration) = self.expires_at() {
-                    if let Ok(time_to_live) = expiration.duration_since(SystemTime::now()) {
-                        debug!("user data time to live: {} seconds", time_to_live.as_secs());
-                    }
-                }
+                self.timestamp = Some(timestamp);
+                debug!(
+                    "user data time to live: {} seconds",
+                    self.time_to_live().as_secs()
+                );
 
                 Ok(user_data)
             }
@@ -195,37 +197,32 @@ impl Session {
         response.json::<T>().await.map_err(Into::into)
     }
 
-    // Assumes that client and server system times are synchronized.
     #[must_use]
-    pub fn expires_at(&self) -> Option<SystemTime> {
-        if let Some(data) = &self.user_data {
-            let now = SystemTime::now();
-            let now_from_epoch = now
-                .duration_since(UNIX_EPOCH)
-                .expect("system time is before epoch")
-                .as_secs();
+    pub fn time_to_live(&self) -> Duration {
+        self.user_data.as_ref().map_or(Duration::ZERO, |data| {
+            let options = &data.user.options;
 
-            let mut time_to_live = data
-                .user
-                .options
-                .expiration_timestamp
-                .saturating_sub(now_from_epoch);
+            // Account for clock skew between client and server.
+            let time_to_live = Duration::from_secs(
+                options
+                    .expiration_timestamp
+                    .saturating_sub(options.timestamp),
+            );
 
-            // Make tokens expire some while before the indicated expiration.
-            // This prevents failed API requests shortly after checking for
-            // expiration with only a few more seconds to live.
-            time_to_live = time_to_live.saturating_sub(60);
+            let timestamp = self.timestamp.unwrap_or_else(|| Instant::now());
+            time_to_live.saturating_sub(timestamp.elapsed())
+        })
+    }
 
-            return now.checked_add(Duration::from_secs(time_to_live));
-        }
-
-        None
+    #[must_use]
+    pub fn expires_at(&self) -> Instant {
+        let now = Instant::now();
+        now.checked_add(self.time_to_live()).unwrap_or_else(|| now)
     }
 
     #[must_use]
     pub fn is_expired(&self) -> bool {
-        self.expires_at()
-            .map_or(true, |expires_at| SystemTime::now() >= expires_at)
+        self.time_to_live() == Duration::ZERO
     }
 
     pub fn set_user_data(&mut self, data: UserData) -> SessionResult<gateway::UserData> {
@@ -276,18 +273,14 @@ impl UserTokenProvider for Session {
             )));
         }
 
-        let expires_at = self.expires_at().ok_or(UserTokenError::ProviderError(
-            "user token unavailable".into(),
-        ))?;
+        let expires_at = self.expires_at();
         UserToken::new(data.user.id, &data.user_token, expires_at)
     }
 
     fn flush_user_token(&mut self) {
-        if let Some(data) = self.user_data.as_mut() {
-            // Force refreshing user data, but do not set `user_data` to
-            // `None` so we can continue using the `api_token` it contains.
-            data.user.options.expiration_timestamp = 0;
-        }
+        // Force refreshing user data, but do not set `user_data` to `None` so
+        // so we can continue using the `api_token` it contains.
+        self.timestamp = None;
     }
 }
 
