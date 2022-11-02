@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io};
+use std::{collections::HashMap, io, num::NonZeroU64};
 
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
@@ -9,7 +9,7 @@ use super::Method;
 
 // TODO: implement defaults, options
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct UserDataResponse {
     pub results: UserData,
 }
@@ -18,7 +18,7 @@ impl<'a> Method<'a> for UserDataResponse {
     const METHOD: &'a str = "getUserData";
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct UserData {
     #[serde(rename = "USER")]
     pub user: User,
@@ -42,10 +42,10 @@ pub struct UserData {
     gain: Gain,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct User {
     #[serde(rename = "USER_ID")]
-    pub id: u64,
+    pub id: NonZeroU64,
     #[serde(rename = "OPTIONS")]
     pub options: Options,
     #[serde(rename = "AUDIO_SETTINGS")]
@@ -55,7 +55,7 @@ pub struct User {
 }
 
 #[serde_as]
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct Options {
     license_token: String,
     audio_quality_default_preset: String,
@@ -70,28 +70,28 @@ pub struct Options {
     // queuelist_edition: bool,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct AudioSettings {
     presets: Vec<AudioPreset>,
     default_preset: String,
     pub connected_device_streaming_preset: String,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct AudioPreset {
     id: String,
     #[serde(rename = "wifi_download")]
     audio_quality: String,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct Settings {
     site: SiteSettings,
     adjust: AdjustSettings,
     audio_quality_settings: AudioQualitySettings,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct SiteSettings {
     player_hq: bool,
     player_audio_quality: String,
@@ -100,20 +100,20 @@ pub struct SiteSettings {
     cast_audio_quality: String,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct AdjustSettings {
     // TODO: what do these do?
     d0_stream: String,
     d7_stream: String,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct AudioQualitySettings {
     preset: String,
     connected_device_streaming_preset: String,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct Gatekeeps {
     disable_device_limitation: bool,
     #[serde(rename = "metric.timetoplay")]
@@ -132,7 +132,7 @@ pub struct Gatekeeps {
 }
 
 #[serde_as]
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct Gain {
     #[serde(rename = "TARGET")]
     #[serde_as(as = "DisplayFromStr")]

@@ -226,12 +226,6 @@ impl Session {
     }
 
     pub fn set_user_data(&mut self, data: UserData) -> SessionResult<gateway::UserData> {
-        if data.user.id == 0 {
-            return Err(SessionError::Assertion(format!(
-                "invalid user id; check your arl",
-            )));
-        }
-
         debug!("user id: {}", data.user.id);
         debug!("user plan: {}", data.plan);
         info!(

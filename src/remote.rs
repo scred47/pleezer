@@ -1,6 +1,7 @@
-use std::{ops::ControlFlow, time::Duration};
+use std::{num::NonZeroU64, ops::ControlFlow, time::Duration};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use semver;
 use thiserror::Error;
 use tokio_tungstenite::{
     tungstenite::{protocol::frame::Frame, Message},
@@ -27,8 +28,8 @@ pub struct Client {
 
 #[derive(Error, Debug)]
 pub enum ClientError {
-    #[error("invalid configuration: {0}")]
-    ConfigError(#[from] config::ConfigError),
+    #[error("error parsing app version: {0}")]
+    SemverError(#[from] semver::Error),
     #[error("invalid connection: {0}")]
     ConnectionError(String),
     #[error("invalid data: {0}")]
@@ -48,10 +49,10 @@ impl Client {
         // - `M` is the major version
         // - `mm` is the minor version
         // - `ppp` is the patch version
-        let semver = config.semver()?;
-        let major = semver[0];
-        let minor = semver[1];
-        let patch = semver[2];
+        let semver = semver::Version::parse(&config.app_version)?;
+        let major = semver.major;
+        let minor = semver.minor;
+        let patch = semver.patch;
 
         // Trim leading zeroes.
         let version = if major > 0 {
@@ -123,8 +124,14 @@ impl Client {
                 Some(message) = ws_rx.next() => {
                     match message {
                         Ok(message) => {
-                            trace!("message received: {message}");
-                            if let ControlFlow::Break(e) = self.handle_message(message).await {
+                            // Do not parse exceedingly large messages to
+                            // prevent out of memory conditions.
+                            let message_size = message.len();
+                            if message_size > 8192 {
+                                error!("ignoring oversized message with {message_size} bytes");
+                            }
+
+                            if let ControlFlow::Break(e) = self.handle_message(&message).await {
                                 return Err(ClientError::ConnectionError(format!("error handling message: {e}")));
                             }
                         }
@@ -135,15 +142,12 @@ impl Client {
         }
     }
 
-    async fn handle_message(&mut self, message: Message) -> ControlFlow<ClientError, ()> {
+    async fn handle_message(&mut self, message: &Message) -> ControlFlow<ClientError, ()> {
         let result = match message {
             Message::Text(message) => {
-                match serde_json::from_str::<RemoteMessage>(&message) {
+                match serde_json::from_str::<connect::Message>(message) {
                     Ok(message) => {
                         trace!("message: {message:?}");
-                        if let Ok(body) = message.contents().body() {
-                            trace!("payload: {:?}", body.payload());
-                        }
                         // if let Some(encoded) = &message.contents().body.payload {
                         //     match base64::decode(encoded) {
                         //         Ok(decoded) => {
@@ -195,7 +199,12 @@ impl Client {
         self.send_message(Message::Text(text)).await
     }
 
-    async fn subscribe(&mut self, from: u64, to: u64, subscription: &str) -> ClientResult<()> {
+    async fn subscribe(
+        &mut self,
+        from: NonZeroU64,
+        to: NonZeroU64,
+        subscription: &str,
+    ) -> ClientResult<()> {
         let payload = format!("{from}_{to}_{subscription}");
         self.send_text("sub", &payload).await
     }

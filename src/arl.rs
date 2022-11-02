@@ -1,7 +1,7 @@
 use std::{fmt, fs, io};
 use toml;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Arl(String);
 
 impl Arl {

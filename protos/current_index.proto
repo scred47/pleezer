@@ -1,9 +1,0 @@
-syntax = "proto3";
-
-package pleezer.playback.proto;
-
-message CurrentIndex {
-    string id = 1;
-    optional uint32 index = 2;
-    uint64 timestamp = 3;
-}

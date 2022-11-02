@@ -1,14 +1,15 @@
 use std::{
     fmt,
+    num::NonZeroU64,
     time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
 use thiserror::Error;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct UserToken {
-    user_id: u64,
+    user_id: NonZeroU64,
     token: String,
     expires_at: Instant,
 }
@@ -30,7 +31,11 @@ pub trait UserTokenProvider {
 }
 
 impl UserToken {
-    pub fn new(user_id: u64, token: &str, expires_at: Instant) -> Result<Self, UserTokenError> {
+    pub fn new(
+        user_id: NonZeroU64,
+        token: &str,
+        expires_at: Instant,
+    ) -> Result<Self, UserTokenError> {
         let chars = token.chars().count();
         if chars != 64 {
             return Err(UserTokenError::Invalid(format!(
@@ -45,14 +50,13 @@ impl UserToken {
         })
     }
 
-
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.token
     }
 
     #[must_use]
-    pub fn user_id(&self) -> u64 {
+    pub fn user_id(&self) -> NonZeroU64 {
         self.user_id
     }
 

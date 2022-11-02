@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package pleezer.playback.proto;
+
+message CurrentIndex {
+  string id = 1;
+  optional uint32 index = 2;
+  uint64 timestamp = 3;
+}
+
+message List {
+  string id = 1;
+  repeated Context contexts = 2;
+  repeated Track tracks = 3;
+  repeated uint32 tracks_order = 4 [packed=true];
+  bool shuffled = 5;
+  uint64 timestamp = 6;
+}
+
+message Context {
+  Container container = 1;
+  Log log = 2;
+}
+
+message Container {
+  string context_id = 1;
+  optional ContainerType typ = 2;
+  optional Mix mix = 3;
+  optional string smart_tracklist_method = 4;
+  optional TopTracks toptracks = 5;
+}
+
+enum ContainerType {
+  CONTAINER_TYPE_DEFAULT = 0;
+  CONTAINER_TYPE_ALBUM = 1;
+  CONTAINER_TYPE_LIVE = 3;
+  CONTAINER_TYPE_MIX = 4;
+  CONTAINER_TYPE_PERSONAL = 5;
+  CONTAINER_TYPE_PLAYLIST = 6;
+  CONTAINER_TYPE_PODCAST = 7;
+  CONTAINER_TYPE_RECOMMENDED = 8;
+  CONTAINER_TYPE_SHUFFLE_MY_MUSIC = 9;
+  CONTAINER_TYPE_SMART_TRACKLIST = 10;
+  CONTAINER_TYPE_TOP_TRACKS = 11;
+  CONTAINER_TYPE_UNRECOGNIZED = -1;
+}
+
+
+message Mix {
+  MixType typ = 1;
+}
+
+enum MixType {
+  MIX_TYPE_DEFAULT = 0;
+  MIX_TYPE_ALBUM = 1;
+  MIX_TYPE_ARTIST = 2;
+  MIX_TYPE_CHARTS = 3;
+  MIX_TYPE_FAMILY = 4;
+  MIX_TYPE_GENRE = 5;
+  MIX_TYPE_HISTORY = 6;
+  MIX_TYPE_PLAYLIST = 7;
+  MIX_TYPE_SEARCH = 8;
+  MIX_TYPE_SONG = 9;
+  MIX_TYPE_USER = 10;
+  MIX_TYPE_OFFLINE = 11;
+  MIX_TYPE_UNRECOGNIZED = -1;
+}
+
+message TopTracks {
+  TopTracksType typ = 1;
+}
+
+enum TopTracksType {
+  TOP_TRACKS_TYPE_DEFAULT = 0;
+  TOP_TRACKS_TYPE_ARTIST = 1;
+  TOP_TRACKS_TYPE_UNRECOGNIZED = -1;
+}
+
+message Track {
+  string id = 1;
+  uint32 context = 2;
+  TrackType typ = 3;
+}
+
+enum TrackType {
+  TRACK_TYPE_SONG = 0;
+  TRACK_TYPE_CHAPTER = 1;
+  TRACK_TYPE_EPISODE = 2;
+  TRACK_TYPE_LIVE = 3;
+}
+
+message Log {
+  string context_id = 1;
+  string listening_context = 2;
+}

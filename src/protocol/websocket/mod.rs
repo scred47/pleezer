@@ -1,130 +1,191 @@
 use std::{
     collections::HashMap,
     fmt::{self, Write},
+    io::Read,
 };
 
-use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use flate2::read::DeflateDecoder;
+use protobuf::{EnumOrUnknown, Message};
+use serde::{de::Error, de::IntoDeserializer, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use unescape::unescape;
+use serde_with::{json::JsonString, serde_as, TryFromInto};
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
-pub struct RemoteMessage(String, String, RemoteContents);
+pub mod connect;
 
-impl RemoteMessage {
-    pub fn new(
-        message_type: &str,
-        from: Option<u64>,
-        destination: Option<u64>,
-        app: &str,
-        app_id: Option<u64>,
-        contents: RemoteContents,
-    ) -> Result<Self, fmt::Error> {
-        let mut namespace = String::new();
-        if let Some(id) = from {
-            write!(namespace, "{id}")?;
-        } else {
-            write!(namespace, "-1")?;
-        }
-        write!(namespace, "_")?;
-        if let Some(id) = destination {
-            write!(namespace, "{id}")?;
-        } else {
-            write!(namespace, "-1")?;
-        }
-        write!(namespace, "_{app}")?;
-        if let Some(id) = app_id {
-            write!(namespace, "_{id}")?;
-        }
+include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 
-        Ok(Self(message_type.to_owned(), namespace, contents))
-    }
-
-    pub fn message_type(&self) -> &str {
-        &self.0
-    }
-
-    pub fn from(&self) -> Option<u64> {
-        let id = self.1.split('_').nth(1)?;
-
-        // The string may contain `-1` meaning: unknown.
-        return str::parse::<u64>(id).map_or(None, |id| Some(id));
-    }
-
-    pub fn destination(&self) -> Option<u64> {
-        let id = self.1.split('_').nth(2)?;
-        str::parse::<u64>(id).map_or(None, |id| Some(id))
-    }
-
-    pub fn app(&self) -> Option<&str> {
-        self.1.split('_').nth(3)
-    }
-
-    pub fn app_id(&self) -> Option<u64> {
-        let id = self.1.split('_').nth(4)?;
-        str::parse::<u64>(id).map_or(None, |id| Some(id))
-    }
-
-    pub fn contents(&self) -> &RemoteContents {
-        &self.2
-    }
-}
-
-#[derive(Clone, Deserialize, Serialize, Debug)]
-pub struct RemoteContents {
+#[serde_as]
+#[derive(Clone, Deserialize, PartialEq, Serialize, Debug)]
+pub struct MessageContents {
     #[serde(rename = "APP")]
     pub app: String,
     pub headers: RemoteHeader,
-    pub body: String,
+    #[serde_as(as = "Option<JsonString>")]
+    pub body: Option<RemoteBody>,
 }
 
-impl RemoteContents {
-    pub fn body(&self) -> Result<RemoteBody, serde_json::Error> {
-        let body_str =
-            unescape(&self.body).ok_or_else(|| serde_json::Error::custom("unescape failed"))?;
-        serde_json::from_str(&body_str)
-    }
-}
-
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize, Debug)]
 pub struct RemoteHeader {
     pub from: String,
     pub destination: Option<String>,
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[serde_as]
+#[derive(Clone, Deserialize, PartialEq, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteBody {
     pub message_id: String,
     pub message_type: String,
     pub protocol_version: String,
-    payload: Option<Base64>,
+
+    #[serde_as(as = "TryFromInto<String>")]
+    pub payload: RemotePayload,
 
     // Seems always empty.
     pub clock: HashMap<String, Value>,
 }
 
-impl RemoteBody {
-    pub fn payload(&self) -> Result<RemotePayload, serde_json::Error> {
-        match &self.payload {
-            Some(payload) => {
-                if self.message_type != "playbackQueue" {
-                    serde_json::from_slice(payload.as_ref())
-                } else {
-                    unimplemented!()
-                }
+impl From<RemotePayload> for String {
+    fn from(v: RemotePayload) -> Self {
+        unimplemented!();
+    }
+}
+
+impl TryFrom<String> for RemotePayload {
+    type Error = String;
+    fn try_from(v: String) -> Result<Self, Self::Error> {
+        let decoded = base64::decode(&v).map_err(|e| format!("error decoding payload: {e}"))?;
+
+        match String::from_utf8(decoded.clone()) {
+            Ok(s) => {
+                // Most payloads are strings that contain JSON.
+                serde_json::from_str::<Self>(&s)
+                    .map_err(|e| format!("error deserializing payload: {e}"))
             }
-            None => Err(serde_json::Error::custom("payload empty")),
+            Err(_) => {
+                // Some payloads are deflated protobufs.
+                let mut deflater = DeflateDecoder::new(&decoded[..]);
+                let mut buffer: Vec<u8> = vec![];
+                deflater
+                    .read_to_end(&mut buffer)
+                    .map_err(|e| format!("error inflating payload: {e}"))?;
+
+                if let Ok(list) = queue::List::parse_from_bytes(&buffer) {
+                    // All fields are optional in proto3, so successful parsing
+                    // does not mean that it parsed the right message.
+                    if !list.id.is_empty() {
+                        //     if list.shuffled {
+                        //         warn!("encountered shuffled playback queue; please report this to the developers");
+                        //         trace!("{list:#?}");
+                        //     }
+                        //
+                        //     let number_of_tracks = list.tracks.len();
+                        //     let tracks = if list.tracks_order.len() == number_of_tracks {
+                        //         let mut ordered_tracks = Vec::with_capacity(number_of_tracks);
+                        //         for index in list.tracks_order {
+                        //             ordered_tracks.push(list.tracks[index as usize].clone().id);
+                        //         }
+                        //         ordered_tracks
+                        //     } else {
+                        //         list.tracks.into_iter().map(|track| track.id).collect()
+                        //     };
+                        //
+                        //     let tracks = tracks.into_iter().filter_map(|track| track.parse::<u64>().ok()).collect();
+                        return Ok(Self::PlaybackQueue(list));
+                    }
+                }
+
+                Err("protobuf did not match any variant of untagged enum RemotePayload".to_string())
+            }
         }
     }
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+// impl Serialize for queue::List {
+//     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+//         // serializer.collect_str(&base64::display::Base64Display::with_config(
+// //             &self.0,
+// //             base64::STANDARD,
+// //         ))
+// unimplemented!()
+//     }
+// }
+//
+// impl<'de> Deserialize<'de> for queue::List {
+//     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+//         struct ProtobufVisitor;
+//         impl serde::de::Visitor<'_> for ProtobufVisitor {
+//             type Value = queue::List;
+//
+//             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+//                 formatter.write_str("a protobuf message")
+//             }
+//
+//             fn visit_map<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+//                 // base64::decode(v)
+//                 //     .map(Base64)
+//                 //     .map_err(serde::de::Error::custom)
+//                 unimplemented!()
+//             }
+//         }
+//         deserializer.deserialize_struct(ProtobufVisitor)
+//     }
+// }
+
+// impl RemoteBody {
+//     pub fn payload(&self) -> Result<RemotePayload, serde_json::Error> {
+//         match &self.payload {
+//             Some(payload) => {
+//                 if self.message_type != "playbackQueue" {
+//                     // serde_json::from_slice(payload)
+//                     unimplemented!()
+//                 } else {
+//                     unimplemented!()
+//                 }
+//             }
+//             None => Err(serde_json::Error::custom("payload empty")),
+//         }
+//     }
+// }
+
+// fn unescape_body<'de, D>(deserializer: D) -> Result<RemoteBody, D::Error>
+// where
+//     D: Deserializer<'de>,
+// {
+//     let s: String = Deserialize::deserialize(deserializer)?;
+//     let s = unescape(&s).ok_or_else(|| Error::custom("unescaping failed"))?;
+//     // serde_json::from_str::<RemoteBody>(&s)
+//     RemoteBody::deserialize(s.into_deserializer())
+// }
+
+// #[derive(Deserialize)]
+// #[serde(transparent)]
+// // struct EscapedStr<'a>(std::borrow::Cow<'a, str>);
+// struct EscapedStr<'a>(
+//     #[serde(borrow)]
+//     std::borrow::Cow<'a, str>
+//     // &'a str
+// );
+//
+// impl<'a> TryFrom<EscapedStr<'a>> for RemoteBody {
+//     type Error = serde_json::Error;
+//
+//     fn try_from(other: EscapedStr<'a>) -> Result<Self, Self::Error> {
+//         // let s = unescape(&other.0).ok_or_else(|| Error::custom("unescaping failed"))?;
+//         let s = format!("\"{}\"", other.0.escape_default().to_string());
+//         // serde_json::from_str::<Self>(s.into_deserializer())
+//         // Self::deserialize(s.into_deserializer())
+//         // let s = other.0;
+//         trace!("STR = {s}");
+//         serde_json::from_str::<Self>(&s)
+//         // Self::deserialize(s.into_deserializer())
+//     }
+// }
+
+#[derive(Clone, Deserialize, PartialEq, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
 pub enum RemotePayload {
-    Ack {
-        acknowledgement_id: String,
-    },
     PlaybackProgress {
         queue_id: String,
         element_id: String,
@@ -137,12 +198,16 @@ pub enum RemotePayload {
         is_shuffle: bool,
         repeat_mode: i64,
     },
-    //PlaybackQueue {
-    // TODO: from proto
-    //}
+    Ack {
+        acknowledgement_id: String,
+    },
     PlaybackStatus {
         command_id: String,
         status: i64,
+    },
+    WithParams {
+        from: String,
+        params: RemoteParams,
     },
     Skip {
         element_id: String,
@@ -151,70 +216,72 @@ pub enum RemotePayload {
         set_repeat_mode: i64,
         should_play: bool,
     },
-    WithParams {
-        from: String,
-        params: RemoteParams,
-    },
+    // This protobuf is deserialized manually in `TryFromInto<String>`.
+    #[serde(skip)]
+    PlaybackQueue(queue::List),
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Eq, PartialEq, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
 pub enum RemoteParams {
     ConnectionOffer {
         device_name: String,
         device_type: String,
-        supported_control_version: Vec<String>,
+        supported_control_versions: Vec<String>,
+    },
+    Connect {
+        offer_id: String,
     },
     DiscoveryRequest {
         discovery_session: String,
     },
 }
 
-#[derive(Clone, Debug)]
-pub struct Base64(Vec<u8>);
-
-impl AsRef<[u8]> for Base64 {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl fmt::Display for Base64 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let utf8 = std::str::from_utf8(&self.0).unwrap_or("binary");
-        write!(f, "{utf8}")
-    }
-}
-
-impl Serialize for Base64 {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(&base64::display::Base64Display::with_config(
-            &self.0,
-            base64::STANDARD,
-        ))
-    }
-}
-
-impl<'de> Deserialize<'de> for Base64 {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Base64Visitor;
-        impl serde::de::Visitor<'_> for Base64Visitor {
-            type Value = Base64;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a base64 string")
-            }
-
-            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                base64::decode(v)
-                    .map(Base64)
-                    .map_err(serde::de::Error::custom)
-            }
-        }
-        deserializer.deserialize_str(Base64Visitor)
-    }
-}
+// #[derive(Clone, Debug)]
+// pub struct Base64(Vec<u8>);
+//
+// impl AsRef<[u8]> for Base64 {
+//     fn as_ref(&self) -> &[u8] {
+//         &self.0
+//     }
+// }
+//
+// impl fmt::Display for Base64 {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         let utf8 = std::str::from_utf8(&self.0).unwrap_or("binary");
+//         write!(f, "{utf8}")
+//     }
+// }
+//
+// impl Serialize for Base64 {
+//     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+//         serializer.collect_str(&base64::display::Base64Display::with_config(
+//             &self.0,
+//             base64::STANDARD,
+//         ))
+//     }
+// }
+//
+// impl<'de> Deserialize<'de> for Base64 {
+//     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+//         struct Base64Visitor;
+//         impl serde::de::Visitor<'_> for Base64Visitor {
+//             type Value = Base64;
+//
+//             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+//                 formatter.write_str("a base64 string")
+//             }
+//
+//             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+//                 base64::decode(v)
+//                     .map(Base64)
+//                     .map_err(serde::de::Error::custom)
+//             }
+//         }
+//         deserializer.deserialize_str(Base64Visitor)
+//     }
+// }
 
 // struct Base64Visitor;
 //

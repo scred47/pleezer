@@ -17,7 +17,7 @@ const BUILD_PROFILE: &str = "release";
 const ARGS_GROUP_LOGGING: &str = "logging";
 
 /// Command line arguments as parsed by `clap`.
-#[derive(Parser, Debug, Default)]
+#[derive(Parser, Debug, Default, Eq, PartialEq, Clone)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Configuration file with the `arl` cookie.
