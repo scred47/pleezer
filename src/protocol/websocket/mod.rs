@@ -11,6 +11,7 @@ use serde_json::Value;
 use serde_with::{json::JsonString, serde_as, TryFromInto};
 
 pub mod connect;
+use connect::Channel;
 
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 
@@ -18,10 +19,10 @@ include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 #[derive(Clone, Deserialize, PartialEq, Serialize, Debug)]
 pub struct MessageContents {
     #[serde(rename = "APP")]
-    pub app: String,
+    pub channel: Channel,
     pub headers: RemoteHeader,
-    #[serde_as(as = "Option<JsonString>")]
-    pub body: Option<RemoteBody>,
+    #[serde_as(as = "JsonString")]
+    pub body: RemoteBody,
 }
 
 #[derive(Clone, Deserialize, Eq, PartialEq, Serialize, Debug)]
@@ -186,6 +187,15 @@ impl TryFrom<String> for RemotePayload {
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
 pub enum RemotePayload {
+    // TODO:
+    // Ready - empty map payload?
+    // Ping - empty map payload?
+    // Close - empty map payload?
+    // Stop - empty map payload .. internal function? disconnect, cache.clear, queueneedsrefresh false, closed true.
+    // RefreshQueue - empty string payload?
+    // PublishQueue == PlaybackQueue?
+    // Connect / Disconnect - internal functions?
+    // PlaybackStatus = Status?
     PlaybackProgress {
         queue_id: String,
         element_id: String,
@@ -210,11 +220,13 @@ pub enum RemotePayload {
         params: RemoteParams,
     },
     Skip {
+        queue_id: String,
         element_id: String,
         progress: f64,
-        queue_id: String,
-        set_repeat_mode: i64,
         should_play: bool,
+        set_shuffle: bool,
+        set_repeat_mode: i64,
+        set_volume: f64,
     },
     // This protobuf is deserialized manually in `TryFromInto<String>`.
     #[serde(skip)]

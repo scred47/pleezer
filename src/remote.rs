@@ -147,7 +147,6 @@ impl Client {
             Message::Text(message) => {
                 match serde_json::from_str::<connect::Message>(message) {
                     Ok(message) => {
-                        trace!("message: {message:?}");
                         // if let Some(encoded) = &message.contents().body.payload {
                         //     match base64::decode(encoded) {
                         //         Ok(decoded) => {
@@ -158,7 +157,10 @@ impl Client {
                         //     }
                         // }
                     }
-                    Err(e) => trace!("error parsing message: {e}"),
+                    Err(e) => {
+                        trace!("{message:#?}");
+                        error!("error parsing message: {e}");
+                    }
                 }
 
                 Ok(())

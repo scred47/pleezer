@@ -7,17 +7,19 @@ use std::{
 
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
-use serde_with::{json::JsonString, serde_as, TryFromInto};
+use serde_with::{json::JsonString, serde_as, DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;
 
 use super::*;
 
 /// A Deezer Connect websocket message.
-///
-/// Messages have a certain type and belong to a certain application.
-/// Applications can be thought of as scoped message streams to subscribe to.
 #[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
-pub struct Message(String, String, Option<MessageContents>);
+#[serde(untagged)]
+pub enum Message {
+    Contents(Stanza, Channel, MessageContents),
+    Log(Stanza, HashMap<String, Value>),
+    Subscription(Stanza, Channel),
+}
 
 #[derive(Error, Debug)]
 pub enum MessageError {
@@ -41,83 +43,116 @@ impl Message {
     /// - `typ`: an enum variant that represents the message type
     /// - `from`: an enum variant that represents the sender
     /// - `dest`: an enum variant that represents the receiver
-    /// - `app`: an enum variant that represents the message stream
+    /// - `event`: an enum variant that represents the event
     /// - `contents`: an optional struct that holds the message contents
     ///
     /// # Errors
     ///
     /// Will return `Err` if:
-    /// - `typ` is `MessageType::Log` with no `contents`
-    /// - `typ` is `MessageType::Sub` or `MessageType::Unsub` with some `contents`
+    /// - `typ` is `Stanza::Log` with no `contents`
+    /// - `typ` is `Stanza::Sub` or `Stanza::Unsub` with some `contents`
     ///
     /// # Examples
-    pub fn new(
-        typ: MessageType,
-        from: User,
-        dest: User,
-        app: App,
-        contents: Option<MessageContents>,
-    ) -> MessageResult<Self> {
-        // `Log` messages are formatted differently: they consist of a tuple of
-        // only the message type and contents as a JSON string.
-        if typ == MessageType::Log {
-            let contents = contents
-                .ok_or_else(|| MessageError::InvalidData("log without contents".to_string()))?;
-            let json = serde_json::to_string(&contents)?;
-            return Ok(Self(typ.to_string(), json, None));
-        }
 
-        if matches!(typ, MessageType::Sub | MessageType::Unsub) && contents.is_some() {
-            return Err(MessageError::InvalidData(format!(
-                "sub or unsub with contents: {contents:#?}"
-            )));
-        }
+    fn new_subscription(typ: Stanza, from: User, to: User, event: Event) -> Self {
+        debug_assert!(matches!(typ, Stanza::Subscribe | Stanza::Unsubscribe));
 
-        let namespace = format!("{from}_{dest}_{app}");
-        Ok(Self(typ.to_string(), namespace, contents))
+        Self::Subscription(typ, Channel { from, to, event })
     }
 
-    pub fn typ(&self) -> MessageResult<MessageType> {
-        self.0.parse::<MessageType>()
+    pub fn new_subscribe(from: User, to: User, event: Event) -> Self {
+        Self::new_subscription(Stanza::Subscribe, from, to, event)
+    }
+
+    pub fn new_unsubscribe(from: User, to: User, event: Event) -> Self {
+        Self::new_subscription(Stanza::Unsubscribe, from, to, event)
+    }
+
+    pub fn new_log(metrics: HashMap<String, Value>) -> Self {
+        Self::Log(Stanza::Log, metrics)
+    }
+
+    fn new_contents(
+        typ: Stanza,
+        from: User,
+        to: User,
+        event: Event,
+        contents: MessageContents,
+    ) -> Self {
+        debug_assert!(matches!(typ, Stanza::Send | Stanza::Receive));
+        Self::Contents(typ, Channel { from, to, event }, contents)
+    }
+
+    pub fn new_send(
+        typ: Stanza,
+        from: User,
+        to: User,
+        event: Event,
+        contents: MessageContents,
+    ) -> Self {
+        Self::new_contents(Stanza::Send, from, to, event, contents)
+    }
+
+    pub fn new_receive(
+        typ: Stanza,
+        from: User,
+        to: User,
+        event: Event,
+        contents: MessageContents,
+    ) -> Self {
+        Self::new_contents(Stanza::Receive, from, to, event, contents)
+    }
+
+    pub fn typ(&self) -> &Stanza {
+        match self {
+            Self::Contents(typ, _, _) => typ,
+            Self::Subscription(typ, _) => typ,
+            Self::Log(typ, _) => typ,
+        }
     }
 
     pub fn from(&self) -> MessageResult<User> {
-        let id = self
-            .1
-            .split('_')
-            .nth(1)
-            .ok_or_else(|| MessageError::InvalidData("sender not found".to_string()))?;
-        id.parse::<User>().map_err(Into::into)
+        let channel = self.channel()?;
+        Ok(channel.from)
     }
 
-    pub fn dest(&self) -> MessageResult<User> {
-        let id = self
-            .1
-            .split('_')
-            .nth(2)
-            .ok_or_else(|| MessageError::InvalidData("receiver not found".to_string()))?;
-        id.parse::<User>().map_err(Into::into)
+    pub fn to(&self) -> MessageResult<User> {
+        let channel = self.channel()?;
+        Ok(channel.to)
     }
 
-    pub fn app(&self) -> MessageResult<App> {
-        let parts: Vec<&str> = self.1.split('_').collect();
-        if parts.len() < 3 {
-            return Err(MessageError::InvalidData("app not found".to_string()));
+    pub fn event(&self) -> MessageResult<Event> {
+        let channel = self.channel()?;
+        Ok(channel.event)
+    }
+
+    fn channel(&self) -> MessageResult<&Channel> {
+        let channel = match self {
+            Self::Contents(_, channel, _) => channel,
+            Self::Subscription(_, channel) => channel,
+            Self::Log(_, _) => {
+                return Err(MessageError::InvalidData("log has no event".to_string()))
+            }
+        };
+
+        Ok(channel)
+    }
+
+    pub fn contents(&self) -> MessageResult<&MessageContents> {
+        if let Self::Contents(_, _, contents) = &self {
+            return Ok(contents);
         }
 
-        let app = parts[2..].join("_");
-        app.parse::<App>().map_err(Into::into)
-    }
-
-    pub fn contents(&self) -> &Option<MessageContents> {
-        &self.2
+        Err(MessageError::InvalidData(
+            "variant has no contents".to_string(),
+        ))
     }
 }
 
 /// Scoped message streams that can be subscribed to on the Deezer Connect
 /// websocket.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub enum App {
+#[derive(Copy, Clone, Eq, SerializeDisplay, DeserializeFromStr, PartialEq, Debug)]
+pub enum Event {
     /// Playback control and status information.
     RemoteCommand,
 
@@ -132,51 +167,53 @@ pub enum App {
     UserFeed(User),
 }
 
-/// Wire value for `App::RemoteCommand`.
-pub const APP_REMOTE_COMMAND: &str = "REMOTECOMMAND";
-/// Wire value for `App::RemoteDiscover`.
-pub const APP_REMOTE_DISCOVER: &str = "REMOTEDISCOVER";
-/// Wire value for `App::RemoteQueue`.
-pub const APP_REMOTE_QUEUE: &str = "REMOTEQUEUE";
-/// Wire value for `App::UserFeed`.
-pub const APP_USER_FEED: &str = "USERFEED";
+impl Event {
+    /// Wire value for `Event::RemoteCommand`.
+    const REMOTE_COMMAND: &str = "REMOTECOMMAND";
+    /// Wire value for `Event::RemoteDiscover`.
+    const REMOTE_DISCOVER: &str = "REMOTEDISCOVER";
+    /// Wire value for `Event::RemoteQueue`.
+    const REMOTE_QUEUE: &str = "REMOTEQUEUE";
+    /// Wire value for `Event::UserFeed`.
+    const USER_FEED: &str = "USERFEED";
+}
 
-impl fmt::Display for App {
+impl fmt::Display for Event {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::RemoteCommand => write!(f, "{APP_REMOTE_COMMAND}"),
-            Self::RemoteDiscover => write!(f, "{APP_REMOTE_DISCOVER}"),
-            Self::RemoteQueue => write!(f, "{APP_REMOTE_QUEUE}"),
-            Self::UserFeed(id) => write!(f, "{APP_USER_FEED}_{id}"),
+            Self::RemoteCommand => write!(f, "{}", Self::REMOTE_COMMAND),
+            Self::RemoteDiscover => write!(f, "{}", Self::REMOTE_DISCOVER),
+            Self::RemoteQueue => write!(f, "{}", Self::REMOTE_QUEUE),
+            Self::UserFeed(id) => write!(f, "{}{}{}", Self::USER_FEED, Channel::SEPARATOR, id),
         }
     }
 }
 
-impl FromStr for App {
+impl FromStr for Event {
     type Err = MessageError;
 
-    /// Parses a string `s` to return a variant of `App`.
+    /// Parses a string `s` to return a variant of `Event`.
     ///
     /// The parameter `s` is converted into uppercase.
     ///
     /// # Examples
     ///
     /// ```
-    /// assert_eq!("REMOTEDISCOVER".parse(), Ok(App::RemoteDiscover));
-    /// assert_eq!("USERFEED_4787654542".parse(), Ok(App::UserFeed(4787654542)));
-    /// assert_eq!("foo".parse(), Ok(App::Unknown("FOO")));
+    /// assert_eq!("REMOTEDISCOVER".parse(), Ok(Event::RemoteDiscover));
+    /// assert_eq!("USERFEED_4787654542".parse(), Ok(Event::UserFeed(4787654542)));
+    /// assert_eq!("foo".parse(), Ok(Event::Unknown("FOO")));
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (app, id) = s
+        let (event, id) = s
             .split_once('_')
             .map_or((s, None), |split| (split.0, Some(split.1)));
 
         // `unwrap` success guaranteed above.
-        let variant = match app.to_uppercase().as_ref() {
-            APP_REMOTE_COMMAND => Self::RemoteCommand,
-            APP_REMOTE_DISCOVER => Self::RemoteDiscover,
-            APP_REMOTE_QUEUE => Self::RemoteQueue,
-            APP_USER_FEED => {
+        let variant = match event.to_uppercase().as_ref() {
+            Self::REMOTE_COMMAND => Self::RemoteCommand,
+            Self::REMOTE_DISCOVER => Self::RemoteDiscover,
+            Self::REMOTE_QUEUE => Self::RemoteQueue,
+            Self::USER_FEED => {
                 if let Some(id) = id {
                     let id = id.parse::<User>()?;
                     Self::UserFeed(id)
@@ -186,7 +223,7 @@ impl FromStr for App {
                     ));
                 }
             }
-            _ => return Err(Self::Err::InvalidData(format!("unknown app: {s}"))),
+            _ => return Err(Self::Err::InvalidData(format!("unknown event: {s}"))),
         };
 
         Ok(variant)
@@ -194,67 +231,73 @@ impl FromStr for App {
 }
 
 /// Message types for the Deezer Connect websocket.
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub enum MessageType {
+#[derive(Clone, Eq, Serialize, Deserialize, PartialEq, Debug)]
+pub enum Stanza {
     /// UX tracking metrics.
+    #[serde(rename = "sendlog")]
     Log,
 
     /// A message received from the server.
-    Msg,
+    #[serde(rename = "msg")]
+    Receive,
 
     /// A message to send from the client.
     Send,
 
-    /// Subscription to an application.
-    Sub,
+    /// Subscription to an event.
+    #[serde(rename = "sub")]
+    Subscribe,
 
-    /// Unsubscription from an application.
-    Unsub,
+    /// Unsubscription from an event.
+    #[serde(rename = "unsub")]
+    Unsubscribe,
 }
 
-/// Wire value for `MessageType::Log`.
-pub const TYPE_LOG: &str = "sendlog";
-/// Wire value for `MessageType::Msg`.
-pub const TYPE_MSG: &str = "msg";
-/// Wire value for `MessageType::Send`.
-pub const TYPE_SEND: &str = "send";
-/// Wire value for `MessageType::Sub`.
-pub const TYPE_SUB: &str = "sub";
-/// Wire value for `MessageType::Unsub`.
-pub const TYPE_UNSUB: &str = "unsub";
+impl Stanza {
+    /// Wire value for `Stanza::Log`.
+    const LOG: &str = "sendlog";
+    /// Wire value for `Stanza::Receive`.
+    const RECEIVE: &str = "msg";
+    /// Wire value for `Stanza::Send`.
+    const SEND: &str = "send";
+    /// Wire value for `Stanza::Subscribe`.
+    const SUBSCRIBE: &str = "sub";
+    /// Wire value for `Stanza::Unsubsribe`.
+    const UNSUBSCRIBE: &str = "unsub";
+}
 
-impl fmt::Display for MessageType {
+impl fmt::Display for Stanza {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Log => write!(f, "{TYPE_LOG}"),
-            Self::Msg => write!(f, "{TYPE_MSG}"),
-            Self::Send => write!(f, "{TYPE_SEND}"),
-            Self::Sub => write!(f, "{TYPE_SUB}"),
-            Self::Unsub => write!(f, "{TYPE_UNSUB}"),
+            Self::Log => write!(f, "{}", Self::LOG),
+            Self::Receive => write!(f, "{}", Self::RECEIVE),
+            Self::Send => write!(f, "{}", Self::SEND),
+            Self::Subscribe => write!(f, "{}", Self::SUBSCRIBE),
+            Self::Unsubscribe => write!(f, "{}", Self::UNSUBSCRIBE),
         }
     }
 }
 
-impl FromStr for MessageType {
+impl FromStr for Stanza {
     type Err = MessageError;
 
-    /// Parses a string `s` to return a variant of `MessageType`.
+    /// Parses a string `s` to return a variant of `Stanza`.
     ///
     /// The parameter `s` is converted into lowercase.
     ///
     /// # Examples
     ///
     /// ```
-    /// assert_eq!("msg".parse(), Ok(MessageType::Msg));
-    /// assert_eq!("FOO".parse(), Ok(MessageType::Unknown("foo")));
+    /// assert_eq!("msg".parse(), Ok(Stanza::Msg));
+    /// assert_eq!("FOO".parse(), Ok(Stanza::Unknown("foo")));
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let variant = match s.to_lowercase().as_ref() {
-            TYPE_LOG => Self::Log,
-            TYPE_MSG => Self::Msg,
-            TYPE_SEND => Self::Send,
-            TYPE_SUB => Self::Sub,
-            TYPE_UNSUB => Self::Unsub,
+            Self::LOG => Self::Log,
+            Self::RECEIVE => Self::Receive,
+            Self::SEND => Self::Send,
+            Self::SUBSCRIBE => Self::Subscribe,
+            Self::UNSUBSCRIBE => Self::Unsubscribe,
             _ => return Err(Self::Err::InvalidData(format!("unknown message type: {s}"))),
         };
 
@@ -270,7 +313,7 @@ pub enum User {
 
     /// An unspecified Deezer receiver or sender.
     ///
-    /// Used as receiver with `App:UserFeed` this means: messages from anyone.
+    /// Used as receiver with `Event:UserFeed` this means: messages from anyone.
     Unspecified,
 }
 
@@ -316,5 +359,63 @@ impl FromStr for User {
 
         let id = s.parse::<NonZeroU64>()?;
         Ok(Self::Id(id))
+    }
+}
+
+#[derive(Clone, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, Debug)]
+pub struct Channel {
+    pub from: User,
+    pub to: User,
+    pub event: Event,
+}
+
+impl Channel {
+    pub const SEPARATOR: char = '_';
+}
+
+impl fmt::Display for Channel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}{}{}{}{}",
+            self.from,
+            Self::SEPARATOR,
+            self.to,
+            Self::SEPARATOR,
+            self.event
+        )
+    }
+}
+
+impl FromStr for Channel {
+    type Err = MessageError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split(Self::SEPARATOR).into_iter();
+
+        let from = parts.next().ok_or(MessageError::InvalidData(
+            "from not found in channel".to_string(),
+        ))?;
+        let from = from.parse::<User>()?;
+
+        let to = parts.next().ok_or(MessageError::InvalidData(
+            "to not found in channel".to_string(),
+        ))?;
+        let to = to.parse::<User>()?;
+
+        let event = parts.next().ok_or(MessageError::InvalidData(
+            "event not found in channel".to_string(),
+        ))?;
+        let mut event = event.to_string();
+        if let Some(id) = parts.next() {
+            write!(event, "{}{}", Self::SEPARATOR, id)?;
+        }
+        let event = event.parse::<Event>()?;
+
+        while let Some(unknown) = parts.next() {
+            trace!("unknown part in channel: {unknown}");
+        }
+
+        Ok(Self { from, to, event })
     }
 }
