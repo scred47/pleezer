@@ -1,5 +1,7 @@
-#[allow(dead_code)]
-pub mod gateway;
+// Allow dead code: downstream crates may use it.
 
 #[allow(dead_code)]
-pub mod websocket;
+pub mod connect;
+
+#[allow(dead_code)]
+pub mod gateway;

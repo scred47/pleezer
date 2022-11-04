@@ -1,7 +1,7 @@
 use std::path::Path;
 
 fn main() {
-    let proto_dir = Path::new("src/protocol/protos");
+    let proto_dir = Path::new("src/protocol/connect/protos");
 
     // Use `protoc` if available or fall back to a pure Rust parser.
     protobuf_codegen::Codegen::new()

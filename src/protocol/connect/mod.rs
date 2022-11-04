@@ -4,103 +4,73 @@ use std::{
     io::Read,
 };
 
-use flate2::read::DeflateDecoder;
 use protobuf::{EnumOrUnknown, Message};
 use serde::{de::Error, de::IntoDeserializer, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use serde_with::{json::JsonString, serde_as, TryFromInto};
+use thiserror::Error;
 
-pub mod connect;
-use connect::Channel;
+pub mod channel;
+pub mod contents;
+pub mod messages;
 
-include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
+pub use channel::{Channel, Event, User};
+pub use contents::Contents;
+pub use messages::Message;
 
-#[serde_as]
-#[derive(Clone, Deserialize, PartialEq, Serialize, Debug)]
-pub struct MessageContents {
-    #[serde(rename = "APP")]
-    pub channel: Channel,
-    pub headers: RemoteHeader,
-    #[serde_as(as = "JsonString")]
-    pub body: RemoteBody,
+
+/// A specialized [`Result`] for [Deezer Connect][Connect] websocket
+/// operations.
+///
+/// This type is broadly used across [`pleezer::protocol::connect`] for any
+/// operation which may produce an error.
+///
+/// This typedef is generally used to avoid writing out [`connect::Error`]
+/// directly and is otherwise a direct mapping to [`Result`].
+///
+/// While usual Rust style is to import types directly, aliases of [`Result`]
+/// often are not, to make it easier to distinguish between them. [`Result`] is
+/// generally assumed to be [`std::result::Result`][`Result`], and so users of
+/// this alias will generally use `connect::Result` instead of shadowing the
+/// prelude's import of [`std::result::Result`][`Result`].
+///
+/// # Examples
+///
+/// A convenience function that bubbles an `connect::Result` to its caller:
+///
+/// ```
+/// use protocol::connect::{self, Message};
+///
+/// fn get_message(s: &str) -> connect::Result<Message> {
+///     s.parse::<Message>()
+/// } 
+/// ```
+///
+/// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
+/// [`connect::Error`]: enum.Error.html
+/// [`pleezer::protocol::connect`]: index.html
+/// [`Result`]: https://doc.rust-lang.org/stable/std/result/enum.Result.html
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// The error type for [Deezer Connect][Connect] websocket operations.
+///
+/// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum Error {
+    #[error("malformed base64: {0}")]
+    Base64Error(#[from] base64::DecodeError),
+    #[error(transparent)]
+    DeflateError(#[from] flate2::DecompressError),
+    #[error("malformed message: {0}")]
+    Malformed(String),
+    #[error("unsupported message: {0}")]
+    Unsupported(String),
+    #[error(transparent)]
+    JsonError(#[from] serde_json::Error),
 }
 
-#[derive(Clone, Deserialize, Eq, PartialEq, Serialize, Debug)]
-pub struct RemoteHeader {
-    pub from: String,
-    pub destination: Option<String>,
-}
 
-#[serde_as]
-#[derive(Clone, Deserialize, PartialEq, Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteBody {
-    pub message_id: String,
-    pub message_type: String,
-    pub protocol_version: String,
-
-    #[serde_as(as = "TryFromInto<String>")]
-    pub payload: RemotePayload,
-
-    // Seems always empty.
-    pub clock: HashMap<String, Value>,
-}
-
-impl From<RemotePayload> for String {
-    fn from(v: RemotePayload) -> Self {
-        unimplemented!();
-    }
-}
-
-impl TryFrom<String> for RemotePayload {
-    type Error = String;
-    fn try_from(v: String) -> Result<Self, Self::Error> {
-        let decoded = base64::decode(&v).map_err(|e| format!("error decoding payload: {e}"))?;
-
-        match String::from_utf8(decoded.clone()) {
-            Ok(s) => {
-                // Most payloads are strings that contain JSON.
-                serde_json::from_str::<Self>(&s)
-                    .map_err(|e| format!("error deserializing payload: {e}"))
-            }
-            Err(_) => {
-                // Some payloads are deflated protobufs.
-                let mut deflater = DeflateDecoder::new(&decoded[..]);
-                let mut buffer: Vec<u8> = vec![];
-                deflater
-                    .read_to_end(&mut buffer)
-                    .map_err(|e| format!("error inflating payload: {e}"))?;
-
-                if let Ok(list) = queue::List::parse_from_bytes(&buffer) {
-                    // All fields are optional in proto3, so successful parsing
-                    // does not mean that it parsed the right message.
-                    if !list.id.is_empty() {
-                        //     if list.shuffled {
-                        //         warn!("encountered shuffled playback queue; please report this to the developers");
-                        //         trace!("{list:#?}");
-                        //     }
-                        //
-                        //     let number_of_tracks = list.tracks.len();
-                        //     let tracks = if list.tracks_order.len() == number_of_tracks {
-                        //         let mut ordered_tracks = Vec::with_capacity(number_of_tracks);
-                        //         for index in list.tracks_order {
-                        //             ordered_tracks.push(list.tracks[index as usize].clone().id);
-                        //         }
-                        //         ordered_tracks
-                        //     } else {
-                        //         list.tracks.into_iter().map(|track| track.id).collect()
-                        //     };
-                        //
-                        //     let tracks = tracks.into_iter().filter_map(|track| track.parse::<u64>().ok()).collect();
-                        return Ok(Self::PlaybackQueue(list));
-                    }
-                }
-
-                Err("protobuf did not match any variant of untagged enum RemotePayload".to_string())
-            }
-        }
-    }
-}
 
 // impl Serialize for queue::List {
 //     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -183,72 +153,7 @@ impl TryFrom<String> for RemotePayload {
 //     }
 // }
 
-#[derive(Clone, Deserialize, PartialEq, Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-#[serde(untagged)]
-pub enum RemotePayload {
-    // TODO:
-    // Ready - empty map payload?
-    // Ping - empty map payload?
-    // Close - empty map payload?
-    // Stop - empty map payload .. internal function? disconnect, cache.clear, queueneedsrefresh false, closed true.
-    // RefreshQueue - empty string payload?
-    // PublishQueue == PlaybackQueue?
-    // Connect / Disconnect - internal functions?
-    // PlaybackStatus = Status?
-    PlaybackProgress {
-        queue_id: String,
-        element_id: String,
-        progress: f64,
-        buffered: i64,
-        duration: i64,
-        quality: i64,
-        volume: f64,
-        is_playing: bool,
-        is_shuffle: bool,
-        repeat_mode: i64,
-    },
-    Ack {
-        acknowledgement_id: String,
-    },
-    PlaybackStatus {
-        command_id: String,
-        status: i64,
-    },
-    WithParams {
-        from: String,
-        params: RemoteParams,
-    },
-    Skip {
-        queue_id: String,
-        element_id: String,
-        progress: f64,
-        should_play: bool,
-        set_shuffle: bool,
-        set_repeat_mode: i64,
-        set_volume: f64,
-    },
-    // This protobuf is deserialized manually in `TryFromInto<String>`.
-    #[serde(skip)]
-    PlaybackQueue(queue::List),
-}
 
-#[derive(Clone, Deserialize, Eq, PartialEq, Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-#[serde(untagged)]
-pub enum RemoteParams {
-    ConnectionOffer {
-        device_name: String,
-        device_type: String,
-        supported_control_versions: Vec<String>,
-    },
-    Connect {
-        offer_id: String,
-    },
-    DiscoveryRequest {
-        discovery_session: String,
-    },
-}
 
 // #[derive(Clone, Debug)]
 // pub struct Base64(Vec<u8>);
