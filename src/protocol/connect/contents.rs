@@ -4,9 +4,14 @@ use std::{
     io::Read,
 };
 
-use flate2::{Compression, read::{DeflateDecoder, DeflateEncoder}};
+use flate2::{
+    read::{DeflateDecoder, DeflateEncoder},
+    Compression,
+};
+use protobuf::{EnumOrUnknown, Message};
 use serde::{de::Error, de::IntoDeserializer, Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{json::JsonString, serde_as};
+use serde_json::Value;
+use serde_with::{json::JsonString, serde_as, TryFromInto};
 
 use super::channel::Event;
 
@@ -18,7 +23,7 @@ include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
 /// [`Message`]: ../messages/enum.Message.html
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 #[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Contents {
     /// The [Deezer Connect][Connect] websocket [`Message`] [`Event`] that
     /// these `Contents` are for.
@@ -29,8 +34,8 @@ pub struct Contents {
     #[serde(rename = "APP")]
     pub event: Event,
 
-    // The [Deezer Connect][Connect] websocket [`Message`] [`Headers`] that are
-    // attached to these `Contents`.
+    /// The [Deezer Connect][Connect] websocket [`Message`] [`Headers`] that
+    /// are attached to these `Contents`.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     /// [`Header`]: struct.Header.html
@@ -46,6 +51,7 @@ pub struct Contents {
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     /// [`Body`]: struct.Body.html
+    /// [JSON]: https://www.json.org/
     /// [JsonString]: https://docs.rs/serde_with/latest/serde_with/json/struct.JsonString.html
     /// [`Message`]: ../messages/enum.Message.html
     /// [`String`]: https://doc.rust-lang.org/std/string/
@@ -81,7 +87,7 @@ pub struct Headers {
 /// [`Contents`]: struct.Contents.html
 /// [`Message`]: ../messages/enum.Message.html
 #[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Body {
     /// The [`Uuid`] of some [Deezer Connect][Connect] websocket [`Message`]
@@ -135,10 +141,10 @@ pub struct Body {
     pub clock: HashMap<String, Value>,
 }
 
-#[derive(Clone, Deserialize, PartialEq, Serialize, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
-pub enum RemotePayload {
+pub enum Payload {
     // TODO:
     // Ready - empty map payload?
     // Ping - empty map payload?
@@ -169,7 +175,7 @@ pub enum RemotePayload {
     },
     WithParams {
         from: String,
-        params: RemoteParams,
+        params: Params,
     },
     Skip {
         queue_id: String,
@@ -185,10 +191,10 @@ pub enum RemotePayload {
     PlaybackQueue(queue::List),
 }
 
-#[derive(Clone, Deserialize, Eq, PartialEq, Serialize, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
-pub enum RemoteParams {
+pub enum Params {
     ConnectionOffer {
         device_name: String,
         device_type: String,
@@ -223,46 +229,53 @@ impl From<Payload> for Vec<u8> {
     /// [`Payload`]: enum.Payload.html
     /// [Protobuf]: https://developers.google.com/protocol-buffers
     /// [`u8`]: https://doc.rust-lang.org/std/primitive.u8.html
-    /// [`Vec`] https://doc.rust-lang.org/std/vec/struct.Vec.html
+    /// [`Vec`]: https://doc.rust-lang.org/std/vec/struct.Vec.html
     fn from(v: Payload) -> Self {
         let mut buffer: Vec<u8> = vec![];
-        let result = match v {
+
+        match v {
             Payload::PlaybackQueue(list) => {
-                let protobuf = list.write_to_bytes();
-                let mut deflater = DeflateEncoder::new(&protobuf[..], Compression::fast());
-                deflater.read_to_end(&mut buffer)
-            },
-            _ => v.to_writer(buffer),
-        };
-        
-        if let Err(e) = result {
-            // Do not panic in `From`. Worst case: serialization failed and
-            // an empty buffer will be Base64 encoded. The error message may be
-            // forwarded transparently as both `flate2` and `serde_json`
-            // provide good messages by themselves.
-            error!("{e}"); 
+                // Do not panic in `From`. Worst case: serialization failed and
+                // an empty buffer will be Base64 encoded. The error message may
+                // be forwarded transparently as both `flate2` and `serde_json`
+                // provide good messages by themselves.
+                match list.write_to_bytes() {
+                    Ok(protobuf) => {
+                        let mut deflater = DeflateEncoder::new(&protobuf[..], Compression::fast());
+                        if let Err(e) = deflater.read_to_end(&mut buffer) {
+                            error!("{e}");
+                        }
+                    }
+                    Err(e) => error!("{e}"),
+                }
+            }
+            _ => {
+                if let Err(e) = serde_json::to_writer(&mut buffer, &v) {
+                    error!("{e}");
+                }
+            }
         }
-        
-        base64::encode(buffer)
+
+        base64::encode(buffer).as_bytes().to_vec()
     }
 }
 
 impl TryFrom<Vec<u8>> for Payload {
     type Error = super::Error;
-    fn try_from(v: String) -> Result<Self, Self::Error> {
+
+    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
         let decoded = base64::decode(&v)?;
 
-        match std::str::from_utf8(decoded.clone()) {
+        match std::str::from_utf8(&decoded) {
             Ok(s) => {
                 // Most payloads are strings that contain JSON.
-                serde_json::from_str::<Self>(s)?
+                serde_json::from_str::<Self>(s).map_err(Into::into)
             }
             Err(_) => {
                 // Some payloads are deflated protobufs.
                 let mut inflater = DeflateDecoder::new(&decoded[..]);
                 let mut buffer: Vec<u8> = vec![];
-                inflater
-                    .read_to_end(&mut buffer)?;
+                inflater.read_to_end(&mut buffer)?;
 
                 if let Ok(list) = queue::List::parse_from_bytes(&buffer) {
                     // All fields are optional in proto3, so successful parsing
@@ -289,7 +302,9 @@ impl TryFrom<Vec<u8>> for Payload {
                     }
                 }
 
-                Err(Self::Error::Unsupported("protobuf should match some variant".to_string())
+                Err(Self::Error::Unsupported(
+                    "protobuf should match some variant".to_string(),
+                ))
             }
         }
     }

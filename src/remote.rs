@@ -4,14 +4,13 @@ use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use semver;
 use thiserror::Error;
 use tokio_tungstenite::{
-    tungstenite::{protocol::frame::Frame, Message},
+    tungstenite::{protocol::frame::Frame, Message as WebsocketMessage},
     MaybeTlsStream, WebSocketStream,
 };
 
 use crate::{
     config::{self, Config},
-    protocol::websocket::*,
-    token,
+    protocol, token,
 };
 
 pub type ClientResult<T> = Result<T, ClientError>;
@@ -23,7 +22,8 @@ pub struct Client {
 
     scheme: String,
     version: String,
-    ws_tx: Option<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, Message>>,
+    ws_tx:
+        Option<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WebsocketMessage>>,
 }
 
 #[derive(Error, Debug)]
@@ -112,9 +112,9 @@ impl Client {
 
         self.subscribe(user_id, user_id, "REMOTEDISCOVER").await?;
         info!("ready for discovery");
-        
+
         let bonus = r#"["msg","4787654542_4787654542_REMOTEDISCOVER",{"APP":"REMOTEDISCOVER","body":"{\"messageId\":\"56E10C0A-ABF2-4D1C-BF12-80858AFB1AE7\",\"protocolVersion\":\"com.deezer.remote.discovery.proto1\",\"payload\":\"eyJmcm9tIjoieTRhOTcxZWNmMTFjOTE2ZjY2MWUxMzI4ZDM1YWY2NWQ3IiwicGFyYW1zIjp7ImRpc2NvdmVyeV9zZXNzaW9uIjoiRUI5MDRBM0UtNTc3RS00QTI1LTlGNEItOTA5RkY2RUMwMDVDIn19\",\"messageType\":\"discoveryRequest\",\"clock\":{}}","headers":{"from":"y4a971ecf11c916f661e1328d35af65d7"}}]"#;
-        let f = serde_json::from_str::<connect::Message>(&bonus);
+        let f = serde_json::from_str::<protocol::connect::Message>(&bonus);
 
         loop {
             tokio::select! {
@@ -145,10 +145,10 @@ impl Client {
         }
     }
 
-    async fn handle_message(&mut self, message: &Message) -> ControlFlow<ClientError, ()> {
+    async fn handle_message(&mut self, message: &WebsocketMessage) -> ControlFlow<ClientError, ()> {
         let result = match message {
-            Message::Text(message) => {
-                match serde_json::from_str::<connect::Message>(message) {
+            WebsocketMessage::Text(message) => {
+                match serde_json::from_str::<protocol::connect::Message>(message) {
                     Ok(message) => {
                         // if let Some(encoded) = &message.contents().body.payload {
                         //     match base64::decode(encoded) {
@@ -168,12 +168,15 @@ impl Client {
 
                 Ok(())
             }
-            Message::Ping(payload) => {
+            // Deezer Connect sends pings as text message payloads, but
+            // seemingly not as websocket frames. Aim for RFC compliance
+            // anyway.
+            WebsocketMessage::Ping(payload) => {
                 trace!("ping -> pong");
                 let pong = Frame::pong(payload.clone());
-                self.send_message(Message::Frame(pong)).await
+                self.send_message(WebsocketMessage::Frame(pong)).await
             }
-            Message::Close(payload) => Err(ClientError::ConnectionError(format!(
+            WebsocketMessage::Close(payload) => Err(ClientError::ConnectionError(format!(
                 "connection closed by server: {payload:?}"
             ))),
             _ => {
@@ -189,7 +192,7 @@ impl Client {
         }
     }
 
-    async fn send_message(&mut self, message: Message) -> ClientResult<()> {
+    async fn send_message(&mut self, message: WebsocketMessage) -> ClientResult<()> {
         trace!("sending message: {message:?}");
         match &mut self.ws_tx {
             Some(tx) => tx.send(message).await.map_err(Into::into),
@@ -201,7 +204,7 @@ impl Client {
 
     async fn send_text(&mut self, command: &str, payload: &str) -> ClientResult<()> {
         let text = format!("[\"{command}\",\"{payload}\"]");
-        self.send_message(Message::Text(text)).await
+        self.send_message(WebsocketMessage::Text(text)).await
     }
 
     async fn subscribe(

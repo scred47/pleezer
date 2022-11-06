@@ -1,5 +1,3 @@
-use thiserror::Error;
-
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Config {
     pub app_name: String,

@@ -4,10 +4,6 @@ use std::{
     io::Read,
 };
 
-use protobuf::{EnumOrUnknown, Message};
-use serde::{de::Error, de::IntoDeserializer, Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::Value;
-use serde_with::{json::JsonString, serde_as, TryFromInto};
 use thiserror::Error;
 
 pub mod channel;
@@ -17,7 +13,6 @@ pub mod messages;
 pub use channel::{Channel, Event, User};
 pub use contents::Contents;
 pub use messages::Message;
-
 
 /// A specialized [`Result`] for [Deezer Connect][Connect] websocket
 /// operations.
@@ -43,7 +38,7 @@ pub use messages::Message;
 ///
 /// fn get_message(s: &str) -> connect::Result<Message> {
 ///     s.parse::<Message>()
-/// } 
+/// }
 /// ```
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
@@ -62,15 +57,17 @@ pub enum Error {
     Base64Error(#[from] base64::DecodeError),
     #[error(transparent)]
     DeflateError(#[from] flate2::DecompressError),
+    #[error("i/o error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    JsonError(#[from] serde_json::Error),
     #[error("malformed message: {0}")]
     Malformed(String),
     #[error("unsupported message: {0}")]
     Unsupported(String),
-    #[error(transparent)]
-    JsonError(#[from] serde_json::Error),
+    #[error("write error")]
+    WriteError(#[from] std::fmt::Error),
 }
-
-
 
 // impl Serialize for queue::List {
 //     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -152,8 +149,6 @@ pub enum Error {
 //         // Self::deserialize(s.into_deserializer())
 //     }
 // }
-
-
 
 // #[derive(Clone, Debug)]
 // pub struct Base64(Vec<u8>);
