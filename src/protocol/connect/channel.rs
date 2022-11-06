@@ -155,7 +155,7 @@ impl FromStr for Channel {
                 "channel string slice holds unknown trailing parts: `{s}`"
             )));
         }
-
+        
         Ok(Self { from, to, event })
     }
 }

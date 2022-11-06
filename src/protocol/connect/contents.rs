@@ -12,6 +12,7 @@ use protobuf::{EnumOrUnknown, Message};
 use serde::{de::Error, de::IntoDeserializer, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use serde_with::{json::JsonString, serde_as, TryFromInto};
+use uuid::Uuid;
 
 use super::channel::Event;
 
@@ -62,9 +63,14 @@ pub struct Contents {
 /// The `Headers` attached to some [`Message`] [`Contents`] on a
 /// [Deezer Connect][Connect] websocket.
 ///
+/// [Deezer Connect][Connect] devices are identified by some [UUID], formatted
+/// with hyphens. Controllers also seem to be identified by some [UUID], but
+/// without hyphens and prepended by an `y` character.
+///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 /// [`Contents`]: struct.Contents.html
 /// [`Message`]: ../messages/enum.Message.html
+/// [UUID]: http://tools.ietf.org/html/rfc4122
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Headers {
     /// The source of some [`Message`] [`Contents`].
@@ -96,7 +102,7 @@ pub struct Body {
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     /// [`Message`]: ../messages/enum.Message.html
     /// [`Uuid`]: https://docs.rs/uuid/latest/uuid/
-    pub message_id: String,
+    pub message_id: Uuid,
 
     /// The [`MessageType`] that tags the `payload` of some
     /// [Deezer Connect][Connect] websocket [`Message`] that has this `Body`.
@@ -104,7 +110,7 @@ pub struct Body {
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     /// [`Message`]: ../messages/enum.Message.html
     /// [`MessageType`]: enum.MessageType.html
-    pub message_type: String,
+    pub message_type: MessageType,
 
     /// The protocol version of some [Deezer Connect][Connect] websocket
     /// [`Message`] that has this `Body`.
@@ -131,7 +137,7 @@ pub struct Body {
     /// [Protobuf]: https://developers.google.com/protocol-buffers
     /// [`Serialize`]: #impl-From%3CPayload%3E-for-Vec%3Cu8%3E
     /// [TryFromInto]: https://docs.rs/serde_with/latest/serde_with/struct.TryFromInto.html
-    #[serde_as(as = "TryFromInto<Vec<u8>>")]
+    #[serde_as(as = "TryFromInto<String>")]
     pub payload: Payload,
 
     /// Unknown field that seems always empty.
@@ -141,21 +147,31 @@ pub struct Body {
     pub clock: HashMap<String, Value>,
 }
 
+#[derive(
+    Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub enum MessageType {
+    Ack,
+    Close,
+    Connect,
+    ConnectionOffer,
+    DiscoveryRequest,
+    PlaybackProgress,
+    PlaybackQueue,
+    PlaybackStatus,
+    Ping,
+    Ready,
+    Skip,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
 pub enum Payload {
-    // TODO:
-    // Ready - empty map payload?
-    // Ping - empty map payload?
-    // Close - empty map payload?
-    // Stop - empty map payload .. internal function? disconnect, cache.clear, queueneedsrefresh false, closed true.
-    // RefreshQueue - empty string payload?
-    // PublishQueue == PlaybackQueue?
-    // Connect / Disconnect - internal functions?
-    // PlaybackStatus = Status?
     PlaybackProgress {
-        queue_id: String,
+        queue_id: Uuid,
         element_id: String,
         progress: f64,
         buffered: i64,
@@ -167,10 +183,10 @@ pub enum Payload {
         repeat_mode: i64,
     },
     Ack {
-        acknowledgement_id: String,
+        acknowledgement_id: Uuid,
     },
     PlaybackStatus {
-        command_id: String,
+        command_id: Uuid,
         status: i64,
     },
     WithParams {
@@ -178,7 +194,7 @@ pub enum Payload {
         params: Params,
     },
     Skip {
-        queue_id: String,
+        queue_id: Uuid,
         element_id: String,
         progress: f64,
         should_play: bool,
@@ -201,14 +217,14 @@ pub enum Params {
         supported_control_versions: Vec<String>,
     },
     Connect {
-        offer_id: String,
+        offer_id: Uuid,
     },
     DiscoveryRequest {
-        discovery_session: String,
+        discovery_session: Uuid,
     },
 }
 
-impl From<Payload> for Vec<u8> {
+impl From<Payload> for String {
     /// Converts to a [`Vec`]<[`u8`]> from a [`Payload`] of some
     /// [Deezer Connect][Connect] websocket [`Message`] [`Body`].
     ///
@@ -256,20 +272,22 @@ impl From<Payload> for Vec<u8> {
             }
         }
 
-        base64::encode(buffer).as_bytes().to_vec()
+        base64::encode(buffer)
     }
 }
 
-impl TryFrom<Vec<u8>> for Payload {
+impl TryFrom<String> for Payload {
     type Error = super::Error;
 
-    fn try_from(v: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(v: String) -> Result<Self, Self::Error> {
         let decoded = base64::decode(&v)?;
 
         match std::str::from_utf8(&decoded) {
             Ok(s) => {
                 // Most payloads are strings that contain JSON.
-                serde_json::from_str::<Self>(s).map_err(Into::into)
+                let r = serde_json::from_str::<Self>(s).map_err(Into::into);
+                trace!("{r:#?}");
+                r
             }
             Err(_) => {
                 // Some payloads are deflated protobufs.

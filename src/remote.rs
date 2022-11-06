@@ -114,7 +114,9 @@ impl Client {
         info!("ready for discovery");
 
         let bonus = r#"["msg","4787654542_4787654542_REMOTEDISCOVER",{"APP":"REMOTEDISCOVER","body":"{\"messageId\":\"56E10C0A-ABF2-4D1C-BF12-80858AFB1AE7\",\"protocolVersion\":\"com.deezer.remote.discovery.proto1\",\"payload\":\"eyJmcm9tIjoieTRhOTcxZWNmMTFjOTE2ZjY2MWUxMzI4ZDM1YWY2NWQ3IiwicGFyYW1zIjp7ImRpc2NvdmVyeV9zZXNzaW9uIjoiRUI5MDRBM0UtNTc3RS00QTI1LTlGNEItOTA5RkY2RUMwMDVDIn19\",\"messageType\":\"discoveryRequest\",\"clock\":{}}","headers":{"from":"y4a971ecf11c916f661e1328d35af65d7"}}]"#;
+ // let bonus = r#"["msg","4787654542_4787654542_REMOTEDISCOVER",{"APP":"REMOTEDISCOVER","body":"{\"messageId\":\"b7a54826-7688-4f6f-811c-a7214ddaef65\",\"messageType\":\"connectionOffer\",\"protocolVersion\":\"com.deezer.remote.discovery.proto1\",\"clock\":{},\"payload\":\"eyJmcm9tIjoiMzVhOWY4MTItYTMzMC00ZmY5LTkzZGItNDc1NDNmZGYzZGZiIiwicGFyYW1zIjp7ImRldmljZV9uYW1lIjoiUm9kZXJpY2tzLWlNYWMtMy5sb2NhbCIsImRldmljZV90eXBlIjoid2ViIiwic3VwcG9ydGVkX2NvbnRyb2xfdmVyc2lvbnMiOlsiMS4wLjAtYmV0YTIiXX19\"}","headers":{"destination":"y4a971ecf11c916f661e1328d35af65d7","from":"35a9f812-a330-4ff9-93db-47543fdf3dfb"}}]"#;
         let f = serde_json::from_str::<protocol::connect::Message>(&bonus);
+        trace!("{f:#?}");
 
         loop {
             tokio::select! {
