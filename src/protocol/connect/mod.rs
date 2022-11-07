@@ -1,3 +1,6 @@
+//! Numbers are parsed and stored in 64-bit format, because [JSON] does not
+//! distinguish between different sizes of numbers.
+
 use std::{
     collections::HashMap,
     fmt::{self, Write},
@@ -59,6 +62,8 @@ pub enum Error {
     DeflateError(#[from] flate2::DecompressError),
     #[error("i/o error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error["invalid input: {0}"]]
+    InvalidInput(String),
     #[error(transparent)]
     JsonError(#[from] serde_json::Error),
     #[error("malformed message: {0}")]

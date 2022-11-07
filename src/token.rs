@@ -7,7 +7,7 @@ use std::{
 use async_trait::async_trait;
 use thiserror::Error;
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UserToken {
     user_id: NonZeroU64,
     token: String,

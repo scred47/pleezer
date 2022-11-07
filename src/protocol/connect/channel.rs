@@ -12,7 +12,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 /// [`Message`]: ../messages/enum.Message.html
 #[derive(
-    Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Copy, Clone, Debug, Hash, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord,
 )]
 pub struct Channel {
     /// The sending [Deezer] [`User`].
@@ -38,7 +38,7 @@ pub struct Channel {
 /// A list of user representations on a [Deezer Connect][Connect] websocket.
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum User {
     /// A [Deezer] user ID.
     ///
@@ -59,7 +59,7 @@ pub enum User {
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 #[derive(
-    Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord, Hash,
+    Copy, Clone, Debug, Hash, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord,
 )]
 pub enum Event {
     /// Playback control and status information.
@@ -155,7 +155,7 @@ impl FromStr for Channel {
                 "channel string slice holds unknown trailing parts: `{s}`"
             )));
         }
-        
+
         Ok(Self { from, to, event })
     }
 }

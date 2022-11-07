@@ -85,7 +85,7 @@ impl Session {
         // Set `User-Agent` to be served like Deezer on desktop.
         let user_agent =
             format!("{app_name}/{app_version} (Rust; {os_name}/{os_version}; Desktop; {app_lang})");
-        debug!("User-Agent: {user_agent}");
+        debug!("user agent: {user_agent}");
 
         // `arl`s expire in about 190 days but users cannot simply copy & paste
         // the expiration from their browser into the `arl_file`, because there
