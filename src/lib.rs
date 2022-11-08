@@ -6,7 +6,6 @@
 extern crate log;
 
 pub mod arl;
-pub mod audio;
 pub mod config;
 pub mod protocol;
 pub mod remote;

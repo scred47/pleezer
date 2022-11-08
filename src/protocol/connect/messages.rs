@@ -1,10 +1,6 @@
-use std::{
-    fmt::{self, Write},
-    str::FromStr,
-};
+use std::fmt::{self, Write};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 use super::{Channel, Contents};
 

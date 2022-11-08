@@ -13,7 +13,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         let device_uuid = match machine_uid::get() {
-            Ok(machine_id) => Uuid::new_v5(&Uuid::nil(), &machine_id.as_bytes()),
+            Ok(machine_id) => {
+                let namespace = Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"deezer.com");
+                Uuid::new_v5(&namespace, &machine_id.as_bytes())
+            }
             Err(e) => {
                 warn!("could not get machine id, using random device uuid: {e}");
                 Uuid::new_v4()

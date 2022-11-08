@@ -4,6 +4,7 @@ use std::{
     io::Read,
     num::NonZeroU64,
     str::FromStr,
+    time::Duration,
 };
 
 use flate2::{
@@ -15,13 +16,12 @@ use serde::{de::Error, de::IntoDeserializer, Deserialize, Deserializer, Serializ
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::{
-    json::JsonString, serde_as, DeserializeFromStr, NoneAsEmptyString, SerializeDisplay,
-    TryFromInto,
+    json::JsonString, serde_as, DeserializeFromStr, DisplayFromStr, DurationSecondsWithFrac,
+    NoneAsEmptyString, SerializeDisplay,
 };
 use uuid::Uuid;
 
 use super::channel::Event;
-use crate::audio::Quality;
 
 // Import the generated Rust protobufs.
 include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
@@ -85,30 +85,30 @@ pub struct Headers {
     ///
     /// [`Contents`]: struct.Contents.html
     /// [`Message`]: ../messages/enum.Message.html
-    pub from: Device,
+    pub from: DeviceId,
 
     /// The optional destination for some [`Message`] [`Contents`].
     ///
     /// [`Contents`]: struct.Contents.html
     /// [`Message`]: ../messages/enum.Message.html
-    pub destination: Option<Device>,
+    pub destination: Option<DeviceId>,
 }
 
 #[derive(
     Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
-pub enum Device {
+pub enum DeviceId {
     Uuid(Uuid),
     Other(String),
 }
 
-impl From<Uuid> for Device {
+impl From<Uuid> for DeviceId {
     fn from(uuid: Uuid) -> Self {
         Self::Uuid(uuid)
     }
 }
 
-impl FromStr for Device {
+impl FromStr for DeviceId {
     type Err = super::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -121,11 +121,11 @@ impl FromStr for Device {
     }
 }
 
-impl fmt::Display for Device {
+impl fmt::Display for DeviceId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Device::Uuid(uuid) => write!(f, "{uuid}"),
-            Device::Other(s) => write!(f, "{s}"),
+            Self::Uuid(uuid) => write!(f, "{uuid}"),
+            Self::Other(s) => write!(f, "{s}"),
         }
     }
 }
@@ -141,28 +141,27 @@ pub enum Body {
     },
     Connect {
         message_id: Uuid,
-        from: Device,
+        from: DeviceId,
         offer_id: Uuid,
     },
     ConnectionOffer {
         message_id: Uuid,
-        from: Device,
+        from: DeviceId,
         device_name: String,
     },
     DiscoveryRequest {
         message_id: Uuid,
-        from: Device,
+        from: DeviceId,
         discovery_session: Uuid,
     },
     PlaybackProgress {
         message_id: Uuid,
-        queue_id: Uuid,
         track: Element,
-        progress: Ratio,
-        buffered: f64,
-        duration: f64,
         quality: Quality,
-        volume: Ratio,
+        duration: Duration,
+        buffered: Duration,
+        progress: Percentage,
+        volume: Percentage,
         is_playing: bool,
         is_shuffle: bool,
         repeat_mode: Repeat,
@@ -179,13 +178,12 @@ pub enum Body {
     },
     Skip {
         message_id: Uuid,
-        queue_id: Uuid,
         track: Element,
-        progress: Ratio,
+        progress: Percentage,
         should_play: bool,
         set_repeat_mode: Repeat,
         set_shuffle: Option<bool>,
-        set_volume: Option<Ratio>,
+        set_volume: Option<Percentage>,
     },
     Status {
         message_id: Uuid,
@@ -199,13 +197,13 @@ pub enum Body {
     Clone,
     Debug,
     Default,
+    Hash,
     Serialize_repr,
     Deserialize_repr,
     PartialOrd,
     Ord,
     PartialEq,
     Eq,
-    Hash,
 )]
 #[repr(u64)]
 pub enum Status {
@@ -222,13 +220,13 @@ pub enum Status {
     Clone,
     Debug,
     Default,
+    Hash,
     Serialize_repr,
     Deserialize_repr,
     PartialOrd,
     Ord,
     PartialEq,
     Eq,
-    Hash,
 )]
 #[repr(i64)]
 pub enum Repeat {
@@ -239,35 +237,64 @@ pub enum Repeat {
     Unrecognized = -1,
 }
 
+/// Audio quality levels as per Deezer on desktop.
+///
+/// Note that the remote device has no control over the audio quality of the
+/// player.
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Hash,
+    Serialize_repr,
+    Deserialize_repr,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+)]
+// `u64` because this is serialized into and deserialized from JSON.
+#[repr(i64)]
+pub enum Quality {
+    /// 64 kbps MP3
+    Basic = 0,
+
+    /// 128 kbps MP3 (default)
+    #[default]
+    Standard = 1,
+
+    /// 320 kbps MP3 (requires Premium subscription)
+    High = 2,
+
+    /// 1411 kbps FLAC (requires HiFi subscription)
+    Lossless = 3,
+
+    /// Unknown bitrate and/or format
+    Unknown = -1,
+}
+
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
-pub struct Ratio(f64);
+pub struct Percentage(f64);
 
-impl Ratio {
-    pub fn new(ratio: f64) -> Result<Self, super::Error> {
-        match Self::is_valid(ratio) {
-            true => Ok(Self(ratio)),
-            false => Err(super::Error::InvalidInput(
-                "ratio should be within bounds".to_string(),
-            )),
-        }
+impl Percentage {
+    pub fn from_ratio(ratio: f64) -> Self {
+        Self(ratio)
     }
 
-    pub fn is_valid(ratio: f64) -> bool {
-        ratio >= 0.0 && ratio <= 1.0
+    pub fn as_ratio(&self) -> f64 {
+        self.0
     }
-}
 
-impl From<Ratio> for f64 {
-    fn from(ratio: Ratio) -> Self {
-        ratio.0
+    pub fn as_percent(&self) -> f64 {
+        self.0 * 100.0
     }
 }
 
-impl TryFrom<f64> for Ratio {
-    type Error = super::Error;
-
-    fn try_from(ratio: f64) -> Result<Self, Self::Error> {
-        Self::new(ratio)
+impl fmt::Display for Percentage {
+    /// Formats an `Percentage` for display with a `%` sign.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.2}%", self.as_percent())
     }
 }
 
@@ -277,8 +304,13 @@ impl TryFrom<f64> for Ratio {
 pub struct Element {
     pub queue_id: Uuid,
     pub track_id: NonZeroU64,
-    // `u32` instead of `u64`: known from the protobuf.
-    pub position: u32,
+    // `usize` because this will index into an array. Also from the protobuf it
+    // is known that this really an `u32`.
+    pub position: usize,
+}
+
+impl Element {
+    const SEPARATOR: char = '-';
 }
 
 impl fmt::Display for Element {
@@ -287,7 +319,15 @@ impl fmt::Display for Element {
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        write!(
+            f,
+            "{}{}{}{}{}",
+            self.queue_id,
+            Self::SEPARATOR,
+            self.track_id,
+            Self::SEPARATOR,
+            self.position
+        )
     }
 }
 
@@ -299,7 +339,7 @@ impl FromStr for Element {
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.split('-').into_iter();
+        let mut parts = s.split(Self::SEPARATOR).into_iter();
 
         let mut queue_id = String::new();
         for i in 0..5 {
@@ -326,7 +366,7 @@ impl FromStr for Element {
             "element string slice should hold `position` part".to_string(),
         ))?;
         let position = position
-            .parse::<u32>()
+            .parse::<usize>()
             .map_err(|e| Self::Err::Malformed(format!("position: {e}")))?;
 
         Ok(Self {
@@ -415,11 +455,7 @@ struct WireBody {
     /// [`Message`]: ../messages/enum.Message.html
     /// [Protobuf]: https://developers.google.com/protocol-buffers
     /// [`Serialize`]: #impl-From%3CPayload%3E-for-Vec%3Cu8%3E
-    /// [TryFromInto]: https://docs.rs/serde_with/latest/serde_with/struct.TryFromInto.html
-    ///
-    // `TryFromInto<Vec<u8>>` fails to deserialize and may not be faster, as it
-    // still requires cloning for ownership.
-    #[serde_as(as = "TryFromInto<String>")]
+    #[serde_as(as = "DisplayFromStr")]
     payload: Payload,
 
     /// Unknown field that seems always empty.
@@ -456,11 +492,13 @@ pub enum Payload {
     PlaybackProgress {
         queue_id: Uuid,
         element_id: Element,
-        progress: Ratio,
-        buffered: f64,
-        duration: f64,
+        #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+        duration: Duration,
+        #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+        buffered: Duration,
+        progress: Percentage,
+        volume: Percentage,
         quality: Quality,
-        volume: Ratio,
         is_playing: bool,
         is_shuffle: bool,
         repeat_mode: Repeat,
@@ -475,23 +513,23 @@ pub enum Payload {
         status: Status,
     },
     WithParams {
-        from: Device,
+        from: DeviceId,
         params: Params,
     },
     #[serde(rename_all = "camelCase")]
     Skip {
         queue_id: Uuid,
         element_id: Element,
-        progress: Ratio,
+        progress: Percentage,
         should_play: bool,
         set_repeat_mode: Repeat,
         set_shuffle: Option<bool>,
-        set_volume: Option<Ratio>,
+        set_volume: Option<Percentage>,
     },
 
     Str(#[serde_as(as = "NoneAsEmptyString")] Option<String>),
 
-    // This protobuf is deserialized manually with `TryFromInto`.
+    // This protobuf is deserialized manually with `FromStr`.
     #[serde(skip)]
     PlaybackQueue(queue::List),
 }
@@ -512,7 +550,8 @@ pub enum Params {
     },
 }
 
-impl From<Payload> for String {
+impl fmt::Display for Payload {
+    /// TODO: UPDATE
     /// Converts to a [`Vec`]<[`u8`]> from a [`Payload`] of some
     /// [Deezer Connect][Connect] websocket [`Message`] [`Body`].
     ///
@@ -534,40 +573,39 @@ impl From<Payload> for String {
     /// [Protobuf]: https://developers.google.com/protocol-buffers
     /// [`u8`]: https://doc.rust-lang.org/std/primitive.u8.html
     /// [`Vec`]: https://doc.rust-lang.org/std/vec/struct.Vec.html
-    fn from(payload: Payload) -> Self {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut buffer: Vec<u8> = vec![];
 
-        match &payload {
-            Payload::PlaybackQueue(list) => {
-                // Do not panic in `From`. Worst case: serialization failed and
-                // an empty or partial buffer will be Base64 encoded. The error
-                // message may be forwarded transparently as both `flate2` and
-                // `serde_json` provide clear enough messages by themselves.
-                match list.write_to_bytes() {
-                    Ok(protobuf) => {
-                        let mut deflater = DeflateEncoder::new(&protobuf[..], Compression::fast());
-                        if let Err(e) = deflater.read_to_end(&mut buffer) {
-                            error!("{e}");
-                        }
+        match self {
+            Payload::PlaybackQueue(list) => match list.write_to_bytes() {
+                Ok(protobuf) => {
+                    let mut deflater = DeflateEncoder::new(&protobuf[..], Compression::fast());
+                    if let Err(e) = deflater.read_to_end(&mut buffer) {
+                        error!("{e}");
+                        return Err(fmt::Error::default());
                     }
-                    Err(e) => error!("{e}"),
                 }
-            }
-            _ => {
-                if let Err(e) = serde_json::to_writer(&mut buffer, &payload) {
+                Err(e) => {
                     error!("{e}");
+                    return Err(fmt::Error::default());
+                }
+            },
+            _ => {
+                if let Err(e) = serde_json::to_writer(&mut buffer, self) {
+                    error!("{e}");
+                    return Err(fmt::Error::default());
                 }
             }
         }
 
-        base64::encode(buffer)
+        write!(f, "{}", base64::encode(buffer))
     }
 }
 
-impl TryFrom<String> for Payload {
-    type Error = super::Error;
+impl FromStr for Payload {
+    type Err = super::Error;
 
-    fn try_from(encoded: String) -> Result<Self, Self::Error> {
+    fn from_str(encoded: &str) -> Result<Self, Self::Err> {
         let decoded = base64::decode(encoded)?;
 
         match std::str::from_utf8(&decoded) {
@@ -606,7 +644,7 @@ impl TryFrom<String> for Payload {
                     }
                 }
 
-                Err(Self::Error::Unsupported(
+                Err(Self::Err::Unsupported(
                     "protobuf should match some variant".to_string(),
                 ))
             }
@@ -614,13 +652,16 @@ impl TryFrom<String> for Payload {
     }
 }
 
+impl WireBody {
+    pub(crate) const COMMAND_VERSION: &'static str = "com.deezer.remote.command.proto1";
+    pub(crate) const DISCOVERY_VERSION: &'static str = "com.deezer.remote.discovery.proto1";
+    pub(crate) const QUEUE_VERSION: &'static str = "com.deezer.remote.queue.proto1";
+    pub(crate) const SUPPORTED_CONTROL_VERSIONS: [&'static str; 1] = ["1.0.0-beta2"];
+}
+
 impl From<Body> for WireBody {
     /// Converts to a `WireBody` from a [`Body`](struct.Body.html).
     fn from(body: Body) -> Self {
-        const COMMAND_VERSION: &'static str = "com.deezer.remote.command.proto1";
-        const DISCOVERY_VERSION: &'static str = "com.deezer.remote.command.proto1";
-        const QUEUE_VERSION: &'static str = "com.deezer.remote.queue.proto1";
-
         let clock: HashMap<String, Value> = HashMap::new();
 
         match body {
@@ -630,14 +671,14 @@ impl From<Body> for WireBody {
             } => WireBody {
                 message_id,
                 message_type: MessageType::Acknowledgement,
-                protocol_version: COMMAND_VERSION.to_string(),
+                protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::Acknowledgement { acknowledgement_id },
                 clock,
             },
             Body::Close { message_id } => WireBody {
                 message_id,
                 message_type: MessageType::Close,
-                protocol_version: COMMAND_VERSION.to_string(),
+                protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::Str(None),
                 clock,
             },
@@ -648,7 +689,7 @@ impl From<Body> for WireBody {
             } => WireBody {
                 message_id,
                 message_type: MessageType::Connect,
-                protocol_version: DISCOVERY_VERSION.to_string(),
+                protocol_version: Self::DISCOVERY_VERSION.to_string(),
                 payload: Payload::WithParams {
                     from,
                     params: Params::Connect { offer_id },
@@ -662,13 +703,13 @@ impl From<Body> for WireBody {
             } => WireBody {
                 message_id,
                 message_type: MessageType::ConnectionOffer,
-                protocol_version: DISCOVERY_VERSION.to_string(),
+                protocol_version: Self::DISCOVERY_VERSION.to_string(),
                 payload: Payload::WithParams {
                     from,
                     params: Params::ConnectionOffer {
                         device_name,
                         device_type: "web".to_string(),
-                        supported_control_versions: vec!["1.0.0-beta2".to_string()],
+                        supported_control_versions: Self::SUPPORTED_CONTROL_VERSIONS.into_iter().map(ToString::to_string).collect(),
                     },
                 },
                 clock,
@@ -680,7 +721,7 @@ impl From<Body> for WireBody {
             } => WireBody {
                 message_id,
                 message_type: MessageType::DiscoveryRequest,
-                protocol_version: DISCOVERY_VERSION.to_string(),
+                protocol_version: Self::DISCOVERY_VERSION.to_string(),
                 payload: Payload::WithParams {
                     from,
                     params: Params::DiscoveryRequest { discovery_session },
@@ -690,34 +731,33 @@ impl From<Body> for WireBody {
             Body::Ping { message_id } => WireBody {
                 message_id,
                 message_type: MessageType::Ping,
-                protocol_version: COMMAND_VERSION.to_string(),
+                protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::Str(None),
                 clock,
             },
             Body::PlaybackProgress {
                 message_id,
-                queue_id,
                 track,
-                progress,
-                buffered,
                 duration,
-                quality,
+                buffered,
+                progress,
                 volume,
+                quality,
                 is_playing,
                 is_shuffle,
                 repeat_mode,
             } => WireBody {
                 message_id,
                 message_type: MessageType::PlaybackProgress,
-                protocol_version: COMMAND_VERSION.to_string(),
+                protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::PlaybackProgress {
-                    queue_id,
+                    queue_id: track.queue_id,
                     element_id: track,
-                    progress,
-                    buffered,
                     duration,
-                    quality,
+                    buffered,
+                    progress,
                     volume,
+                    quality,
                     is_playing,
                     is_shuffle,
                     repeat_mode,
@@ -727,20 +767,19 @@ impl From<Body> for WireBody {
             Body::PlaybackQueue { message_id, list } => WireBody {
                 message_id,
                 message_type: MessageType::PlaybackQueue,
-                protocol_version: QUEUE_VERSION.to_string(),
+                protocol_version: Self::QUEUE_VERSION.to_string(),
                 payload: Payload::PlaybackQueue(list),
                 clock,
             },
             Body::Ready { message_id } => WireBody {
                 message_id,
                 message_type: MessageType::Ready,
-                protocol_version: COMMAND_VERSION.to_string(),
+                protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::Str(None),
                 clock,
             },
             Body::Skip {
                 message_id,
-                queue_id,
                 track,
                 progress,
                 should_play,
@@ -750,9 +789,9 @@ impl From<Body> for WireBody {
             } => WireBody {
                 message_id,
                 message_type: MessageType::Skip,
-                protocol_version: COMMAND_VERSION.to_string(),
+                protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::Skip {
-                    queue_id,
+                    queue_id: track.queue_id,
                     element_id: track,
                     progress,
                     should_play,
@@ -769,7 +808,7 @@ impl From<Body> for WireBody {
             } => WireBody {
                 message_id,
                 message_type: MessageType::Status,
-                protocol_version: COMMAND_VERSION.to_string(),
+                protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::Status { command_id, status },
                 clock,
             },
@@ -786,6 +825,28 @@ impl TryFrom<WireBody> for Body {
     fn try_from(wire_body: WireBody) -> Result<Self, Self::Error> {
         let message_id = wire_body.message_id;
         let message_type = wire_body.message_type;
+        let protocol_version = wire_body.protocol_version;
+        
+        let protocol_is_correct = match message_type {
+            MessageType::Acknowledgement
+            | MessageType::Close
+            | MessageType::Ping
+            | MessageType::PlaybackProgress
+            | MessageType::Ready
+            | MessageType::Skip
+            | MessageType::Status => protocol_version == WireBody::COMMAND_VERSION,
+
+            MessageType::Connect | MessageType::ConnectionOffer | MessageType::DiscoveryRequest => {
+                protocol_version == WireBody::DISCOVERY_VERSION
+            }
+
+            MessageType::PlaybackQueue => protocol_version == WireBody::QUEUE_VERSION,
+        };
+        if !protocol_is_correct {
+            return Err(Self::Error::Malformed(format!(
+                "protocol version {protocol_version} should match message type {message_type}"
+            )));
+        }
 
         let body = match message_type {
             MessageType::Acknowledgement => match wire_body.payload {
@@ -824,11 +885,31 @@ impl TryFrom<WireBody> for Body {
             },
             MessageType::ConnectionOffer => match wire_body.payload {
                 Payload::WithParams { from, params } => match params {
-                    Params::ConnectionOffer { device_name, .. } => Body::ConnectionOffer {
-                        message_id,
-                        from,
+                    Params::ConnectionOffer {
                         device_name,
-                    },
+                        supported_control_versions,
+                        ..
+                    } => {
+                        let mut supported_version = false;
+                        for version in &supported_control_versions {
+                            if WireBody::SUPPORTED_CONTROL_VERSIONS.contains(&version.as_str()) {
+                                supported_version = true;
+                                break;
+                            }
+                        }
+                        if !supported_version {
+                            warn!(
+                                "one of control versions {:?} should be supported",
+                                supported_control_versions
+                            );
+                        }
+
+                        Body::ConnectionOffer {
+                            message_id,
+                            from,
+                            device_name,
+                        }
+                    }
                     _ => {
                         trace!("{params:#?}");
                         return Err(Self::Error::Malformed(format!(
@@ -867,25 +948,24 @@ impl TryFrom<WireBody> for Body {
             MessageType::Ping => Body::Ping { message_id },
             MessageType::PlaybackProgress => match wire_body.payload {
                 Payload::PlaybackProgress {
-                    queue_id,
                     element_id,
-                    progress,
                     buffered,
                     duration,
-                    quality,
+                    progress,
                     volume,
+                    quality,
                     is_playing,
                     is_shuffle,
                     repeat_mode,
+                    ..
                 } => Body::PlaybackProgress {
                     message_id,
-                    queue_id,
                     track: element_id,
-                    progress,
                     buffered,
                     duration,
-                    quality,
+                    progress,
                     volume,
+                    quality,
                     is_playing,
                     is_shuffle,
                     repeat_mode,
@@ -909,16 +989,15 @@ impl TryFrom<WireBody> for Body {
             MessageType::Ready => Body::Ready { message_id },
             MessageType::Skip => match wire_body.payload {
                 Payload::Skip {
-                    queue_id,
                     element_id,
                     progress,
                     should_play,
                     set_shuffle,
                     set_repeat_mode,
                     set_volume,
+                    ..
                 } => Body::Skip {
                     message_id,
-                    queue_id,
                     track: element_id,
                     progress,
                     should_play,

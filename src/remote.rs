@@ -67,6 +67,13 @@ impl Client {
         let scheme = if secure { "wss" } else { "ws" };
         debug!("remote scheme: {scheme}");
 
+        let s = r#"["msg","4787654542_4787654542_REMOTEDISCOVER",{"APP":"REMOTEDISCOVER","body":"{\"messageId\":\"104a5fac-c9ec-43f3-9bfb-77bed763338f\",\"messageType\":\"connectionOffer\",\"protocolVersion\":\"com.deezer.remote.discovery.proto1\",\"clock\":{},\"payload\":\"eyJmcm9tIjoiMTA2ZjU2NTEtZmE1Ni00OTVjLTk1NjQtZDRlMjU0ZWEyZDExIiwicGFyYW1zIjp7ImRldmljZV9uYW1lIjoiUm9kZXJpY2tzLWlNYWMtMy5sb2NhbCIsImRldmljZV90eXBlIjoid2ViIiwic3VwcG9ydGVkX2NvbnRyb2xfdmVyc2lvbnMiOlsiMS4wLjAtYmV0YTIiXX19\"}","headers":{"destination":"y4a971ecf11c916f661e1328d35af65d7","from":"106f5651-fa56-495c-9564-d4e254ea2d11"}}]"#;
+        trace!(
+            "{:#?}",
+            serde_json::from_str::<protocol::connect::Message>(&s)
+        );
+        std::process::exit(1);
+
         Ok(Self {
             provider: Box::new(provider),
             user_token: None,
