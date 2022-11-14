@@ -1,10 +1,11 @@
-use std::{error::Error, io, os::unix::ffi::OsStrExt, process, time::Duration};
+use std::{error::Error, io, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
 use log::{debug, error, info, LevelFilter};
 use rand::Rng;
+use sysinfo::SystemExt;
 
-use pleezer::{arl::Arl, config::Config, remote, session::Session};
+use pleezer::{arl::Arl, config::Config, player::Player, remote, session::Session};
 
 /// Profile to display when not built in release mode.
 #[cfg(debug_assertions)]
@@ -33,8 +34,16 @@ struct Args {
     #[arg(short, long, value_hint = ValueHint::Hostname)]
     name: Option<String>,
 
+    /// Allow session interruption
+    ///
+    /// When enabled, active connections will be disconnected and replaced by
+    /// later connections. When disabled, this device will still show up but
+    /// not accept new connections when already connected.
+    #[arg(short, long, default_value_t = true)]
+    interruptions: bool,
+
     /// Quiet; no logging
-    #[arg(long, default_value_t = false, group = ARGS_GROUP_LOGGING)]
+    #[arg(short, long, default_value_t = false, group = ARGS_GROUP_LOGGING)]
     quiet: bool,
 
     /// Verbose logging
@@ -110,51 +119,53 @@ fn load_arl(arl_file: &str) -> io::Result<Arl> {
 }
 
 // TODO: fn docs
-async fn run(args: &Args) -> Result<(), Box<dyn Error>> {
+async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let arl = load_arl(&args.arl_file)?;
 
     let mut config = Config::default();
-    let player_name = args
+    config.interruptions = args.interruptions;
+    config.device_name = args
         .name
-        .as_ref()
-        .map_or_else(|| try_hostname(), |name| Ok(name.clone()))?;
-    config.device_name = player_name;
+        .or_else(|| sysinfo::System::new().host_name().clone())
+        .unwrap_or_else(|| config.app_name.clone());
 
     let session = Session::new(&config, &arl)?;
-    let mut client = remote::Client::new(&config, session, true)?;
+    let player = Player::new();
+    let mut client = remote::Client::new(&config, session, player, true)?;
 
-    // Main application loop. This starts a new remote client when it gets
+    // Restart after sleeping some duration to prevent accidental denial of
+    // service attacks on the Deezer infrastructure. The initial connection
+    // happens immediately.
+    let restart_timer = tokio::time::sleep(Duration::ZERO);
+    tokio::pin!(restart_timer);
+
+    // Main application loop. This restarts the new remote client when it gets
     // disconnected for whatever reason. This could be from a network failure
     // on either end or simply a disconnection from the user. In this case, the
-    // session is refreshed with possibly new user data
+    // session is refreshed with possibly new user data.
     loop {
-        if let Err(e) = client.start().await {
-            error!("client error: {e}");
+        tokio::select! {
+            biased;
+
+            _ = tokio::signal::ctrl_c() => {
+                info!("shutting down gracefully");
+                client.stop().await;
+                break Ok(())
+            }
+
+            result = client.start(), if restart_timer.is_elapsed() => {
+                if let Err(e) = result {
+                    error!("{e}");
+                }
+
+                // Sleep with jitter to prevent thundering herds.
+                let duration = Duration::from_millis(rand::thread_rng().gen_range(5_000..6_000));
+                info!("restarting in {:.1}s", duration.as_secs_f32());
+                restart_timer.as_mut().reset(tokio::time::Instant::now() + duration);
+            }
+
+            () = &mut restart_timer, if !restart_timer.is_elapsed() => {}
         }
-
-        // Sleep with jitter to prevent thundering herds.
-        let sleep_with_jitter = rand::thread_rng().gen_range(5..=7);
-        info!("retrying in {sleep_with_jitter} seconds...");
-        tokio::time::sleep(Duration::from_secs(sleep_with_jitter)).await;
-    }
-}
-
-/// Gets the system hostname.
-///
-/// # Returns
-///
-/// - `Ok`: a `String` with the system hostname in UTF-8.
-///
-/// # Errors
-///
-/// Will return `Err` if:
-/// - the hostname cannot be gotten
-/// - the hostname cannot be parsed as UTF-8
-fn try_hostname() -> io::Result<String> {
-    match hostname::get() {
-        Ok(hostname) => Ok(String::from_utf8(hostname.as_bytes().to_vec())
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?),
-        Err(e) => Err(e),
     }
 }
 
@@ -176,7 +187,7 @@ async fn main() {
 
     info!("starting {name}/{version}; {BUILD_PROFILE}; {lang}");
 
-    if let Err(e) = run(&args).await {
+    if let Err(e) = run(args).await {
         error!("{e}");
         process::exit(1);
     }

@@ -1,10 +1,10 @@
 syntax = "proto3";
 
-package pleezer.playback.proto;
+package pleezer.playback.queue.proto;
 
 message CurrentIndex {
   string id = 1;
-  optional uint32 index = 2;
+  uint32 index = 2;
   uint64 timestamp = 3;
 }
 
@@ -24,7 +24,7 @@ message Context {
 
 message Container {
   string context_id = 1;
-  optional ContainerType typ = 2;
+  ContainerType typ = 2;
   optional Mix mix = 3;
   optional string smart_tracklist_method = 4;
   optional TopTracks toptracks = 5;

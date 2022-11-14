@@ -1,7 +1,7 @@
-use std::{collections::HashMap, io, num::NonZeroU64};
+use std::{num::NonZeroU64, time::SystemTime};
 
 use serde::Deserialize;
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{formats::Flexible, serde_as, DisplayFromStr, TimestampSeconds};
 
 use super::Method;
 
@@ -10,14 +10,15 @@ use super::Method;
 // TODO: implement defaults, options
 
 #[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
-pub struct UserDataResponse {
+pub struct Response {
     pub results: UserData,
 }
 
-impl<'a> Method<'a> for UserDataResponse {
+impl<'a> Method<'a> for Response {
     const METHOD: &'a str = "getUserData";
 }
 
+#[serde_as]
 #[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
 pub struct UserData {
     #[serde(rename = "USER")]
@@ -28,8 +29,9 @@ pub struct UserData {
     pub user_token: String,
     #[serde(rename = "OFFER_NAME")]
     pub plan: String,
+    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
     #[serde(rename = "SERVER_TIMESTAMP")]
-    timestamp: u64,
+    timestamp: SystemTime,
     #[serde(rename = "PLAYER_TOKEN")]
     player_token: String,
     #[serde(rename = "checkForm")]
@@ -60,8 +62,10 @@ pub struct Options {
     license_token: String,
     audio_quality_default_preset: String,
     pub too_many_devices: bool,
-    pub expiration_timestamp: u64,
-    pub timestamp: u64,
+    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
+    pub expiration_timestamp: SystemTime,
+    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
+    pub timestamp: SystemTime,
     // TODO: are these used anywhere in the API?
     // license_country: String,
     // radio_skips: bool,
@@ -114,6 +118,7 @@ pub struct AudioQualitySettings {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Deserialize, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Gatekeeps {
     disable_device_limitation: bool,
     #[serde(rename = "metric.timetoplay")]
@@ -125,7 +130,7 @@ pub struct Gatekeeps {
     cdn_metrics: bool,
     #[serde(rename = "metric.playback_errors")]
     metric_playback_errors: bool,
-    volume_normalization: bool,
+    pub volume_normalization: bool,
     pub remote_control: bool,
     pub remote_control_release: bool,
     free_on_cast: bool,
@@ -138,8 +143,3 @@ pub struct Gain {
     #[serde_as(as = "DisplayFromStr")]
     target: i64,
 }
-
-// pub async fn get(arl: &str, api_token: &str) -> io::Result<UserData> {
-//     let response = super::request(arl, api_token, "deezer.getUserData").await?;
-//     response.json::<UserData>().await.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-// }

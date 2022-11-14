@@ -1,10 +1,9 @@
 use std::{
     fmt::{self, Write},
-    num::{self, NonZeroU64},
+    num::NonZeroU64,
     str::FromStr,
 };
 
-use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
 /// A `Channel` on a [Deezer Connect][Connect] websocket.
@@ -15,17 +14,17 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
     Copy, Clone, Debug, Hash, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord,
 )]
 pub struct Channel {
-    /// The sending [Deezer] [`User`].
+    /// The sending [Deezer] [`UserId`].
     ///
     /// [Deezer]: https://www.deezer.com/
-    /// [`User`]: enum.User.html
-    pub from: User,
+    /// [`UserId`]: enum.UserId.html
+    pub from: UserId,
 
-    /// The receiving [Deezer] [`User`].
+    /// The receiving [Deezer] [`UserId`].
     ///
     /// [Deezer]: https://www.deezer.com/
-    /// [`User`]: enum.User.html
-    pub to: User,
+    /// [`UserId`]: enum.UserId.html
+    pub to: UserId,
 
     /// The [Deezer Connect][Connect] [`Event`] variant.
     ///
@@ -39,7 +38,7 @@ pub struct Channel {
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum User {
+pub enum UserId {
     /// A [Deezer] user ID.
     ///
     /// [Deezer]: https://www.deezer.com/
@@ -71,9 +70,10 @@ pub enum Event {
     /// Playback queue publications from the controlling device.
     RemoteQueue,
 
-    /// Echoes all messages for a user ID. That includes echoes of messages
-    /// that the subscriber itself sent for that user ID.
-    UserFeed(User),
+    /// Following friends, commenting on playlists, sharing content.
+    ///
+    /// This variant is provided for the sake of completeness, but is untested.
+    UserFeed(UserId),
 }
 
 impl Channel {
@@ -129,28 +129,28 @@ impl FromStr for Channel {
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.split(Self::SEPARATOR).into_iter();
+        let mut parts = s.split(Self::SEPARATOR);
 
-        let from = parts.next().ok_or(Self::Err::Malformed(
-            "channel string slice should hold `from` part".to_string(),
-        ))?;
-        let from = from.parse::<User>()?;
+        let from = parts.next().ok_or_else(|| {
+            Self::Err::Malformed("channel string slice should hold `from` part".to_string())
+        })?;
+        let from = from.parse::<UserId>()?;
 
-        let to = parts.next().ok_or(Self::Err::Malformed(
-            "channel string slice should hold `to` part".to_string(),
-        ))?;
-        let to = to.parse::<User>()?;
+        let to = parts.next().ok_or_else(|| {
+            Self::Err::Malformed("channel string slice should hold `to` part".to_string())
+        })?;
+        let to = to.parse::<UserId>()?;
 
-        let event = parts.next().ok_or(Self::Err::Malformed(
-            "channel string slice should hold `event` part".to_string(),
-        ))?;
+        let event = parts.next().ok_or_else(|| {
+            Self::Err::Malformed("channel string slice should hold `event` part".to_string())
+        })?;
         let mut event = event.to_string();
         if let Some(id) = parts.next() {
             write!(event, "{}{}", Self::SEPARATOR, id)?;
         }
         let event = event.parse::<Event>()?;
 
-        if let Some(unknown) = parts.next() {
+        if parts.next().is_some() {
             return Err(Self::Err::Unsupported(format!(
                 "channel string slice holds unknown trailing parts: `{s}`"
             )));
@@ -160,8 +160,8 @@ impl FromStr for Channel {
     }
 }
 
-impl fmt::Display for User {
-    /// Formats a `User` as a wire string for use on a
+impl fmt::Display for UserId {
+    /// Formats a `UserId` as a wire string for use on a
     /// [Deezer Connect][Connect] websocket.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
@@ -173,11 +173,11 @@ impl fmt::Display for User {
     }
 }
 
-impl FromStr for User {
+impl FromStr for UserId {
     type Err = super::Error;
 
     /// Parses a [Deezer Connect][Connect] websocket wire string `s` to return
-    /// a variant of `User`.
+    /// a variant of `UserId`.
     ///
     /// # Parameters
     ///
@@ -185,8 +185,8 @@ impl FromStr for User {
     ///
     /// # Returns
     ///
-    /// Integer values greater than zero are returned as `User::Id`. A value of
-    /// "-1" is returned as `User::Unspecified`.
+    /// Integer values greater than zero are returned as `UserId::Id`. A value
+    /// of `-1` is returned as `User::Unspecified`.
     ///
     /// # Errors
     ///
@@ -197,8 +197,8 @@ impl FromStr for User {
     /// # Examples
     ///
     /// ```
-    /// assert_eq!("1234567890".parse(), Ok(User(1234567890)));
-    /// assert_eq!("-1".parse(), Ok(User::Unspecified));
+    /// assert_eq!("1234567890".parse(), Ok(UserId::Id(1234567890)));
+    /// assert_eq!("-1".parse(), Ok(UserId::Unspecified));
     /// ```
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
@@ -214,8 +214,8 @@ impl FromStr for User {
     }
 }
 
-impl From<NonZeroU64> for User {
-    /// Converts to a `User` from a [`NonZeroU64`](https://doc.rust-lang.org/std/num/struct.NonZeroU64.html).
+impl From<NonZeroU64> for UserId {
+    /// Converts to a `UserId` from a [`NonZeroU64`](https://doc.rust-lang.org/std/num/struct.NonZeroU64.html).
     fn from(id: NonZeroU64) -> Self {
         Self::Id(id)
     }
@@ -257,7 +257,7 @@ impl FromStr for Event {
             Self::REMOTE_QUEUE => Self::RemoteQueue,
             Self::USER_FEED => {
                 if let Some(id) = id {
-                    let id = id.parse::<User>()?;
+                    let id = id.parse::<UserId>()?;
                     Self::UserFeed(id)
                 } else {
                     return Err(Self::Err::Malformed(format!(

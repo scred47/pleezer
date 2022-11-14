@@ -5,16 +5,14 @@ use toml;
 pub struct Arl(String);
 
 impl Arl {
+    /// TODO
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - `arl` contains invalid characters
     pub fn new(arl: &str) -> io::Result<Self> {
-        let chars = arl.chars().count();
-        if chars != 192 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("arl should be 192 characters long but is {chars}"),
-            ));
-        }
-
-        // An `arl` must be a valid cookie value.
+        // An `arl` must hold a valid cookie value.
         for chr in arl.chars() {
             if !arl.is_ascii()
                 || chr.is_ascii_control()
@@ -23,7 +21,7 @@ impl Arl {
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("arl contains invalid characters"),
+                    "arl contains invalid characters".to_string(),
                 ));
             }
         }
@@ -31,6 +29,14 @@ impl Arl {
         Ok(Self(arl.to_owned()))
     }
 
+    /// TODO
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - `arl_file` can not be accessed
+    /// - `arl_file` is too large
+    /// - `arl_file` does not contain an `arl`
     pub fn from_file(arl_file: &str) -> io::Result<Self> {
         // Prevent out-of-memory condition: `arl` file should be small.
         let attributes = fs::metadata(arl_file)?;
@@ -38,7 +44,7 @@ impl Arl {
         if file_size > 1024 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "{arl_file} too large ({file_size} bytes)",
+                "{arl_file} too large: {file_size} bytes",
             ));
         }
 
@@ -63,6 +69,7 @@ impl Arl {
         Self::new(arl)
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

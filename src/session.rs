@@ -1,7 +1,7 @@
 use std::{
     num::NonZeroU32,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, SystemTime},
 };
 
 use async_trait::async_trait;
@@ -20,8 +20,8 @@ use thiserror::Error;
 use crate::{
     arl::Arl,
     config::Config,
-    protocol::gateway::{self, UserData, UserDataResponse},
-    token::{UserToken, UserTokenError, UserTokenProvider},
+    protocol::gateway::{self, UserData},
+    tokens::{UserToken, UserTokenError, UserTokenProvider},
 };
 
 #[derive(Debug)]
@@ -30,23 +30,35 @@ pub struct Session {
     http_client: reqwest::Client,
     rate_limiter: RateLimiter<NotKeyed, InMemoryState, MonotonicClock, NoOpMiddleware>,
     user_data: Option<UserData>,
-    timestamp: Option<Instant>,
 }
 
 #[derive(Error, Debug)]
-pub enum SessionError {
+pub enum Error {
     #[error("assertion failed: {0}")]
     Assertion(String),
+
     #[error("http client error: {0}")]
-    HttpClientError(#[from] reqwest::Error),
+    HttpClient(#[from] reqwest::Error),
+
     #[error("parsing url failed: {0}")]
-    UrlParseError(#[from] url::ParseError),
+    UrlParse(#[from] url::ParseError),
 }
 
-pub type SessionResult<T> = Result<T, SessionError>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 impl Session {
-    pub fn new(config: &Config, arl: &Arl) -> SessionResult<Self> {
+    const RATE_LIMIT_INTERVAL: Duration = Duration::from_secs(5);
+    const RATE_LIMIT_CALLS_PER_INTERVAL: u8 = 50;
+
+    /// TODO
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - no valid `User-Agent` can be created out of the `config` fields
+    /// - no valid OS name and/or version can be detected
+    /// - no valid cookies can be created out of the `arl` and/or `config` fields
+    pub fn new(config: &Config, arl: &Arl) -> Result<Self> {
         let app_name = &config.app_name;
         let app_version = &config.app_version;
         let app_lang = &config.app_lang;
@@ -60,7 +72,7 @@ impl Session {
             || app_lang.chars().count() != 2
             || app_lang.contains(illegal_chars)
         {
-            return Err(SessionError::Assertion(format!(
+            return Err(Error::Assertion(format!(
                 "application name, version and/or language invalid (\"{app_name}\"; \"{app_version}\"; \"{app_lang}\")"
             )));
         }
@@ -77,7 +89,7 @@ impl Session {
             || os_version.is_empty()
             || os_version.contains(illegal_chars)
         {
-            return Err(SessionError::Assertion(format!(
+            return Err(Error::Assertion(format!(
                 "os name and/or version invalid (\"{os_name}\"; \"{os_version}\")"
             )));
         }
@@ -111,9 +123,7 @@ impl Session {
                 .map_or(0, |result: &str| result.split(';').count())
         });
         if cookie_count != 2 {
-            return Err(SessionError::Assertion(String::from(
-                "cookie count invalid",
-            )));
+            return Err(Error::Assertion(String::from("cookie count invalid")));
         }
 
         // `Arc` wrap the jar for use in a asynchronous context and build a
@@ -127,17 +137,18 @@ impl Session {
             .build()?;
 
         // Rate limit own requests as to not DoS the Deezer infrastructure.
-        const CALLS_PER_INTERVAL: usize = 50;
-        let replenish_interval_ns = Duration::from_secs(5).as_nanos() / CALLS_PER_INTERVAL as u128;
-        let quota = Quota::with_period(Duration::from_nanos(replenish_interval_ns as u64))
-            .ok_or_else(|| SessionError::Assertion(String::from("quota time interval is zero")))?
-            .allow_burst(NonZeroU32::new(CALLS_PER_INTERVAL as u32).ok_or_else(|| {
-                SessionError::Assertion(String::from("calls per interval is zero"))
-            })?);
+        let replenish_interval = Self::RATE_LIMIT_INTERVAL.as_secs_f32()
+            / f32::from(Self::RATE_LIMIT_CALLS_PER_INTERVAL);
+        let quota = Quota::with_period(Duration::from_secs_f32(replenish_interval))
+            .ok_or_else(|| Error::Assertion("quota time interval is zero".to_string()))?
+            .allow_burst(
+                NonZeroU32::new(Self::RATE_LIMIT_CALLS_PER_INTERVAL.into())
+                    .ok_or_else(|| Error::Assertion("calls per interval is zero".to_string()))?,
+            );
         let rate_limiter = governor::RateLimiter::direct(quota);
 
         // Deezer on desktop uses a new `cid` on every start.
-        let client_id = rand::thread_rng().gen_range(100000000..=999999999);
+        let client_id = rand::thread_rng().gen_range(100_000_000..=999_999_999);
         debug!("client id: {client_id}");
 
         Ok(Self {
@@ -145,30 +156,41 @@ impl Session {
             http_client,
             rate_limiter,
             user_data: None,
-            timestamp: None,
         })
     }
 
-    pub async fn refresh(&mut self) -> SessionResult<UserData> {
-        let timestamp = Instant::now();
-        match self.request::<UserDataResponse>("{}").await {
+    /// TODO
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - the `arl` is invalid or expired
+    /// - the HTTP request failed
+    pub async fn refresh(&mut self) -> Result<()> {
+        match self.request::<gateway::user_data::Response>("{}").await {
             Ok(response) => {
-                let user_data = self.set_user_data(response.results)?;
+                self.set_user_data(response.results);
 
-                self.timestamp = Some(timestamp);
-                debug!(
-                    "user data time to live: {} seconds",
-                    self.time_to_live().as_secs()
-                );
+                if let Ok(time_to_live) = self.expires_at().duration_since(SystemTime::now()) {
+                    // This takes a few milliseconds and would normally
+                    // truncate (round down). Return `ceil` is more human
+                    // readable.
+                    debug!(
+                        "user data time to live: {:.0}s",
+                        time_to_live.as_secs_f32().ceil()
+                    );
+                }
 
-                Ok(user_data)
+                Ok(())
             }
-            Err(SessionError::HttpClientError(e)) => {
+            Err(Error::HttpClient(e)) => {
                 // For an invalid or expired `arl`, the response has some
                 // fields as integer `0` which are normally typed as string,
                 // which causes JSON deserialization to fail.
                 if e.is_decode() {
-                    return Err(SessionError::Assertion(format!("{e}: check your arl")));
+                    return Err(Error::Assertion(format!(
+                        "{e}: arl should be valid and active"
+                    )));
                 }
                 Err(e.into())
             }
@@ -176,7 +198,15 @@ impl Session {
         }
     }
 
-    pub async fn request<T>(&mut self, body: impl Into<reqwest::Body>) -> SessionResult<T>
+    /// todo
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - no valid [`Url`] can be created out of the session data
+    /// - the HTTP request fails
+    /// - the HTTP response cannot be parsed as [JSON]
+    pub async fn request<T>(&mut self, body: impl Into<reqwest::Body>) -> Result<T>
     where
         T: for<'a> gateway::Method<'a> + for<'de> Deserialize<'de>,
     {
@@ -184,7 +214,7 @@ impl Session {
         let api_token = self
             .user_data
             .as_ref()
-            .map_or_else(|| String::from(""), |data| data.api_token.clone());
+            .map_or_else(String::new, |data| data.api_token.clone());
         let url_str = format!("https://www.deezer.com/ajax/gw-light.php?method={method}&input=3&api_version=1.0&api_token={api_token}&cid={}", self.client_id);
 
         // Check the URL early to not needlessly hit the rate limiter below.
@@ -198,43 +228,31 @@ impl Session {
     }
 
     #[must_use]
-    pub fn time_to_live(&self) -> Duration {
-        self.user_data.as_ref().map_or(Duration::ZERO, |data| {
-            let options = &data.user.options;
-
-            // Account for clock skew between client and server.
-            let time_to_live = Duration::from_secs(
-                options
-                    .expiration_timestamp
-                    .saturating_sub(options.timestamp),
-            );
-
-            let timestamp = self.timestamp.unwrap_or_else(|| Instant::now());
-            time_to_live.saturating_sub(timestamp.elapsed())
-        })
-    }
-
-    #[must_use]
-    pub fn expires_at(&self) -> Instant {
-        let now = Instant::now();
-        now.checked_add(self.time_to_live()).unwrap_or_else(|| now)
-    }
-
-    #[must_use]
     pub fn is_expired(&self) -> bool {
-        self.time_to_live() == Duration::ZERO
+        if let Some(data) = &self.user_data {
+            return data.user.options.expiration_timestamp >= data.user.options.timestamp;
+        }
+
+        true
     }
 
-    pub fn set_user_data(&mut self, data: UserData) -> SessionResult<gateway::UserData> {
+    #[must_use]
+    pub fn expires_at(&self) -> SystemTime {
+        if let Some(data) = &self.user_data {
+            return data.user.options.expiration_timestamp;
+        }
+
+        SystemTime::now()
+    }
+
+    pub fn set_user_data(&mut self, data: UserData) {
         debug!("user id: {}", data.user.id);
         debug!("user plan: {}", data.plan);
         info!(
             "user casting quality: {}",
             data.user.audio_settings.connected_device_streaming_preset
         );
-        self.user_data = Some(data.to_owned());
-
-        Ok(data)
+        self.user_data = Some(data);
     }
 
     #[must_use]
@@ -245,41 +263,46 @@ impl Session {
 
 #[async_trait]
 impl UserTokenProvider for Session {
-    async fn user_token(&mut self) -> Result<UserToken, UserTokenError> {
+    async fn user_token(&mut self) -> std::result::Result<UserToken, UserTokenError> {
         if self.is_expired() {
             self.refresh().await?;
         }
 
-        let data = self
-            .user_data
-            .as_ref()
-            .ok_or(UserTokenError::ProviderError(
-                "user data unavailable".into(),
-            ))?;
-        if !data.gatekeeps.remote_control {
-            return Err(UserTokenError::PermissionDenied(format!(
-                "remote control is disabled for this account",
-            )));
-        }
-        if data.user.options.too_many_devices {
-            return Err(UserTokenError::PermissionDenied(format!(
-                "too many devices; remove one or more in your account settings",
-            )));
-        }
+        match &self.user_data {
+            Some(data) => {
+                if !data.gatekeeps.remote_control {
+                    return Err(UserTokenError::PermissionDenied(
+                        "remote control is disabled for this account".to_string(),
+                    ));
+                }
+                if data.user.options.too_many_devices {
+                    return Err(UserTokenError::PermissionDenied(
+                        "too many devices; remove one or more in your account settings".to_string(),
+                    ));
+                }
 
-        let expires_at = self.expires_at();
-        UserToken::new(data.user.id, &data.user_token, expires_at)
+                let expires_at = self.expires_at();
+                Ok(UserToken {
+                    user_id: data.user.id,
+                    token: data.user_token.clone(),
+                    expires_at,
+                })
+            }
+            None => Err(UserTokenError::Provider("user data unavailable".into())),
+        }
     }
 
     fn flush_user_token(&mut self) {
         // Force refreshing user data, but do not set `user_data` to `None` so
         // so we can continue using the `api_token` it contains.
-        self.timestamp = None;
+        if let Some(ref mut data) = self.user_data {
+            data.user.options.expiration_timestamp = SystemTime::now();
+        }
     }
 }
 
-impl From<SessionError> for UserTokenError {
-    fn from(e: SessionError) -> Self {
-        Self::ProviderError(e.into())
+impl From<Error> for UserTokenError {
+    fn from(e: Error) -> Self {
+        Self::Provider(e.into())
     }
 }

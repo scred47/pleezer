@@ -1,4 +1,4 @@
-// Allow dead code: downstream crates may use it.
+// Allow dead code: downstream code may use it.
 
 #[allow(dead_code)]
 pub mod connect;

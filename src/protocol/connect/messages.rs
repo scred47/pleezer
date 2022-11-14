@@ -1,4 +1,4 @@
-use std::fmt::{self, Write};
+use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -39,6 +39,22 @@ pub enum Message {
     Unsubscribe { channel: Channel },
 }
 
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // FIXME: padding is not respected.
+        match self {
+            Self::Send { channel, contents } => {
+                write!(f, "{:<14} -> {contents}", channel.event)
+            }
+            Self::Receive { channel, contents } => {
+                write!(f, "{:<14} <- {contents}", channel.event)
+            }
+            Self::Subscribe { channel } => write!(f, "subscribing to {channel}"),
+            Self::Unsubscribe { channel } => write!(f, "unsubscribing from {channel}"),
+        }
+    }
+}
+
 impl Serialize for Message {
     /// Convert this `Message` into a [`WireMessage`], then serialize it into
     /// [JSON].
@@ -46,11 +62,9 @@ impl Serialize for Message {
     /// [JSON]: https://www.json.org/
     /// [`WireMessage`]: enum.WireMessage.html
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let json_message =
-            WireMessage::try_from(self.clone()).map_err(|e| serde::ser::Error::custom(e))?;
-        let json =
-            serde_json::to_string(&json_message).map_err(|e| serde::ser::Error::custom(e))?;
-        serializer.collect_str(&json)
+        let wire_message =
+            WireMessage::try_from(self.clone()).map_err(serde::ser::Error::custom)?;
+        wire_message.serialize(serializer)
     }
 }
 
@@ -61,8 +75,8 @@ impl<'de> Deserialize<'de> for Message {
     /// [JSON]: https://www.json.org/
     /// [`WireMessage`]: enum.WireMessage.html
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let json_message = WireMessage::deserialize(deserializer)?;
-        Self::try_from(json_message).map_err(|e| serde::de::Error::custom(e))
+        let wire_message = WireMessage::deserialize(deserializer)?;
+        Self::try_from(wire_message).map_err(serde::de::Error::custom)
     }
 }
 
@@ -82,6 +96,9 @@ impl<'de> Deserialize<'de> for Message {
 /// [`Message`]: struct.Message.html
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
+// Large size difference between variants is OK because the largest variant,
+/// `WithContents`, is also the variant that is most frequent.
+#[allow(clippy::large_enum_variant)]
 enum WireMessage {
     /// A sequence to send or receive message [`Contents`] over a [`Channel`].
     /// On the wire this is a three-element [JSON] array composed of two
@@ -159,8 +176,9 @@ impl TryFrom<Message> for WireMessage {
                     )));
                 }
 
-                Self::WithContents(Stanza::Receive, channel, contents.to_owned())
+                Self::WithContents(Stanza::Receive, channel, contents)
             }
+
             Message::Send { channel, contents } => {
                 let contents_event = contents.event;
                 let channel_event = channel.event;
@@ -170,8 +188,9 @@ impl TryFrom<Message> for WireMessage {
                     )));
                 }
 
-                Self::WithContents(Stanza::Send, channel, contents.to_owned())
+                Self::WithContents(Stanza::Send, channel, contents)
             }
+
             Message::Subscribe { channel } => Self::Subscription(Stanza::Subscribe, channel),
             Message::Unsubscribe { channel } => Self::Subscription(Stanza::Unsubscribe, channel),
         };

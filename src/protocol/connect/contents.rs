@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Write},
     io::Read,
     num::NonZeroU64,
@@ -11,20 +11,18 @@ use flate2::{
     read::{DeflateDecoder, DeflateEncoder},
     Compression,
 };
-use protobuf::{EnumOrUnknown, Message};
-use serde::{de::Error, de::IntoDeserializer, Deserialize, Deserializer, Serialize, Serializer};
+use protobuf::Message;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::{
-    json::JsonString, serde_as, DeserializeFromStr, DisplayFromStr, DurationSecondsWithFrac,
+    json::JsonString, serde_as, DeserializeFromStr, DisplayFromStr, DurationSeconds,
     NoneAsEmptyString, SerializeDisplay,
 };
 use uuid::Uuid;
 
 use super::channel::Event;
-
-// Import the generated Rust protobufs.
-include!(concat!(env!("OUT_DIR"), "/protos/mod.rs"));
+use super::protos::queue;
 
 /// The `Contents` of a [`Message`] on a [Deezer Connect][Connect] websocket.
 ///
@@ -67,6 +65,18 @@ pub struct Contents {
     pub body: Body,
 }
 
+impl fmt::Display for Contents {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // FIXME: padding is not respected.
+        write!(
+            f,
+            "{:<16} {}",
+            self.body.message_type(),
+            self.body.message_id(),
+        )
+    }
+}
+
 /// The `Headers` attached to some [`Message`] [`Contents`] on a
 /// [Deezer Connect][Connect] websocket.
 ///
@@ -94,6 +104,18 @@ pub struct Headers {
     pub destination: Option<DeviceId>,
 }
 
+impl fmt::Display for Headers {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "from {}", self.from)?;
+
+        if let Some(destination) = &self.destination {
+            write!(f, " to {destination}")?;
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(
     Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
@@ -112,7 +134,7 @@ impl FromStr for DeviceId {
     type Err = super::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let device = match Uuid::try_parse(&s) {
+        let device = match Uuid::try_parse(s) {
             Ok(uuid) => Self::from(uuid),
             Err(_) => Self::Other(s.to_owned()),
         };
@@ -136,27 +158,32 @@ pub enum Body {
         message_id: Uuid,
         acknowledgement_id: Uuid,
     },
+
     Close {
         message_id: Uuid,
     },
+
     Connect {
         message_id: Uuid,
         from: DeviceId,
         offer_id: Uuid,
     },
+
     ConnectionOffer {
         message_id: Uuid,
         from: DeviceId,
         device_name: String,
     },
+
     DiscoveryRequest {
         message_id: Uuid,
         from: DeviceId,
         discovery_session: Uuid,
     },
+
     PlaybackProgress {
         message_id: Uuid,
-        track: Element,
+        track: ListItem,
         quality: Quality,
         duration: Duration,
         buffered: Duration,
@@ -166,30 +193,84 @@ pub enum Body {
         is_shuffle: bool,
         repeat_mode: Repeat,
     },
-    PlaybackQueue {
+
+    PublishQueue {
         message_id: Uuid,
-        list: queue::List,
+        queue: queue::List,
     },
+
     Ping {
         message_id: Uuid,
     },
+
     Ready {
         message_id: Uuid,
     },
+
+    RefreshQueue {
+        message_id: Uuid,
+    },
+
     Skip {
         message_id: Uuid,
-        track: Element,
-        progress: Percentage,
-        should_play: bool,
-        set_repeat_mode: Repeat,
+        queue_id: Uuid,
+        track: Option<ListItem>,
+        progress: Option<Percentage>,
+        should_play: Option<bool>,
+        set_repeat_mode: Option<Repeat>,
         set_shuffle: Option<bool>,
         set_volume: Option<Percentage>,
     },
+
     Status {
         message_id: Uuid,
         command_id: Uuid,
         status: Status,
     },
+    
+    Stop {
+        message_id: Uuid,
+    }
+}
+
+impl Body {
+    #[must_use]
+    pub fn message_type(&self) -> MessageType {
+        match self {
+            Self::Acknowledgement { .. } => MessageType::Acknowledgement,
+            Self::Close { .. } => MessageType::Close,
+            Self::Connect { .. } => MessageType::Connect,
+            Self::ConnectionOffer { .. } => MessageType::ConnectionOffer,
+            Self::DiscoveryRequest { .. } => MessageType::DiscoveryRequest,
+            Self::PlaybackProgress { .. } => MessageType::PlaybackProgress,
+            Self::PublishQueue { .. } => MessageType::PublishQueue,
+            Self::Ping { .. } => MessageType::Ping,
+            Self::Ready { .. } => MessageType::Ready,
+            Self::RefreshQueue { .. } => MessageType::RefreshQueue,
+            Self::Skip { .. } => MessageType::Skip,
+            Self::Status { .. } => MessageType::Status,
+            Self::Stop { .. } => MessageType::Stop,
+        }
+    }
+
+    #[must_use]
+    pub fn message_id(&self) -> Uuid {
+        match self {
+            Self::Acknowledgement { message_id, .. }
+            | Self::Close { message_id, .. }
+            | Self::Connect { message_id, .. }
+            | Self::ConnectionOffer { message_id, .. }
+            | Self::DiscoveryRequest { message_id, .. }
+            | Self::PlaybackProgress { message_id, .. }
+            | Self::PublishQueue { message_id, .. }
+            | Self::Ping { message_id, .. }
+            | Self::Ready { message_id, .. }
+            | Self::RefreshQueue { message_id, .. }
+            | Self::Skip { message_id, .. }
+            | Self::Status { message_id, .. }
+            | Self::Stop { message_id, .. } => message_id.clone(),
+        }
+    }
 }
 
 #[derive(
@@ -215,6 +296,15 @@ pub enum Status {
     Error = 1,
 }
 
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Status::OK => write!(f, "Ok"),
+            Status::Error => write!(f, "Err"),
+        }
+    }
+}
+
 #[derive(
     Copy,
     Clone,
@@ -231,10 +321,21 @@ pub enum Status {
 #[repr(i64)]
 pub enum Repeat {
     #[default]
-    RepeatNone = 0,
-    RepeatAll = 1,
-    RepeatOne = 2,
+    None = 0,
+    All = 1,
+    One = 2,
     Unrecognized = -1,
+}
+
+impl fmt::Display for Repeat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Repeat::None => write!(f, "None"),
+            Repeat::All => write!(f, "All"),
+            Repeat::One => write!(f, "One"),
+            Repeat::Unrecognized => write!(f, "Unrecognized"),
+        }
+    }
 }
 
 /// Audio quality levels as per Deezer on desktop.
@@ -274,18 +375,49 @@ pub enum Quality {
     Unknown = -1,
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
+impl fmt::Display for Quality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Quality::Basic => write!(f, "Basic"),
+            Quality::Standard => write!(f, "Standard"),
+            Quality::High => write!(f, "High Quality"),
+            Quality::Lossless => write!(f, "High Fidelity"),
+            Quality::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+impl FromStr for Quality {
+    type Err = super::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let variant = match s.as_ref() {
+            "low" => Quality::Basic,
+            "standard" => Quality::Standard,
+            "high" => Quality::High,
+            "lossless" => Quality::Lossless,
+            _ => return Err(Self::Err::Malformed(format!("quality: {s}"))),
+        };
+
+        Ok(variant)
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub struct Percentage(f64);
 
 impl Percentage {
+    #[must_use]
     pub fn from_ratio(ratio: f64) -> Self {
         Self(ratio)
     }
 
+    #[must_use]
     pub fn as_ratio(&self) -> f64 {
         self.0
     }
 
+    #[must_use]
     pub fn as_percent(&self) -> f64 {
         self.0 * 100.0
     }
@@ -301,7 +433,7 @@ impl fmt::Display for Percentage {
 #[derive(
     Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord, PartialEq, Eq, Hash,
 )]
-pub struct Element {
+pub struct ListItem {
     pub queue_id: Uuid,
     pub track_id: NonZeroU64,
     // `usize` because this will index into an array. Also from the protobuf it
@@ -309,11 +441,11 @@ pub struct Element {
     pub position: usize,
 }
 
-impl Element {
+impl ListItem {
     const SEPARATOR: char = '-';
 }
 
-impl fmt::Display for Element {
+impl fmt::Display for ListItem {
     /// Formats an `Event` as a wire string for use on a
     /// [Deezer Connect][Connect] websocket.
     ///
@@ -331,15 +463,15 @@ impl fmt::Display for Element {
     }
 }
 
-impl FromStr for Element {
+impl FromStr for ListItem {
     type Err = super::Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
-    /// return an `Element` on a queue.
+    /// return an `ListItem` on a queue.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.split(Self::SEPARATOR).into_iter();
+        let mut parts = s.split(Self::SEPARATOR);
 
         let mut queue_id = String::new();
         for i in 0..5 {
@@ -347,7 +479,7 @@ impl FromStr for Element {
                 Some(part) => write!(queue_id, "{part}")?,
                 None => {
                     return Err(Self::Err::Malformed(format!(
-                        "element string slice should hold five `queue_id` parts, found {i}"
+                        "list element string slice should hold five `queue_id` parts, found {i}"
                     )))
                 }
             }
@@ -355,16 +487,20 @@ impl FromStr for Element {
         let queue_id = Uuid::try_parse(&queue_id)
             .map_err(|e| Self::Err::Malformed(format!("queue id: {e}")))?;
 
-        let track_id = parts.next().ok_or(Self::Err::Malformed(
-            "element string slice should hold `track_id` part".to_string(),
-        ))?;
+        let track_id = parts.next().ok_or_else(|| {
+            Self::Err::Malformed(
+                "list element string slice should hold `track_id` part".to_string(),
+            )
+        })?;
         let track_id = track_id
             .parse::<NonZeroU64>()
             .map_err(|e| Self::Err::Malformed(format!("track id: {e}")))?;
 
-        let position = parts.next().ok_or(Self::Err::Malformed(
-            "element string slice should hold `position` part".to_string(),
-        ))?;
+        let position = parts.next().ok_or_else(|| {
+            Self::Err::Malformed(
+                "list element string slice should hold `position` part".to_string(),
+            )
+        })?;
         let position = position
             .parse::<usize>()
             .map_err(|e| Self::Err::Malformed(format!("position: {e}")))?;
@@ -385,10 +521,8 @@ impl Serialize for Body {
     /// [JSON]: https://www.json.org/
     /// [`WireMessage`]: enum.WireMessage.html
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let json_message = WireBody::from(self.clone());
-        let json =
-            serde_json::to_string(&json_message).map_err(|e| serde::ser::Error::custom(e))?;
-        serializer.collect_str(&json)
+        let wire_body = WireBody::from(self.clone());
+        wire_body.serialize(serializer)
     }
 }
 
@@ -400,8 +534,8 @@ impl<'de> Deserialize<'de> for Body {
     /// [JSON]: https://www.json.org/
     /// [`WireMessage`]: enum.WireMessage.html
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let json_message = WireBody::deserialize(deserializer)?;
-        Self::try_from(json_message).map_err(|e| serde::de::Error::custom(e))
+        let wire_body = WireBody::deserialize(deserializer)?;
+        Self::try_from(wire_body).map_err(serde::de::Error::custom)
     }
 }
 
@@ -475,11 +609,13 @@ pub enum MessageType {
     ConnectionOffer,
     DiscoveryRequest,
     PlaybackProgress,
-    PlaybackQueue,
+    PublishQueue,
     Ping,
     Ready,
+    RefreshQueue,
     Skip,
     Status,
+    Stop,
 }
 
 #[serde_as]
@@ -491,10 +627,10 @@ pub enum Payload {
     #[serde(rename_all = "camelCase")]
     PlaybackProgress {
         queue_id: Uuid,
-        element_id: Element,
-        #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+        element_id: ListItem,
+        #[serde_as(as = "DurationSeconds<u64>")]
         duration: Duration,
-        #[serde_as(as = "DurationSecondsWithFrac<f64>")]
+        #[serde_as(as = "DurationSeconds<u64>")]
         buffered: Duration,
         progress: Percentage,
         volume: Percentage,
@@ -503,26 +639,30 @@ pub enum Payload {
         is_shuffle: bool,
         repeat_mode: Repeat,
     },
+
     #[serde(rename_all = "camelCase")]
     Acknowledgement {
         acknowledgement_id: Uuid,
     },
+
     #[serde(rename_all = "camelCase")]
     Status {
         command_id: Uuid,
         status: Status,
     },
+
     WithParams {
         from: DeviceId,
         params: Params,
     },
+
     #[serde(rename_all = "camelCase")]
     Skip {
         queue_id: Uuid,
-        element_id: Element,
-        progress: Percentage,
-        should_play: bool,
-        set_repeat_mode: Repeat,
+        element_id: Option<ListItem>,
+        progress: Option<Percentage>,
+        should_play: Option<bool>,
+        set_repeat_mode: Option<Repeat>,
         set_shuffle: Option<bool>,
         set_volume: Option<Percentage>,
     },
@@ -531,20 +671,22 @@ pub enum Payload {
 
     // This protobuf is deserialized manually with `FromStr`.
     #[serde(skip)]
-    PlaybackQueue(queue::List),
+    PublishQueue(queue::List),
 }
 
-#[derive(Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum Params {
     ConnectionOffer {
         device_name: String,
         device_type: String,
-        supported_control_versions: Vec<String>,
+        supported_control_versions: HashSet<String>,
     },
+
     Connect {
         offer_id: Uuid,
     },
+
     DiscoveryRequest {
         discovery_session: Uuid,
     },
@@ -576,8 +718,8 @@ impl fmt::Display for Payload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut buffer: Vec<u8> = vec![];
 
-        match self {
-            Payload::PlaybackQueue(list) => match list.write_to_bytes() {
+        if let Payload::PublishQueue(queue) = self {
+            match queue.write_to_bytes() {
                 Ok(protobuf) => {
                     let mut deflater = DeflateEncoder::new(&protobuf[..], Compression::fast());
                     if let Err(e) = deflater.read_to_end(&mut buffer) {
@@ -589,13 +731,21 @@ impl fmt::Display for Payload {
                     error!("{e}");
                     return Err(fmt::Error::default());
                 }
-            },
-            _ => {
-                if let Err(e) = serde_json::to_writer(&mut buffer, self) {
-                    error!("{e}");
-                    return Err(fmt::Error::default());
+            }
+        } else {
+            // Do not Base64 encode empty strings.
+            if let Payload::Str(s) = self {
+                if s.as_ref().map_or(true, String::is_empty) {
+                    return Ok(());
                 }
             }
+
+            if let Err(e) = serde_json::to_writer(&mut buffer, self) {
+                error!("{e}");
+                return Err(fmt::Error::default());
+            }
+
+            trace!("{}", std::str::from_utf8(&buffer).unwrap());
         }
 
         write!(f, "{}", base64::encode(buffer))
@@ -605,49 +755,52 @@ impl fmt::Display for Payload {
 impl FromStr for Payload {
     type Err = super::Error;
 
+    /// TODO : first decode base64 in fromstr, then deserialize json with traits
     fn from_str(encoded: &str) -> Result<Self, Self::Err> {
         let decoded = base64::decode(encoded)?;
 
-        match std::str::from_utf8(&decoded) {
-            Ok(s) => {
-                // Most payloads are strings that contain JSON.
-                serde_json::from_str::<Self>(s).map_err(Into::into)
+        if let Ok(s) = std::str::from_utf8(&decoded) {
+            // `serde_with::NoneAsEmptyString` does not apply to `FromStr`.
+            if s.is_empty() {
+                return Ok(Self::Str(None));
             }
-            Err(_) => {
-                // Some payloads are deflated protobufs.
-                let mut inflater = DeflateDecoder::new(&decoded[..]);
-                let mut buffer: Vec<u8> = vec![];
-                inflater.read_to_end(&mut buffer)?;
 
-                if let Ok(list) = queue::List::parse_from_bytes(&buffer) {
-                    // All fields are optional in proto3, so successful parsing
-                    // does not mean that it parsed the right message.
-                    if !list.id.is_empty() {
-                        //     if list.shuffled {
-                        //         warn!("encountered shuffled playback queue; please report this to the developers");
-                        //         trace!("{list:#?}");
-                        //     }
-                        //
-                        //     let number_of_tracks = list.tracks.len();
-                        //     let tracks = if list.tracks_order.len() == number_of_tracks {
-                        //         let mut ordered_tracks = Vec::with_capacity(number_of_tracks);
-                        //         for index in list.tracks_order {
-                        //             ordered_tracks.push(list.tracks[index as usize].clone().id);
-                        //         }
-                        //         ordered_tracks
-                        //     } else {
-                        //         list.tracks.into_iter().map(|track| track.id).collect()
-                        //     };
-                        //
-                        //     let tracks = tracks.into_iter().filter_map(|track| track.parse::<u64>().ok()).collect();
-                        return Ok(Self::PlaybackQueue(list));
-                    }
+            // Most payloads are strings that contain JSON.
+            serde_json::from_str::<Self>(s).map_err(Into::into)
+        } else {
+            // Some payloads are deflated protobufs.
+            let mut inflater = DeflateDecoder::new(&decoded[..]);
+            let mut buffer: Vec<u8> = vec![];
+            inflater.read_to_end(&mut buffer)?;
+
+            if let Ok(queue) = queue::List::parse_from_bytes(&buffer) {
+                // All fields are optional in proto3, so successful parsing
+                // does not mean that it parsed the right message.
+                if !queue.id.is_empty() {
+                    //     if list.shuffled {
+                    //         warn!("encountered shuffled playback queue; please report this to the developers");
+                    //         trace!("{list:#?}");
+                    //     }
+                    //
+                    //     let number_of_tracks = list.tracks.len();
+                    //     let tracks = if list.tracks_order.len() == number_of_tracks {
+                    //         let mut ordered_tracks = Vec::with_capacity(number_of_tracks);
+                    //         for index in list.tracks_order {
+                    //             ordered_tracks.push(list.tracks[index as usize].clone().id);
+                    //         }
+                    //         ordered_tracks
+                    //     } else {
+                    //         list.tracks.into_iter().map(|track| track.id).collect()
+                    //     };
+                    //
+                    //     let tracks = tracks.into_iter().filter_map(|track| track.parse::<u64>().ok()).collect();
+                    return Ok(Self::PublishQueue(queue));
                 }
-
-                Err(Self::Err::Unsupported(
-                    "protobuf should match some variant".to_string(),
-                ))
             }
+
+            Err(Self::Err::Unsupported(
+                "protobuf should match some variant".to_string(),
+            ))
         }
     }
 }
@@ -657,10 +810,30 @@ impl WireBody {
     pub(crate) const DISCOVERY_VERSION: &'static str = "com.deezer.remote.discovery.proto1";
     pub(crate) const QUEUE_VERSION: &'static str = "com.deezer.remote.queue.proto1";
     pub(crate) const SUPPORTED_CONTROL_VERSIONS: [&'static str; 1] = ["1.0.0-beta2"];
+
+    #[must_use]
+    pub(crate) fn supports_control_versions(control_versions: &HashSet<String>) -> bool {
+        for version in control_versions {
+            if Self::SUPPORTED_CONTROL_VERSIONS.contains(&version.as_str()) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    #[must_use]
+    pub(crate) fn supported_protocol_version(&self) -> bool {
+        matches!(
+            self.protocol_version.as_ref(),
+            WireBody::COMMAND_VERSION | WireBody::DISCOVERY_VERSION | WireBody::QUEUE_VERSION
+        )
+    }
 }
 
 impl From<Body> for WireBody {
     /// Converts to a `WireBody` from a [`Body`](struct.Body.html).
+    #[allow(clippy::too_many_lines)]
     fn from(body: Body) -> Self {
         let clock: HashMap<String, Value> = HashMap::new();
 
@@ -675,6 +848,7 @@ impl From<Body> for WireBody {
                 payload: Payload::Acknowledgement { acknowledgement_id },
                 clock,
             },
+
             Body::Close { message_id } => WireBody {
                 message_id,
                 message_type: MessageType::Close,
@@ -682,6 +856,7 @@ impl From<Body> for WireBody {
                 payload: Payload::Str(None),
                 clock,
             },
+
             Body::Connect {
                 message_id,
                 from,
@@ -696,6 +871,7 @@ impl From<Body> for WireBody {
                 },
                 clock,
             },
+
             Body::ConnectionOffer {
                 message_id,
                 from,
@@ -709,11 +885,15 @@ impl From<Body> for WireBody {
                     params: Params::ConnectionOffer {
                         device_name,
                         device_type: "web".to_string(),
-                        supported_control_versions: Self::SUPPORTED_CONTROL_VERSIONS.into_iter().map(ToString::to_string).collect(),
+                        supported_control_versions: Self::SUPPORTED_CONTROL_VERSIONS
+                            .into_iter()
+                            .map(ToString::to_string)
+                            .collect(),
                     },
                 },
                 clock,
             },
+
             Body::DiscoveryRequest {
                 message_id,
                 from,
@@ -728,6 +908,7 @@ impl From<Body> for WireBody {
                 },
                 clock,
             },
+
             Body::Ping { message_id } => WireBody {
                 message_id,
                 message_type: MessageType::Ping,
@@ -735,6 +916,7 @@ impl From<Body> for WireBody {
                 payload: Payload::Str(None),
                 clock,
             },
+
             Body::PlaybackProgress {
                 message_id,
                 track,
@@ -764,13 +946,15 @@ impl From<Body> for WireBody {
                 },
                 clock,
             },
-            Body::PlaybackQueue { message_id, list } => WireBody {
+
+            Body::PublishQueue { message_id, queue } => WireBody {
                 message_id,
-                message_type: MessageType::PlaybackQueue,
+                message_type: MessageType::PublishQueue,
                 protocol_version: Self::QUEUE_VERSION.to_string(),
-                payload: Payload::PlaybackQueue(list),
+                payload: Payload::PublishQueue(queue),
                 clock,
             },
+
             Body::Ready { message_id } => WireBody {
                 message_id,
                 message_type: MessageType::Ready,
@@ -778,8 +962,18 @@ impl From<Body> for WireBody {
                 payload: Payload::Str(None),
                 clock,
             },
+
+            Body::RefreshQueue { message_id } => WireBody {
+                message_id,
+                message_type: MessageType::RefreshQueue,
+                protocol_version: Self::QUEUE_VERSION.to_string(),
+                payload: Payload::Str(None),
+                clock,
+            },
+
             Body::Skip {
                 message_id,
+                queue_id,
                 track,
                 progress,
                 should_play,
@@ -791,7 +985,7 @@ impl From<Body> for WireBody {
                 message_type: MessageType::Skip,
                 protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::Skip {
-                    queue_id: track.queue_id,
+                    queue_id,
                     element_id: track,
                     progress,
                     should_play,
@@ -801,6 +995,7 @@ impl From<Body> for WireBody {
                 },
                 clock,
             },
+
             Body::Status {
                 message_id,
                 command_id,
@@ -812,6 +1007,17 @@ impl From<Body> for WireBody {
                 payload: Payload::Status { command_id, status },
                 clock,
             },
+            
+            Body::Stop {
+                message_id,
+            } 
+                => WireBody {
+                               message_id,
+                               message_type: MessageType::Stop,
+                               protocol_version: Self::COMMAND_VERSION.to_string(),
+                               payload: Payload::Str(None),
+                               clock,
+                           },
         }
     }
 }
@@ -822,173 +1028,164 @@ impl TryFrom<WireBody> for Body {
     /// Performs the conversion from [`WireBody`] into `Body`.
     ///
     /// [`WireMessage`]: struct.WireMessage.html
+    #[allow(clippy::too_many_lines)]
     fn try_from(wire_body: WireBody) -> Result<Self, Self::Error> {
         let message_id = wire_body.message_id;
         let message_type = wire_body.message_type;
-        let protocol_version = wire_body.protocol_version;
-        
-        let protocol_is_correct = match message_type {
-            MessageType::Acknowledgement
-            | MessageType::Close
-            | MessageType::Ping
-            | MessageType::PlaybackProgress
-            | MessageType::Ready
-            | MessageType::Skip
-            | MessageType::Status => protocol_version == WireBody::COMMAND_VERSION,
 
-            MessageType::Connect | MessageType::ConnectionOffer | MessageType::DiscoveryRequest => {
-                protocol_version == WireBody::DISCOVERY_VERSION
-            }
-
-            MessageType::PlaybackQueue => protocol_version == WireBody::QUEUE_VERSION,
-        };
-        if !protocol_is_correct {
-            return Err(Self::Error::Malformed(format!(
-                "protocol version {protocol_version} should match message type {message_type}"
-            )));
+        if !wire_body.supported_protocol_version() {
+            warn!("protocol version {} is unknown", wire_body.protocol_version);
         }
 
         let body = match message_type {
-            MessageType::Acknowledgement => match wire_body.payload {
-                Payload::Acknowledgement { acknowledgement_id } => Body::Acknowledgement {
-                    message_id,
-                    acknowledgement_id,
-                },
-                _ => {
+            MessageType::Acknowledgement => {
+                if let Payload::Acknowledgement { acknowledgement_id } = wire_body.payload {
+                    Self::Acknowledgement {
+                        message_id,
+                        acknowledgement_id,
+                    }
+                } else {
                     trace!("{:#?}", wire_body.payload);
                     return Err(Self::Error::Malformed(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
-            },
+            }
+
             MessageType::Close => Body::Close { message_id },
-            MessageType::Connect => match wire_body.payload {
-                Payload::WithParams { from, params } => match params {
-                    Params::Connect { offer_id } => Body::Connect {
-                        message_id,
-                        from,
-                        offer_id,
-                    },
-                    _ => {
+
+            MessageType::Connect => {
+                if let Payload::WithParams { from, params } = wire_body.payload {
+                    if let Params::Connect { offer_id } = params {
+                        Self::Connect {
+                            message_id,
+                            from,
+                            offer_id,
+                        }
+                    } else {
                         trace!("{params:#?}");
                         return Err(Self::Error::Malformed(format!(
                             "params should match message type {message_type}"
                         )));
                     }
-                },
-                _ => {
+                } else {
                     trace!("{:#?}", wire_body.payload);
                     return Err(Self::Error::Malformed(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
-            },
-            MessageType::ConnectionOffer => match wire_body.payload {
-                Payload::WithParams { from, params } => match params {
-                    Params::ConnectionOffer {
+            }
+
+            MessageType::ConnectionOffer => {
+                if let Payload::WithParams { from, params } = wire_body.payload {
+                    if let Params::ConnectionOffer {
                         device_name,
                         supported_control_versions,
                         ..
-                    } => {
-                        let mut supported_version = false;
-                        for version in &supported_control_versions {
-                            if WireBody::SUPPORTED_CONTROL_VERSIONS.contains(&version.as_str()) {
-                                supported_version = true;
-                                break;
-                            }
-                        }
-                        if !supported_version {
+                    } = params
+                    {
+                        if !WireBody::supports_control_versions(&supported_control_versions) {
                             warn!(
-                                "one of control versions {:?} should be supported",
+                                "control versions {:?} are unknown",
                                 supported_control_versions
                             );
                         }
 
-                        Body::ConnectionOffer {
+                        Self::ConnectionOffer {
                             message_id,
                             from,
                             device_name,
                         }
-                    }
-                    _ => {
+                    } else {
                         trace!("{params:#?}");
                         return Err(Self::Error::Malformed(format!(
                             "params should match message type {message_type}"
                         )));
                     }
-                },
-                _ => {
+                } else {
                     trace!("{:#?}", wire_body.payload);
                     return Err(Self::Error::Malformed(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
-            },
-            MessageType::DiscoveryRequest => match wire_body.payload {
-                Payload::WithParams { from, params } => match params {
-                    Params::DiscoveryRequest { discovery_session } => Body::DiscoveryRequest {
+            }
+
+            MessageType::DiscoveryRequest => {
+                if let Payload::WithParams { from, params } = wire_body.payload {
+                    if let Params::DiscoveryRequest { discovery_session } = params {
+                        Self::DiscoveryRequest {
+                            message_id,
+                            from,
+                            discovery_session,
+                        }
+                    } else {
+                        trace!("{params:#?}");
+                        return Err(Self::Error::Malformed(format!(
+                            "params should match message type {message_type}"
+                        )));
+                    }
+                } else {
+                    trace!("{:#?}", wire_body.payload);
+                    return Err(Self::Error::Malformed(format!(
+                        "payload should match message type {message_type}"
+                    )));
+                }
+            }
+
+            MessageType::Ping => Self::Ping { message_id },
+
+            MessageType::PlaybackProgress => {
+                if let Payload::PlaybackProgress {
+                    element_id,
+                    buffered,
+                    duration,
+                    progress,
+                    volume,
+                    quality,
+                    is_playing,
+                    is_shuffle,
+                    repeat_mode,
+                    ..
+                } = wire_body.payload
+                {
+                    Self::PlaybackProgress {
                         message_id,
-                        from,
-                        discovery_session,
-                    },
-                    _ => {
-                        trace!("{params:#?}");
-                        return Err(Self::Error::Malformed(format!(
-                            "params should match message type {message_type}"
-                        )));
+                        track: element_id,
+                        buffered,
+                        duration,
+                        progress,
+                        volume,
+                        quality,
+                        is_playing,
+                        is_shuffle,
+                        repeat_mode,
                     }
-                },
-                _ => {
+                } else {
                     trace!("{:#?}", wire_body.payload);
                     return Err(Self::Error::Malformed(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
-            },
-            MessageType::Ping => Body::Ping { message_id },
-            MessageType::PlaybackProgress => match wire_body.payload {
-                Payload::PlaybackProgress {
-                    element_id,
-                    buffered,
-                    duration,
-                    progress,
-                    volume,
-                    quality,
-                    is_playing,
-                    is_shuffle,
-                    repeat_mode,
-                    ..
-                } => Body::PlaybackProgress {
-                    message_id,
-                    track: element_id,
-                    buffered,
-                    duration,
-                    progress,
-                    volume,
-                    quality,
-                    is_playing,
-                    is_shuffle,
-                    repeat_mode,
-                },
-                _ => {
+            }
+
+            MessageType::PublishQueue => {
+                if let Payload::PublishQueue(queue) = wire_body.payload {
+                    Self::PublishQueue { message_id, queue }
+                } else {
                     trace!("{:#?}", wire_body.payload);
                     return Err(Self::Error::Malformed(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
-            },
-            MessageType::PlaybackQueue => match wire_body.payload {
-                Payload::PlaybackQueue(list) => Body::PlaybackQueue { message_id, list },
-                _ => {
-                    trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
-                        "payload should match message type {message_type}"
-                    )));
-                }
-            },
-            MessageType::Ready => Body::Ready { message_id },
-            MessageType::Skip => match wire_body.payload {
-                Payload::Skip {
+            }
+
+            MessageType::Ready => Self::Ready { message_id },
+
+            MessageType::RefreshQueue => Self::RefreshQueue { message_id },
+
+            MessageType::Skip => {
+                if let Payload::Skip {
+                    queue_id,
                     element_id,
                     progress,
                     should_play,
@@ -996,35 +1193,42 @@ impl TryFrom<WireBody> for Body {
                     set_repeat_mode,
                     set_volume,
                     ..
-                } => Body::Skip {
-                    message_id,
-                    track: element_id,
-                    progress,
-                    should_play,
-                    set_shuffle,
-                    set_repeat_mode,
-                    set_volume,
-                },
-                _ => {
+                } = wire_body.payload
+                {
+                    Self::Skip {
+                        message_id,
+                        queue_id,
+                        track: element_id,
+                        progress,
+                        should_play,
+                        set_shuffle,
+                        set_repeat_mode,
+                        set_volume,
+                    }
+                } else {
                     trace!("{:#?}", wire_body.payload);
                     return Err(Self::Error::Malformed(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
-            },
-            MessageType::Status => match wire_body.payload {
-                Payload::Status { command_id, status } => Body::Status {
-                    message_id,
-                    command_id,
-                    status,
-                },
-                _ => {
+            }
+
+            MessageType::Status => {
+                if let Payload::Status { command_id, status } = wire_body.payload {
+                    Self::Status {
+                        message_id,
+                        command_id,
+                        status,
+                    }
+                } else {
                     trace!("{:#?}", wire_body.payload);
                     return Err(Self::Error::Malformed(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
-            },
+            }
+
+            MessageType::Stop => Self::Stop { message_id },
         };
 
         Ok(body)

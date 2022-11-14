@@ -1,12 +1,12 @@
 syntax = "proto3";
 
-package pleezer.playback.proto;
+package pleezer.playback.repeat.proto;
 
 message Repeat {
-  optional RepeatMode repeat = 1;
+  Mode repeat = 1;
 }
 
-enum RepeatMode {
+enum Mode {
   REPEAT_MODE_NONE = 0;
   REPEAT_MODE_ALL = 1;
   REPEAT_MODE_ONE = 2;

@@ -7,8 +7,8 @@ extern crate log;
 
 pub mod arl;
 pub mod config;
+pub mod player;
 pub mod protocol;
 pub mod remote;
 pub mod session;
-pub mod token;
-pub mod util;
+pub mod tokens;
