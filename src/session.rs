@@ -14,7 +14,7 @@ use governor::{
 use rand::Rng;
 use reqwest::{self, cookie::CookieStore};
 use serde::Deserialize;
-use sysinfo::{self, SystemExt};
+use sysinfo::{self, System};
 use thiserror::Error;
 
 use crate::{
@@ -81,8 +81,7 @@ impl Session {
             "macos" => "osx",
             other => other,
         };
-        let os_version = sysinfo::System::new()
-            .os_version()
+        let os_version = sysinfo::System::os_version()
             .unwrap_or_else(|| String::from("0"));
         if os_name.is_empty()
             || os_name.contains(illegal_chars)

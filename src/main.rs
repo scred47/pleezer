@@ -3,7 +3,6 @@ use std::{error::Error, io, process, time::Duration};
 use clap::{command, Parser, ValueHint};
 use log::{debug, error, info, LevelFilter};
 use rand::Rng;
-use sysinfo::SystemExt;
 
 use pleezer::{arl::Arl, config::Config, player::Player, remote, session::Session};
 
@@ -126,7 +125,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     config.interruptions = args.interruptions;
     config.device_name = args
         .name
-        .or_else(|| sysinfo::System::new().host_name().clone())
+        .or_else(|| sysinfo::System::host_name().clone())
         .unwrap_or_else(|| config.app_name.clone());
 
     let session = Session::new(&config, &arl)?;
