@@ -124,6 +124,12 @@ pub enum DeviceId {
     Other(String),
 }
 
+impl Default for DeviceId {
+    fn default() -> Self {
+        Self::Uuid(Uuid::new_v4())
+    }
+}
+
 impl From<Uuid> for DeviceId {
     fn from(uuid: Uuid) -> Self {
         Self::Uuid(uuid)
@@ -183,15 +189,15 @@ pub enum Body {
 
     PlaybackProgress {
         message_id: Uuid,
-        track: ListItem,
-        quality: Quality,
+        track: Element,
+        quality: AudioQuality,
         duration: Duration,
         buffered: Duration,
         progress: Percentage,
         volume: Percentage,
         is_playing: bool,
         is_shuffle: bool,
-        repeat_mode: Repeat,
+        repeat_mode: RepeatMode,
     },
 
     PublishQueue {
@@ -214,10 +220,10 @@ pub enum Body {
     Skip {
         message_id: Uuid,
         queue_id: Uuid,
-        track: Option<ListItem>,
+        track: Option<Element>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
-        set_repeat_mode: Option<Repeat>,
+        set_repeat_mode: Option<RepeatMode>,
         set_shuffle: Option<bool>,
         set_volume: Option<Percentage>,
     },
@@ -227,10 +233,10 @@ pub enum Body {
         command_id: Uuid,
         status: Status,
     },
-    
+
     Stop {
         message_id: Uuid,
-    }
+    },
 }
 
 impl Body {
@@ -319,7 +325,7 @@ impl fmt::Display for Status {
     Eq,
 )]
 #[repr(i64)]
-pub enum Repeat {
+pub enum RepeatMode {
     #[default]
     None = 0,
     All = 1,
@@ -327,13 +333,13 @@ pub enum Repeat {
     Unrecognized = -1,
 }
 
-impl fmt::Display for Repeat {
+impl fmt::Display for RepeatMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Repeat::None => write!(f, "None"),
-            Repeat::All => write!(f, "All"),
-            Repeat::One => write!(f, "One"),
-            Repeat::Unrecognized => write!(f, "Unrecognized"),
+            RepeatMode::None => write!(f, "None"),
+            RepeatMode::All => write!(f, "All"),
+            RepeatMode::One => write!(f, "One"),
+            _ => Err(fmt::Error::default()),
         }
     }
 }
@@ -357,7 +363,7 @@ impl fmt::Display for Repeat {
 )]
 // `u64` because this is serialized into and deserialized from JSON.
 #[repr(i64)]
-pub enum Quality {
+pub enum AudioQuality {
     /// 64 kbps MP3
     Basic = 0,
 
@@ -375,28 +381,28 @@ pub enum Quality {
     Unknown = -1,
 }
 
-impl fmt::Display for Quality {
+impl fmt::Display for AudioQuality {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Quality::Basic => write!(f, "Basic"),
-            Quality::Standard => write!(f, "Standard"),
-            Quality::High => write!(f, "High Quality"),
-            Quality::Lossless => write!(f, "High Fidelity"),
-            Quality::Unknown => write!(f, "Unknown"),
+            AudioQuality::Basic => write!(f, "Basic"),
+            AudioQuality::Standard => write!(f, "Standard"),
+            AudioQuality::High => write!(f, "High Quality"),
+            AudioQuality::Lossless => write!(f, "High Fidelity"),
+            _ => Err(fmt::Error::default()),
         }
     }
 }
 
-impl FromStr for Quality {
+impl FromStr for AudioQuality {
     type Err = super::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let variant = match s.as_ref() {
-            "low" => Quality::Basic,
-            "standard" => Quality::Standard,
-            "high" => Quality::High,
-            "lossless" => Quality::Lossless,
-            _ => return Err(Self::Err::Malformed(format!("quality: {s}"))),
+            "low" => AudioQuality::Basic,
+            "standard" => AudioQuality::Standard,
+            "high" => AudioQuality::High,
+            "lossless" => AudioQuality::Lossless,
+            _ => AudioQuality::Unknown,
         };
 
         Ok(variant)
@@ -433,7 +439,7 @@ impl fmt::Display for Percentage {
 #[derive(
     Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord, PartialEq, Eq, Hash,
 )]
-pub struct ListItem {
+pub struct Element {
     pub queue_id: Uuid,
     pub track_id: NonZeroU64,
     // `usize` because this will index into an array. Also from the protobuf it
@@ -441,11 +447,11 @@ pub struct ListItem {
     pub position: usize,
 }
 
-impl ListItem {
+impl Element {
     const SEPARATOR: char = '-';
 }
 
-impl fmt::Display for ListItem {
+impl fmt::Display for Element {
     /// Formats an `Event` as a wire string for use on a
     /// [Deezer Connect][Connect] websocket.
     ///
@@ -463,11 +469,11 @@ impl fmt::Display for ListItem {
     }
 }
 
-impl FromStr for ListItem {
+impl FromStr for Element {
     type Err = super::Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
-    /// return an `ListItem` on a queue.
+    /// return an track on a queue.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -627,17 +633,17 @@ pub enum Payload {
     #[serde(rename_all = "camelCase")]
     PlaybackProgress {
         queue_id: Uuid,
-        element_id: ListItem,
+        element_id: Element,
         #[serde_as(as = "DurationSeconds<u64>")]
         duration: Duration,
         #[serde_as(as = "DurationSeconds<u64>")]
         buffered: Duration,
         progress: Percentage,
         volume: Percentage,
-        quality: Quality,
+        quality: AudioQuality,
         is_playing: bool,
         is_shuffle: bool,
-        repeat_mode: Repeat,
+        repeat_mode: RepeatMode,
     },
 
     #[serde(rename_all = "camelCase")]
@@ -659,15 +665,15 @@ pub enum Payload {
     #[serde(rename_all = "camelCase")]
     Skip {
         queue_id: Uuid,
-        element_id: Option<ListItem>,
+        element_id: Option<Element>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
-        set_repeat_mode: Option<Repeat>,
+        set_repeat_mode: Option<RepeatMode>,
         set_shuffle: Option<bool>,
         set_volume: Option<Percentage>,
     },
 
-    Str(#[serde_as(as = "NoneAsEmptyString")] Option<String>),
+    String(#[serde_as(as = "NoneAsEmptyString")] Option<String>),
 
     // This protobuf is deserialized manually with `FromStr`.
     #[serde(skip)]
@@ -734,7 +740,7 @@ impl fmt::Display for Payload {
             }
         } else {
             // Do not Base64 encode empty strings.
-            if let Payload::Str(s) = self {
+            if let Payload::String(s) = self {
                 if s.as_ref().map_or(true, String::is_empty) {
                     return Ok(());
                 }
@@ -744,8 +750,6 @@ impl fmt::Display for Payload {
                 error!("{e}");
                 return Err(fmt::Error::default());
             }
-
-            trace!("{}", std::str::from_utf8(&buffer).unwrap());
         }
 
         write!(f, "{}", base64::encode(buffer))
@@ -762,7 +766,7 @@ impl FromStr for Payload {
         if let Ok(s) = std::str::from_utf8(&decoded) {
             // `serde_with::NoneAsEmptyString` does not apply to `FromStr`.
             if s.is_empty() {
-                return Ok(Self::Str(None));
+                return Ok(Self::String(None));
             }
 
             // Most payloads are strings that contain JSON.
@@ -777,6 +781,7 @@ impl FromStr for Payload {
                 // All fields are optional in proto3, so successful parsing
                 // does not mean that it parsed the right message.
                 if !queue.id.is_empty() {
+                    // TODO : why did I comment this out?
                     //     if list.shuffled {
                     //         warn!("encountered shuffled playback queue; please report this to the developers");
                     //         trace!("{list:#?}");
@@ -853,7 +858,7 @@ impl From<Body> for WireBody {
                 message_id,
                 message_type: MessageType::Close,
                 protocol_version: Self::COMMAND_VERSION.to_string(),
-                payload: Payload::Str(None),
+                payload: Payload::String(None),
                 clock,
             },
 
@@ -913,7 +918,7 @@ impl From<Body> for WireBody {
                 message_id,
                 message_type: MessageType::Ping,
                 protocol_version: Self::COMMAND_VERSION.to_string(),
-                payload: Payload::Str(None),
+                payload: Payload::String(None),
                 clock,
             },
 
@@ -959,7 +964,7 @@ impl From<Body> for WireBody {
                 message_id,
                 message_type: MessageType::Ready,
                 protocol_version: Self::COMMAND_VERSION.to_string(),
-                payload: Payload::Str(None),
+                payload: Payload::String(None),
                 clock,
             },
 
@@ -967,7 +972,7 @@ impl From<Body> for WireBody {
                 message_id,
                 message_type: MessageType::RefreshQueue,
                 protocol_version: Self::QUEUE_VERSION.to_string(),
-                payload: Payload::Str(None),
+                payload: Payload::String(None),
                 clock,
             },
 
@@ -1007,17 +1012,14 @@ impl From<Body> for WireBody {
                 payload: Payload::Status { command_id, status },
                 clock,
             },
-            
-            Body::Stop {
+
+            Body::Stop { message_id } => WireBody {
                 message_id,
-            } 
-                => WireBody {
-                               message_id,
-                               message_type: MessageType::Stop,
-                               protocol_version: Self::COMMAND_VERSION.to_string(),
-                               payload: Payload::Str(None),
-                               clock,
-                           },
+                message_type: MessageType::Stop,
+                protocol_version: Self::COMMAND_VERSION.to_string(),
+                payload: Payload::String(None),
+                clock,
+            },
         }
     }
 }

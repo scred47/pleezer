@@ -45,7 +45,6 @@ enum ContainerType {
   CONTAINER_TYPE_UNRECOGNIZED = -1;
 }
 
-
 message Mix {
   MixType typ = 1;
 }

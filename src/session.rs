@@ -188,9 +188,7 @@ impl Session {
                 // fields as integer `0` which are normally typed as string,
                 // which causes JSON deserialization to fail.
                 if e.is_decode() {
-                    return Err(Error::Assertion(format!(
-                        "{e}: arl should be valid and active"
-                    )));
+                    return Err(Error::Assertion(format!("{e}: please refresh your arl")));
                 }
                 Err(e.into())
             }

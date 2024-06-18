@@ -14,8 +14,8 @@ use crate::{
     config::Config,
     player,
     protocol::connect::{
-        queue, Body, Channel, Contents, DeviceId, Event, Headers, ListItem, Message, Percentage,
-        Repeat, Status, UserId,
+        queue, Body, Channel, Contents, DeviceId, Event, Headers, Element, Message, Percentage,
+        RepeatMode, Status, UserId,
     },
     tokens::{UserToken, UserTokenError, UserTokenProvider},
 };
@@ -66,7 +66,7 @@ pub struct Client {
     connection_offers: LruCache<Uuid, DeviceId>,
     interruptions: bool,
 
-    player: Box<dyn player::Connect>,
+    player: player::Player,
     reporting_timer: Pin<Box<tokio::time::Sleep>>,
 }
 
@@ -76,6 +76,7 @@ enum DiscoveryState {
     Connecting {
         controller: DeviceId,
         ready_message_id: Uuid,
+        skip_message_id: Option<Uuid>,
     },
     Taken,
 }
@@ -83,10 +84,7 @@ enum DiscoveryState {
 #[derive(Clone, Debug, PartialEq)]
 enum ConnectionState {
     Disconnected,
-    Connected {
-        controller: DeviceId,
-        synchronized: bool,
-    },
+    Connected { controller: DeviceId },
 }
 
 #[must_use]
@@ -96,7 +94,7 @@ fn from_now(seconds: Duration) -> Option<tokio::time::Instant> {
 
 impl Client {
     const TOKEN_EXPIRATION_THRESHOLD: Duration = Duration::from_secs(60);
-    const REPORTING_INTERVAL: Duration = Duration::from_secs(3);
+    const REPORTING_INTERVAL: Duration = Duration::from_secs(2);
     const WATCHDOG_RX_TIMEOUT: Duration = Duration::from_secs(10);
     const WATCHDOG_TX_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -111,7 +109,7 @@ impl Client {
     pub fn new<P>(
         config: &Config,
         token_provider: P,
-        player: impl player::Connect + 'static,
+        player: player::Player,
         secure: bool,
     ) -> Result<Self>
     where
@@ -143,7 +141,9 @@ impl Client {
         let time_to_live = Duration::from_secs(5);
         let connection_offers = LruCache::with_expiry_duration(time_to_live);
 
-        // Timers are set in the message handlers.
+        // Timers are set in the message handlers. They should be moved into
+        // a state variant once `select!` supports `if let` statements:
+        // https://github.com/tokio-rs/tokio/issues/4173
         let reporting_timer = tokio::time::sleep(Duration::ZERO);
         let watchdog_rx = tokio::time::sleep(Duration::ZERO);
         let watchdog_tx = tokio::time::sleep(Duration::ZERO);
@@ -165,7 +165,7 @@ impl Client {
             watchdog_rx: Box::pin(watchdog_rx),
             watchdog_tx: Box::pin(watchdog_tx),
 
-            player: Box::new(player),
+            player,
             reporting_timer: Box::pin(reporting_timer),
 
             discovery_state: DiscoveryState::Available,
@@ -238,7 +238,7 @@ impl Client {
                     break Err(UserTokenError::Refresh.into());
                 }
 
-                () = &mut self.reporting_timer, if self.is_active() => {
+                () = &mut self.reporting_timer, if self.is_connected() => {
                     if let Err(e) = self.report_playback_progress().await {
                         error!("{e}");
                     }
@@ -275,10 +275,6 @@ impl Client {
         self.stop().await;
 
         loop_result
-    }
-
-    fn is_active(&self) -> bool {
-        self.player.state().is_some()
     }
 
     fn reset_watchdog_rx(&mut self) {
@@ -335,7 +331,7 @@ impl Client {
     }
 
     async fn disconnect(&mut self) -> Result<()> {
-        if let ConnectionState::Connected { controller, .. } = &self.connection_state {
+        if let Some(controller) = self.controller() {
             let close = Body::Close {
                 message_id: Uuid::new_v4(),
             };
@@ -404,6 +400,7 @@ impl Client {
         self.discovery_state = DiscoveryState::Connecting {
             controller: from,
             ready_message_id: message_id,
+            skip_message_id: None,
         };
 
         Ok(())
@@ -418,50 +415,78 @@ impl Client {
         false
     }
 
-    async fn handle_acknowledgement(
+    fn controller(&self) -> Option<DeviceId> {
+        if let ConnectionState::Connected { controller, .. } = &self.connection_state {
+            return Some(controller.clone());
+        }
+
+        if let DiscoveryState::Connecting { controller, .. } = &self.discovery_state {
+            return Some(controller.clone());
+        }
+
+        return None;
+    }
+
+    async fn handle_status(
         &mut self,
         from: DeviceId,
-        acknowledgement_id: Uuid,
+        command_id: Uuid,
+        status: Status,
     ) -> Result<()> {
+        if status != Status::OK {
+            return Err(Error::Protocol(format!(
+                "controller failed to process {command_id}"
+            )));
+        }
+
         if let DiscoveryState::Connecting {
             controller,
             ready_message_id,
+            skip_message_id,
         } = self.discovery_state.clone()
         {
-            if from == controller && acknowledgement_id == ready_message_id {
-                if let ConnectionState::Connected { .. } = &self.connection_state {
-                    // Evict the active connection.
-                    let close = Body::Close {
-                        message_id: Uuid::new_v4(),
-                    };
+            if from == controller && command_id == ready_message_id {
+                if skip_message_id.is_some() {
+                    if let ConnectionState::Connected { controller, .. } = &self.connection_state {
+                        // Evict the active connection.
+                        let close = Body::Close {
+                            message_id: Uuid::new_v4(),
+                        };
 
-                    let command = self.command(controller.clone(), close);
-                    self.send_message(command).await?;
+                        let command = self.command(controller.clone(), close);
+                        self.send_message(command).await?;
+                    }
+
+                    self.report_playback_progress().await?;
+
+                    if self.interruptions {
+                        self.discovery_state = DiscoveryState::Available;
+                    } else {
+                        self.discovery_state = DiscoveryState::Taken;
+                    }
+
+                    self.connection_state = ConnectionState::Connected { controller: from };
+
+                    info!("connected to {controller}");
+                    return Ok(());
+                } else {
+                    return Err(Error::Protocol(
+                        "should have received skip before initial status".to_string(),
+                    ));
                 }
-
-                self.connection_state = ConnectionState::Connected {
-                    controller: from,
-                    synchronized: false,
-                };
-
-                if !self.interruptions {
-                    self.discovery_state = DiscoveryState::Taken;
-                }
-
-                self.reset_watchdog_rx();
-                self.reset_watchdog_tx();
-
-                info!("connected to {controller}");
-                return Ok(());
+            } else {
+                return Err(Error::Protocol(
+                    "should match controller and ready message".to_string(),
+                ));
             }
         }
 
-        // Ignore other acknowledgements.
+        // Ignore other status messages.
         Ok(())
     }
 
     async fn handle_close(&mut self) -> Result<()> {
-        if let ConnectionState::Connected { .. } = &self.connection_state {
+        if self.controller().is_some() {
             self.unsubscribe(Event::RemoteQueue).await?;
             self.unsubscribe(Event::RemoteCommand).await?;
 
@@ -475,19 +500,16 @@ impl Client {
     }
 
     fn reset_states(&mut self) {
-        if let ConnectionState::Connected { controller, .. } = &self.connection_state {
+        if let Some(controller) = self.controller() {
             info!("disconnected from {controller}");
         }
 
         self.connection_state = ConnectionState::Disconnected;
         self.discovery_state = DiscoveryState::Available;
     }
-    
-    // TODO : convenience method for getting current connection
-    // note that this may also be an early message before finishing connecting!
 
     async fn handle_publish_queue(&mut self, queue: queue::List) -> Result<()> {
-        if let ConnectionState::Connected { .. } = &self.connection_state {
+        if self.controller().is_some() {
             self.player.set_queue(queue.clone());
 
             return Ok(());
@@ -499,7 +521,7 @@ impl Client {
     }
 
     async fn send_ping(&mut self) -> Result<()> {
-        if let ConnectionState::Connected { controller, .. } = &self.connection_state {
+        if let Some(controller) = self.controller() {
             let ping = Body::Ping {
                 message_id: Uuid::new_v4(),
             };
@@ -514,17 +536,18 @@ impl Client {
     }
 
     async fn handle_refresh_queue(&mut self) -> Result<()> {
-        if let ConnectionState::Connected { controller, .. } = &self.connection_state {
+        if let Some(controller) = self.controller() {
             if let Some(queue) = self.player.queue() {
-                let publish = Body::PublishQueue {
+                let queue = Body::PublishQueue {
                     message_id: Uuid::new_v4(),
                     queue,
                 };
 
                 let remote_queue = self.channel(Event::RemoteQueue);
-                let confirmation = self.message(controller.clone(), remote_queue, publish);
+                let queue = self.message(controller.clone(), remote_queue, queue);
+                self.send_message(queue).await?;
 
-                return self.send_message(confirmation).await;
+                return self.report_playback_progress().await;
             } else {
                 return Err(Error::Protocol(
                     "queue refresh should have a published queue".to_string(),
@@ -537,29 +560,41 @@ impl Client {
         ))
     }
 
+    async fn send_acknowledgement(&mut self, acknowledgement_id: Uuid) -> Result<()> {
+        if let Some(controller) = self.controller() {
+            trace!("acking {acknowledgement_id}");
+
+            let acknowledgement = Body::Acknowledgement {
+                message_id: Uuid::new_v4(),
+                acknowledgement_id,
+            };
+
+            let command = self.command(controller, acknowledgement);
+            return self.send_message(command).await;
+        }
+
+        Err(Error::Protocol(
+            "acknowledgement should have an active connection".to_string(),
+        ))
+    }
+
     async fn handle_skip(
         &mut self,
         message_id: Uuid,
         queue_id: Uuid,
-        track: Option<ListItem>,
+        element: Option<Element>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
         set_shuffle: Option<bool>,
-        set_repeat_mode: Option<Repeat>,
+        set_repeat_mode: Option<RepeatMode>,
         set_volume: Option<Percentage>,
     ) -> Result<()> {
-        if let ConnectionState::Connected { controller, .. } = self.connection_state.clone() {
-            let acknowledgement = Body::Acknowledgement {
-                message_id: Uuid::new_v4(),
-                acknowledgement_id: message_id,
-            };
-
-            let command = self.command(controller.clone(), acknowledgement);
-            self.send_message(command).await?;
+        if self.controller().is_some() {
+            self.send_acknowledgement(message_id).await?;
 
             let status = match self.player.set_state(
                 queue_id,
-                track,
+                element,
                 progress,
                 should_play,
                 set_shuffle,
@@ -573,11 +608,38 @@ impl Client {
                 }
             };
 
-            self.report_playback_progress().await?;
+            if let ConnectionState::Connected { .. } = &self.connection_state {
+                return self.send_status(message_id, status).await;
+            }
+
+            if let DiscoveryState::Connecting {
+                controller,
+                ready_message_id,
+                ..
+            } = self.discovery_state.clone()
+            {
+                self.discovery_state = DiscoveryState::Connecting {
+                    controller,
+                    ready_message_id,
+                    skip_message_id: Some(message_id),
+                };
+            }
+
+            return Ok(());
+        }
+
+        Err(Error::Protocol(
+            "skip should have an active connection".to_string(),
+        ))
+    }
+
+    async fn send_status(&mut self, command_id: Uuid, status: Status) -> Result<()> {
+        if let Some(controller) = self.controller() {
+            trace!("reporting status for {command_id}");
 
             let status = Body::Status {
                 message_id: Uuid::new_v4(),
-                command_id: message_id,
+                command_id,
                 status,
             };
 
@@ -586,7 +648,7 @@ impl Client {
         }
 
         Err(Error::Protocol(
-            "skip should have an active connection".to_string(),
+            "status should have an active connection".to_string(),
         ))
     }
 
@@ -595,28 +657,28 @@ impl Client {
         // stuck in a reporting state.
         self.reset_reporting_timer();
 
-        if let ConnectionState::Connected { controller, .. } = self.connection_state.clone() {
-            if let Some(player_state) = self.player.state() {
+        if let Some(controller) = self.controller() {
+            if let Some(track) = &self.player.track {
                 let progress = Body::PlaybackProgress {
                     message_id: Uuid::new_v4(),
-                    track: player_state.track,
-                    quality: player_state.quality,
-                    duration: player_state.duration,
-                    buffered: player_state.buffered,
-                    progress: player_state.progress,
-                    volume: player_state.volume,
-                    is_playing: player_state.is_playing,
-                    is_shuffle: player_state.is_shuffle,
-                    repeat_mode: player_state.repeat_mode,
+                    track: track.element,
+                    quality: track.quality,
+                    duration: track.duration,
+                    buffered: track.buffered,
+                    progress: track.progress(),
+                    volume: self.player.volume(),
+                    is_playing: self.player.playing,
+                    is_shuffle: self.player.shuffle,
+                    repeat_mode: self.player.repeat_mode,
                 };
-                
+
                 let command = self.command(controller.clone(), progress);
                 self.send_message(command).await?;
 
                 return Ok(());
             } else {
                 return Err(Error::Protocol(
-                    "playback progress should have active queue".to_string(),
+                    "playback progress should have active track".to_string(),
                 ));
             }
         }
@@ -626,11 +688,8 @@ impl Client {
         ))
     }
 
-    async fn handle_status(&mut self, command_id: Uuid, status: Status) -> Result<()> {
-        if status == Status::Error {
-            warn!("controller failed to process {command_id}");
-        }
-
+    async fn handle_acknowledgement(&mut self, acknowledgement_id: Uuid) -> Result<()> {
+        trace!("controller acknowledged {acknowledgement_id}");
         Ok(())
     }
 
@@ -642,11 +701,14 @@ impl Client {
                         match message.clone() {
                             Message::Receive { contents, .. } => {
                                 let from = contents.headers.from;
+
+                                // Ignore echoes of own messages.
                                 if from == self.device_id {
-                                    // Ignore echoes of own messages.
                                     return ControlFlow::Continue(());
-                                } else if let Some(destination) = contents.headers.destination {
-                                    // Ignore messages directed at others.
+                                }
+
+                                // Ignore messages directed at others.
+                                if let Some(destination) = contents.headers.destination {
                                     if destination != self.device_id {
                                         return ControlFlow::Continue(());
                                     }
@@ -654,10 +716,8 @@ impl Client {
 
                                 debug!("{message}");
 
-                                if let ConnectionState::Connected { controller, .. } =
-                                    &self.connection_state
-                                {
-                                    if *controller == from {
+                                if let Some(controller) = self.controller() {
+                                    if controller == from {
                                         self.reset_watchdog_rx();
                                     }
                                 }
@@ -665,9 +725,7 @@ impl Client {
                                 let result = match contents.body {
                                     Body::Acknowledgement {
                                         acknowledgement_id, ..
-                                    } => {
-                                        self.handle_acknowledgement(from, acknowledgement_id).await
-                                    }
+                                    } => self.handle_acknowledgement(acknowledgement_id).await,
 
                                     Body::Close { .. } => self.handle_close().await,
 
@@ -712,11 +770,9 @@ impl Client {
 
                                     Body::Status {
                                         command_id, status, ..
-                                    } => self.handle_status(command_id, status).await,
-                                    
-                                    Body::Stop {
-                                        ..
-                                    } => {
+                                    } => self.handle_status(from, command_id, status).await,
+
+                                    Body::Stop { .. } => {
                                         self.player.stop();
                                         Ok(())
                                     }
@@ -788,6 +844,7 @@ impl Client {
         self.reset_watchdog_tx();
 
         let json = serde_json::to_string(&message)?;
+        trace!("{json:#?}");
         let frame = WebsocketMessage::Text(json);
         self.send_frame(frame).await
     }

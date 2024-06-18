@@ -86,16 +86,16 @@ impl Channel {
 
 impl Event {
     /// Wire value for [`Event::RemoteCommand`](#variant.RemoteCommand).
-    const REMOTE_COMMAND: &str = "REMOTECOMMAND";
+    const REMOTE_COMMAND: &'static str = "REMOTECOMMAND";
 
     /// Wire value for [`Event::RemoteDiscover`](#variant.RemoteDiscover).
-    const REMOTE_DISCOVER: &str = "REMOTEDISCOVER";
+    const REMOTE_DISCOVER: &'static str = "REMOTEDISCOVER";
 
     /// Wire value for [`Event::RemoteQueue`](#variant.RemoteQueue).
-    const REMOTE_QUEUE: &str = "REMOTEQUEUE";
+    const REMOTE_QUEUE: &'static str = "REMOTEQUEUE";
 
     /// Wire value for [`Event::UserFeed`](#variant.UserFeed).
-    const USER_FEED: &str = "USERFEED";
+    const USER_FEED: &'static str = "USERFEED";
 }
 
 impl fmt::Display for Channel {

@@ -1,4 +1,4 @@
-use std::{fmt, fs, io};
+use std::{fmt, fs, io, ops::Deref};
 use toml;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -68,9 +68,12 @@ impl Arl {
 
         Self::new(arl)
     }
+}
 
-    #[must_use]
-    pub fn as_str(&self) -> &str {
+impl Deref for Arl {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }

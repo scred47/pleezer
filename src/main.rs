@@ -145,6 +145,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     // session is refreshed with possibly new user data.
     loop {
         tokio::select! {
+            // Prioritize shutdown signals.
             biased;
 
             _ = tokio::signal::ctrl_c() => {
