@@ -10,7 +10,7 @@ pub mod protos;
 
 pub use channel::{Channel, Event, UserId};
 pub use contents::{
-    Body, Contents, DeviceId, Headers, Element, Percentage, AudioQuality, RepeatMode, Status,
+    AudioQuality, Body, Contents, DeviceId, Element, Headers, Percentage, RepeatMode, Status,
 };
 pub use messages::Message;
 pub use protos::queue;

@@ -3,7 +3,10 @@ use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::protocol::connect::{Element, Percentage, contents::{self, AudioQuality, RepeatMode}, queue};
+use crate::protocol::connect::{
+    contents::{self, AudioQuality, RepeatMode},
+    queue, Element, Percentage,
+};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -40,7 +43,7 @@ pub struct Player {
     pub playing: bool,
     pub repeat_mode: RepeatMode,
     pub shuffle: bool,
-    
+
     // TODO : replace with Rodio volume
     volume: Percentage,
 }
@@ -91,7 +94,7 @@ impl Player {
     pub fn shuffle(&self) -> bool {
         self.shuffle
     }
-    
+
     #[must_use]
     pub fn volume(&self) -> Percentage {
         self.volume
@@ -100,25 +103,30 @@ impl Player {
     pub fn set_volume(&mut self, volume: Percentage) {
         self.volume = volume;
     }
-    
+
     pub fn set_position(&mut self, progress: Percentage) -> Result<()> {
         let progress = progress.as_ratio();
         if progress < 0.0 || progress > 1.0 {
             return Err(Error(format!("position cannot be set to {progress}")));
         }
-        
+
         if let Some(mut track) = self.track {
             if let Some(position) = track.duration.checked_mul(progress as u32) {
                 track.position = position;
                 Ok(())
             } else {
-                Err(Error(format!("failed setting track with duration {:?} to position {progress}", track.duration)))
+                Err(Error(format!(
+                    "failed setting track with duration {:?} to position {progress}",
+                    track.duration
+                )))
             }
         } else {
-            Err(Error("position cannot be set without an active track".to_string()))
+            Err(Error(
+                "position cannot be set without an active track".to_string(),
+            ))
         }
     }
-    
+
     pub fn load_track(&mut self, track: Track) -> Result<()> {
         // retrieve metadata from web url, not download (yet) ?
         Ok(())
@@ -148,7 +156,7 @@ impl Player {
                 position: Duration::from_secs(0),
             });
         }
-        
+
         if let Some(progress) = progress {
             if let Some(mut track) = self.track {
                 // TODO : make it seek()
@@ -158,7 +166,7 @@ impl Player {
                 error!("cannot set track position without a track");
             }
         }
-        
+
         if let Some(should_play) = should_play {
             if should_play {
                 self.play();
@@ -166,17 +174,17 @@ impl Player {
                 self.stop();
             }
         }
-        
+
         if let Some(shuffle) = set_shuffle {
             debug!("setting shuffle to {shuffle}");
             self.shuffle = shuffle;
         }
-        
+
         if let Some(repeat_mode) = set_repeat_mode {
             debug!("setting repeat mode to {repeat_mode}");
             self.repeat_mode = repeat_mode;
         }
-        
+
         if let Some(volume) = set_volume {
             debug!("setting volume to {volume}");
             self.volume = volume;

@@ -14,7 +14,7 @@ use crate::{
     config::Config,
     player,
     protocol::connect::{
-        queue, Body, Channel, Contents, DeviceId, Event, Headers, Element, Message, Percentage,
+        queue, Body, Channel, Contents, DeviceId, Element, Event, Headers, Message, Percentage,
         RepeatMode, Status, UserId,
     },
     tokens::{UserToken, UserTokenError, UserTokenProvider},
