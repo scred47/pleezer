@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use base64::prelude::*;
 use flate2::{
     read::{DeflateDecoder, DeflateEncoder},
     Compression,
@@ -274,7 +275,7 @@ impl Body {
             | Self::RefreshQueue { message_id, .. }
             | Self::Skip { message_id, .. }
             | Self::Status { message_id, .. }
-            | Self::Stop { message_id, .. } => message_id.clone(),
+            | Self::Stop { message_id, .. } => *message_id,
         }
     }
 }
@@ -339,7 +340,7 @@ impl fmt::Display for RepeatMode {
             RepeatMode::None => write!(f, "None"),
             RepeatMode::All => write!(f, "All"),
             RepeatMode::One => write!(f, "One"),
-            _ => Err(fmt::Error::default()),
+            RepeatMode::Unrecognized => Err(fmt::Error),
         }
     }
 }
@@ -374,6 +375,7 @@ pub enum AudioQuality {
     /// 320 kbps MP3 (requires Premium subscription)
     High = 2,
 
+    #[allow(clippy::doc_markdown)]
     /// 1411 kbps FLAC (requires HiFi subscription)
     Lossless = 3,
 
@@ -388,7 +390,7 @@ impl fmt::Display for AudioQuality {
             AudioQuality::Standard => write!(f, "Standard"),
             AudioQuality::High => write!(f, "High Quality"),
             AudioQuality::Lossless => write!(f, "High Fidelity"),
-            _ => Err(fmt::Error::default()),
+            AudioQuality::Unknown => Err(fmt::Error),
         }
     }
 }
@@ -397,7 +399,7 @@ impl FromStr for AudioQuality {
     type Err = super::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let variant = match s.as_ref() {
+        let variant = match s {
             "low" => AudioQuality::Basic,
             "standard" => AudioQuality::Standard,
             "high" => AudioQuality::High,
@@ -730,12 +732,12 @@ impl fmt::Display for Payload {
                     let mut deflater = DeflateEncoder::new(&protobuf[..], Compression::fast());
                     if let Err(e) = deflater.read_to_end(&mut buffer) {
                         error!("{e}");
-                        return Err(fmt::Error::default());
+                        return Err(fmt::Error);
                     }
                 }
                 Err(e) => {
                     error!("{e}");
-                    return Err(fmt::Error::default());
+                    return Err(fmt::Error);
                 }
             }
         } else {
@@ -748,11 +750,11 @@ impl fmt::Display for Payload {
 
             if let Err(e) = serde_json::to_writer(&mut buffer, self) {
                 error!("{e}");
-                return Err(fmt::Error::default());
+                return Err(fmt::Error);
             }
         }
 
-        write!(f, "{}", base64::encode(buffer))
+        write!(f, "{}", BASE64_STANDARD.encode(buffer))
     }
 }
 
@@ -761,7 +763,7 @@ impl FromStr for Payload {
 
     /// TODO : first decode base64 in fromstr, then deserialize json with traits
     fn from_str(encoded: &str) -> Result<Self, Self::Err> {
-        let decoded = base64::decode(encoded)?;
+        let decoded = BASE64_STANDARD.decode(encoded)?;
 
         if let Ok(s) = std::str::from_utf8(&decoded) {
             // `serde_with::NoneAsEmptyString` does not apply to `FromStr`.
@@ -1239,6 +1241,6 @@ impl TryFrom<WireBody> for Body {
 
 impl fmt::Display for MessageType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }

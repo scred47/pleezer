@@ -24,6 +24,7 @@ pub struct Track {
 }
 
 impl Track {
+    #[must_use]
     pub fn progress(&self) -> Percentage {
         // TODO: replace with `Duration::div_duration_f64` once stabilized
         let position = self.position.as_secs_f64();
@@ -54,14 +55,12 @@ impl Player {
         Self::default()
     }
 
-    pub fn play(&mut self) -> Result<()> {
+    pub fn play(&mut self) {
         self.playing = true;
-        Ok(())
     }
 
-    pub fn stop(&mut self) -> Result<()> {
+    pub fn stop(&mut self) {
         self.playing = false;
-        Ok(())
     }
 
     #[must_use]
@@ -75,14 +74,14 @@ impl Player {
 
     #[must_use]
     pub fn track(&self) -> Option<Track> {
-        self.track.clone()
+        self.track
     }
 
-    pub fn skip_to(&self, position: usize) -> Option<Track> {
+    pub fn skip_to(&self, _position: usize) -> Option<Track> {
         todo!()
     }
 
-    pub fn set_track(&mut self, track: Track) -> Result<()> {
+    pub fn set_track(&mut self, _track: Track) -> Result<()> {
         todo!()
     }
 
@@ -106,20 +105,14 @@ impl Player {
 
     pub fn set_position(&mut self, progress: Percentage) -> Result<()> {
         let progress = progress.as_ratio();
-        if progress < 0.0 || progress > 1.0 {
+        if !(0.0..=1.0).contains(&progress) {
             return Err(Error(format!("position cannot be set to {progress}")));
         }
 
         if let Some(mut track) = self.track {
-            if let Some(position) = track.duration.checked_mul(progress as u32) {
-                track.position = position;
-                Ok(())
-            } else {
-                Err(Error(format!(
-                    "failed setting track with duration {:?} to position {progress}",
-                    track.duration
-                )))
-            }
+            // OK to multiply unchecked, because `progress` is clamped above.
+            track.position = track.duration.mul_f64(progress);
+            Ok(())
         } else {
             Err(Error(
                 "position cannot be set without an active track".to_string(),
@@ -127,11 +120,12 @@ impl Player {
         }
     }
 
-    pub fn load_track(&mut self, track: Track) -> Result<()> {
+    pub fn load_track(&mut self, _track: Track) -> Result<()> {
         // retrieve metadata from web url, not download (yet) ?
         Ok(())
     }
 
+    // TODO : move to remote
     pub fn set_state(
         &mut self,
         _queue_id: Uuid,
@@ -158,10 +152,10 @@ impl Player {
         }
 
         if let Some(progress) = progress {
-            if let Some(mut track) = self.track {
+            if self.track.is_some() {
                 // TODO : make it seek()
                 debug!("setting track position to {progress}");
-                self.set_position(progress);
+                let _ = self.set_position(progress);
             } else {
                 error!("cannot set track position without a track");
             }

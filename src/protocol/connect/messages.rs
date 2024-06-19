@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{Channel, Contents, StreamContents};
+use super::{stream, Channel, Contents};
 
 /// A list of messages on a [Deezer Connect][Connect] websocket.
 ///
@@ -32,22 +32,22 @@ pub enum Message {
         contents: Contents,
     },
 
-    /// A message with [`StreamContents`] to send into a [`Channel`].
+    /// A message with [`stream::Contents`] to send into a [`Channel`].
     ///
     /// [`Channel`]: struct.Channel.html
-    /// [`StreamContents`]: ../stream/struct.StreamContents.html
+    /// [`stream::Contents`]: ../stream/struct.stream::Contents.html
     StreamSend {
         channel: Channel,
-        contents: StreamContents,
+        contents: stream::Contents,
     },
 
-    /// A message with [`StreamContents`] received over a [`Channel`].
+    /// A message with [`stream::Contents`] received over a [`Channel`].
     ///
     /// [`Channel`]: struct.Channel.html
-    /// [`StreamContents`]: ../stream/struct.StreamContents.html
+    /// [`stream::Contents`]: ../stream/struct.stream::Contents.html
     StreamReceive {
         channel: Channel,
-        contents: StreamContents,
+        contents: stream::Contents,
     },
 
     /// A subscription to a [`Channel`](struct.Channel.html).
@@ -141,7 +141,7 @@ enum WireMessage {
     /// [`Contents`]: struct.Contents.html
     /// [`Stream`]: ../channel/enum.Channel.html#variant.Stream
     /// [JSON]: https://www.json.org/
-    WithStreamContents(Stanza, Channel, StreamContents),
+    WithStreamContents(Stanza, Channel, stream::Contents),
 
     /// A sequence to subscribe to or unsubscribe from a [`Channel`]. On the
     /// wire this is a two-element [JSON] array composed of two strings.
@@ -191,7 +191,7 @@ enum Stanza {
 
 impl fmt::Display for Stanza {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

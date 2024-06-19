@@ -255,7 +255,7 @@ impl Client {
                             }
 
                             match self.handle_message(&message).await {
-                                ControlFlow::Continue(_) => continue,
+                                ControlFlow::Continue(()) => continue,
 
                                 ControlFlow::Break(Error::UserToken(UserTokenError::Refresh)) => {
                                     info!("stopping client: {}", UserTokenError::Refresh);
@@ -424,7 +424,7 @@ impl Client {
             return Some(controller.clone());
         }
 
-        return None;
+        None
     }
 
     async fn handle_status(
@@ -469,16 +469,16 @@ impl Client {
 
                     info!("connected to {controller}");
                     return Ok(());
-                } else {
-                    return Err(Error::Protocol(
-                        "should have received skip before initial status".to_string(),
-                    ));
                 }
-            } else {
+
                 return Err(Error::Protocol(
-                    "should match controller and ready message".to_string(),
+                    "should have received skip before initial status".to_string(),
                 ));
             }
+
+            return Err(Error::Protocol(
+                "should match controller and ready message".to_string(),
+            ));
         }
 
         // Ignore other status messages.
@@ -508,9 +508,9 @@ impl Client {
         self.discovery_state = DiscoveryState::Available;
     }
 
-    async fn handle_publish_queue(&mut self, queue: queue::List) -> Result<()> {
+    fn handle_publish_queue(&mut self, queue: queue::List) -> Result<()> {
         if self.controller().is_some() {
-            self.player.set_queue(queue.clone());
+            self.player.set_queue(queue);
 
             return Ok(());
         }
@@ -547,17 +547,17 @@ impl Client {
                 let queue = self.message(controller.clone(), remote_queue, queue);
                 self.send_message(queue).await?;
 
-                return self.report_playback_progress().await;
+                self.report_playback_progress().await
             } else {
-                return Err(Error::Protocol(
+                Err(Error::Protocol(
                     "queue refresh should have a published queue".to_string(),
-                ));
+                ))
             }
+        } else {
+            Err(Error::Protocol(
+                "queue refresh should have an active connection".to_string(),
+            ))
         }
-
-        Err(Error::Protocol(
-            "queue refresh should have an active connection".to_string(),
-        ))
     }
 
     async fn send_acknowledgement(&mut self, acknowledgement_id: Uuid) -> Result<()> {
@@ -578,6 +578,7 @@ impl Client {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handle_skip(
         &mut self,
         message_id: Uuid,
@@ -601,7 +602,7 @@ impl Client {
                 set_repeat_mode,
                 set_volume,
             ) {
-                Ok(_) => Status::OK,
+                Ok(()) => Status::OK,
                 Err(e) => {
                     error!("{e}");
                     Status::Error
@@ -675,22 +676,17 @@ impl Client {
                 let command = self.command(controller.clone(), progress);
                 self.send_message(command).await?;
 
-                return Ok(());
+                Ok(())
             } else {
-                return Err(Error::Protocol(
+                Err(Error::Protocol(
                     "playback progress should have active track".to_string(),
-                ));
+                ))
             }
+        } else {
+            Err(Error::Protocol(
+                "playback progress should have an active connection".to_string(),
+            ))
         }
-
-        Err(Error::Protocol(
-            "playback progress should have an active connection".to_string(),
-        ))
-    }
-
-    async fn handle_acknowledgement(&mut self, acknowledgement_id: Uuid) -> Result<()> {
-        trace!("controller acknowledged {acknowledgement_id}");
-        Ok(())
     }
 
     async fn handle_message(&mut self, message: &WebsocketMessage) -> ControlFlow<Error, ()> {
@@ -714,7 +710,7 @@ impl Client {
                                     }
                                 }
 
-                                debug!("{message}");
+                                trace!("{message}");
 
                                 if let Some(controller) = self.controller() {
                                     if controller == from {
@@ -722,70 +718,7 @@ impl Client {
                                     }
                                 }
 
-                                let result = match contents.body {
-                                    Body::Acknowledgement {
-                                        acknowledgement_id, ..
-                                    } => self.handle_acknowledgement(acknowledgement_id).await,
-
-                                    Body::Close { .. } => self.handle_close().await,
-
-                                    Body::Connect { from, offer_id, .. } => {
-                                        self.handle_connect(from, offer_id).await
-                                    }
-
-                                    Body::DiscoveryRequest { from, .. } => {
-                                        self.handle_discovery_request(from).await
-                                    }
-
-                                    Body::Ping { .. } => Ok(()),
-
-                                    Body::PublishQueue { queue, .. } => {
-                                        self.handle_publish_queue(queue).await
-                                    }
-
-                                    Body::RefreshQueue { .. } => self.handle_refresh_queue().await,
-
-                                    Body::Skip {
-                                        message_id,
-                                        queue_id,
-                                        track,
-                                        progress,
-                                        should_play,
-                                        set_shuffle,
-                                        set_repeat_mode,
-                                        set_volume,
-                                    } => {
-                                        self.handle_skip(
-                                            message_id,
-                                            queue_id,
-                                            track,
-                                            progress,
-                                            should_play,
-                                            set_shuffle,
-                                            set_repeat_mode,
-                                            set_volume,
-                                        )
-                                        .await
-                                    }
-
-                                    Body::Status {
-                                        command_id, status, ..
-                                    } => self.handle_status(from, command_id, status).await,
-
-                                    Body::Stop { .. } => {
-                                        self.player.stop();
-                                        Ok(())
-                                    }
-
-                                    Body::ConnectionOffer { .. }
-                                    | Body::PlaybackProgress { .. }
-                                    | Body::Ready { .. } => {
-                                        trace!("ignoring message intended for a controller");
-                                        Ok(())
-                                    }
-                                };
-
-                                if let Err(e) = result {
+                                if let Err(e) = self.dispatch(from, contents.body).await {
                                     error!("error handling message: {e}");
                                 }
                             }
@@ -827,6 +760,66 @@ impl Client {
         ControlFlow::Continue(())
     }
 
+    async fn dispatch(&mut self, from: DeviceId, body: Body) -> Result<()> {
+        match body {
+            Body::Acknowledgement {
+                acknowledgement_id, ..
+            } => {
+                debug!("controller acknowledged {acknowledgement_id}");
+                Ok(())
+            }
+
+            Body::Close { .. } => self.handle_close().await,
+
+            Body::Connect { from, offer_id, .. } => self.handle_connect(from, offer_id).await,
+
+            Body::DiscoveryRequest { from, .. } => self.handle_discovery_request(from).await,
+
+            Body::Ping { .. } => Ok(()),
+
+            Body::PublishQueue { queue, .. } => self.handle_publish_queue(queue),
+
+            Body::RefreshQueue { .. } => self.handle_refresh_queue().await,
+
+            Body::Skip {
+                message_id,
+                queue_id,
+                track,
+                progress,
+                should_play,
+                set_shuffle,
+                set_repeat_mode,
+                set_volume,
+            } => {
+                self.handle_skip(
+                    message_id,
+                    queue_id,
+                    track,
+                    progress,
+                    should_play,
+                    set_shuffle,
+                    set_repeat_mode,
+                    set_volume,
+                )
+                .await
+            }
+
+            Body::Status {
+                command_id, status, ..
+            } => self.handle_status(from, command_id, status).await,
+
+            Body::Stop { .. } => {
+                self.player.stop();
+                Ok(())
+            }
+
+            Body::ConnectionOffer { .. } | Body::PlaybackProgress { .. } | Body::Ready { .. } => {
+                trace!("ignoring message intended for a controller");
+                Ok(())
+            }
+        }
+    }
+
     async fn send_frame(&mut self, frame: WebsocketMessage) -> Result<()> {
         match &mut self.websocket_tx {
             Some(tx) => tx.send(frame).await.map_err(Into::into),
@@ -850,7 +843,7 @@ impl Client {
     }
 
     async fn subscribe(&mut self, event: Event) -> Result<()> {
-        if self.subscriptions.get(&event).is_none() {
+        if !self.subscriptions.contains(&event) {
             let channel = self.channel(event);
 
             let subscribe = Message::Subscribe { channel };
@@ -863,7 +856,7 @@ impl Client {
     }
 
     async fn unsubscribe(&mut self, event: Event) -> Result<()> {
-        if self.subscriptions.get(&event).is_some() {
+        if self.subscriptions.contains(&event) {
             let channel = self.channel(event);
 
             let unsubscribe = Message::Unsubscribe { channel };

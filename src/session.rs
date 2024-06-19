@@ -14,7 +14,7 @@ use governor::{
 use rand::Rng;
 use reqwest::{self, cookie::CookieStore};
 use serde::Deserialize;
-use sysinfo::{self, System};
+use sysinfo;
 use thiserror::Error;
 
 use crate::{

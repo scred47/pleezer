@@ -17,7 +17,7 @@ impl Arl {
             if !arl.is_ascii()
                 || chr.is_ascii_control()
                 || chr.is_ascii_whitespace()
-                || vec!['\"', ',', ';', '\\'].contains(&chr)
+                || ['\"', ',', ';', '\\'].contains(&chr)
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,

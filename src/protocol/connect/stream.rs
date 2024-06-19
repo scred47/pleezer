@@ -1,8 +1,4 @@
-use std::{
-    fmt::{self, Write},
-    num::NonZeroU64,
-    str::FromStr,
-};
+use std::{fmt, num::NonZeroU64, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DeserializeFromStr, DisplayFromStr, SerializeDisplay};
@@ -19,37 +15,37 @@ use super::channel::UserId;
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct StreamContents {
-    /// The [Deezer Connect][Connect] websocket [`Message`] [`StreamAction`]
-    /// that these `StreamContents` are for.
+pub struct Contents {
+    /// The [Deezer Connect][Connect] websocket [`Message`] [`Action`]
+    /// that these `Contents` are for.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`StreamAction`]: enum.StreamAction.html
+    /// [`Action`]: enum.Action.html
     /// [`Message`]: ../messages/enum.Message.html
     #[serde(rename = "ACTION")]
-    pub action: StreamAction,
+    pub action: Action,
 
-    /// The [Deezer Connect][Connect] websocket [`Message`] [`StreamEvent`]
-    /// that these `StreamContents` are for.
+    /// The [Deezer Connect][Connect] websocket [`Message`] [`Event`]
+    /// that these `Contents` are for.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`StreamAction`]: enum.StreamEvent.html
+    /// [`Action`]: enum.Event.html
     /// [`Message`]: ../messages/enum.Message.html
     #[serde(rename = "APP")]
-    pub event: StreamEvent,
+    pub event: Event,
 
     /// The value of these [Deezer Connect][Connect] websocket [`Message`]
-    /// `StreamContents`.
+    /// `Contents`.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     /// [`Message`]: ../messages/enum.Message.html
     #[serde(rename = "VALUE")]
-    pub value: StreamValue,
+    pub value: Value,
 }
 
 #[serde_as]
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct StreamValue {
+pub struct Value {
     #[serde(rename = "USER_ID")]
     #[serde_as(as = "DisplayFromStr")]
     user: UserId,
@@ -62,24 +58,24 @@ pub struct StreamValue {
 }
 
 #[derive(Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, Hash)]
-pub enum StreamAction {
+pub enum Action {
     Play,
 }
 
 #[derive(Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, Hash)]
-pub enum StreamEvent {
+pub enum Event {
     Limitation,
 }
 
-impl StreamAction {
+impl Action {
     const PLAY: &'static str = "PLAY";
 }
 
-impl StreamEvent {
+impl Event {
     const LIMITATION: &'static str = "LIMITATION";
 }
 
-impl fmt::Display for StreamContents {
+impl fmt::Display for Contents {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -89,8 +85,8 @@ impl fmt::Display for StreamContents {
     }
 }
 
-impl fmt::Display for StreamAction {
-    /// Formats an `StreamAction` as a wire string for use on a
+impl fmt::Display for Action {
+    /// Formats an `Action` as a wire string for use on a
     /// [Deezer Connect][Connect] websocket.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
@@ -101,11 +97,11 @@ impl fmt::Display for StreamAction {
     }
 }
 
-impl FromStr for StreamAction {
+impl FromStr for Action {
     type Err = super::Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
-    /// return a variant of `StreamAction`.
+    /// return a variant of `Action`.
     ///
     /// The string `s` is parsed as uppercase.
     ///
@@ -120,8 +116,8 @@ impl FromStr for StreamAction {
     }
 }
 
-impl fmt::Display for StreamEvent {
-    /// Formats an `StreamEvent` as a wire string for use on a
+impl fmt::Display for Event {
+    /// Formats an `Event` as a wire string for use on a
     /// [Deezer Connect][Connect] websocket.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
@@ -132,11 +128,11 @@ impl fmt::Display for StreamEvent {
     }
 }
 
-impl FromStr for StreamEvent {
+impl FromStr for Event {
     type Err = super::Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
-    /// return a variant of `StreamEvent`.
+    /// return a variant of `Event`.
     ///
     /// The string `s` is parsed as uppercase.
     ///

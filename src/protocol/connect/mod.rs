@@ -15,7 +15,6 @@ pub use contents::{
 };
 pub use messages::Message;
 pub use protos::queue;
-pub use stream::StreamContents;
 
 /// A specialized [`Result`] for [Deezer Connect][Connect] websocket
 /// operations.
