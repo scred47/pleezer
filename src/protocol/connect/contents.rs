@@ -361,7 +361,7 @@ impl fmt::Display for RepeatMode {
     PartialOrd,
     Ord,
 )]
-// `u64` because this is serialized into and deserialized from JSON.
+// `i64` because this is serialized into and deserialized from JSON.
 #[repr(i64)]
 pub enum AudioQuality {
     /// 64 kbps MP3

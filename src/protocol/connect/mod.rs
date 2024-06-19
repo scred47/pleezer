@@ -7,6 +7,7 @@ pub mod channel;
 pub mod contents;
 pub mod messages;
 pub mod protos;
+pub mod stream;
 
 pub use channel::{Channel, Event, UserId};
 pub use contents::{
@@ -14,6 +15,7 @@ pub use contents::{
 };
 pub use messages::Message;
 pub use protos::queue;
+pub use stream::StreamContents;
 
 /// A specialized [`Result`] for [Deezer Connect][Connect] websocket
 /// operations.

@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{Channel, Contents};
+use super::{Channel, Contents, StreamContents};
 
 /// A list of messages on a [Deezer Connect][Connect] websocket.
 ///
@@ -32,6 +32,24 @@ pub enum Message {
         contents: Contents,
     },
 
+    /// A message with [`StreamContents`] to send into a [`Channel`].
+    ///
+    /// [`Channel`]: struct.Channel.html
+    /// [`StreamContents`]: ../stream/struct.StreamContents.html
+    StreamSend {
+        channel: Channel,
+        contents: StreamContents,
+    },
+
+    /// A message with [`StreamContents`] received over a [`Channel`].
+    ///
+    /// [`Channel`]: struct.Channel.html
+    /// [`StreamContents`]: ../stream/struct.StreamContents.html
+    StreamReceive {
+        channel: Channel,
+        contents: StreamContents,
+    },
+
     /// A subscription to a [`Channel`](struct.Channel.html).
     Subscribe { channel: Channel },
 
@@ -47,6 +65,12 @@ impl fmt::Display for Message {
                 write!(f, "{:<14} -> {contents}", channel.event)
             }
             Self::Receive { channel, contents } => {
+                write!(f, "{:<14} <- {contents}", channel.event)
+            }
+            Self::StreamSend { channel, contents } => {
+                write!(f, "{:<14} -> {contents}", channel.event)
+            }
+            Self::StreamReceive { channel, contents } => {
                 write!(f, "{:<14} <- {contents}", channel.event)
             }
             Self::Subscribe { channel } => write!(f, "subscribing to {channel}"),
@@ -97,7 +121,7 @@ impl<'de> Deserialize<'de> for Message {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 // Large size difference between variants is OK because the largest variant,
-/// `WithContents`, is also the variant that is most frequent.
+// `WithContents`, is also the variant that is most frequent.
 #[allow(clippy::large_enum_variant)]
 enum WireMessage {
     /// A sequence to send or receive message [`Contents`] over a [`Channel`].
@@ -109,12 +133,24 @@ enum WireMessage {
     /// [JSON]: https://www.json.org/
     WithContents(Stanza, Channel, Contents),
 
+    /// A sequence to send or receive message [`Contents`] over a [`Stream`]
+    /// [`Channel`]. On the wire this is a three-element [JSON] array composed
+    /// of two strings followed by a map.
+    ///
+    /// [`Channel`]: struct.Channel.html
+    /// [`Contents`]: struct.Contents.html
+    /// [`Stream`]: ../channel/enum.Channel.html#variant.Stream
+    /// [JSON]: https://www.json.org/
+    WithStreamContents(Stanza, Channel, StreamContents),
+
     /// A sequence to subscribe to or unsubscribe from a [`Channel`]. On the
     /// wire this is a two-element [JSON] array composed of two strings.
     ///
     /// [`Channel`]: struct.Channel.html
     /// [`Contents`]: struct.Contents.html
     /// [JSON]: https://www.json.org/
+    //
+    // Has to be last, or it would match for each `WireMessage`.
     Subscription(Stanza, Channel),
 }
 
@@ -191,6 +227,15 @@ impl TryFrom<Message> for WireMessage {
                 Self::WithContents(Stanza::Send, channel, contents)
             }
 
+            // On `Stream` channels, the `Event` value is not equal to the `Stream` name.
+            Message::StreamReceive { channel, contents } => {
+                Self::WithStreamContents(Stanza::Receive, channel, contents)
+            }
+
+            Message::StreamSend { channel, contents } => {
+                Self::WithStreamContents(Stanza::Send, channel, contents)
+            }
+
             Message::Subscribe { channel } => Self::Subscription(Stanza::Subscribe, channel),
             Message::Unsubscribe { channel } => Self::Subscription(Stanza::Unsubscribe, channel),
         };
@@ -226,6 +271,18 @@ impl TryFrom<WireMessage> for Message {
                     }
                 }
             }
+
+            // On `Stream` channels, the `Event` value is not equal to the `Stream` name.
+            WireMessage::WithStreamContents(stanza, channel, contents) => match stanza {
+                Stanza::Send => Self::StreamSend { channel, contents },
+                Stanza::Receive => Self::StreamReceive { channel, contents },
+                _ => {
+                    return Err(Self::Error::Unsupported(format!(
+                        "stanza {stanza} should match for stream message with contents"
+                    )));
+                }
+            },
+
             WireMessage::Subscription(stanza, channel) => match stanza {
                 Stanza::Subscribe => Self::Subscribe { channel },
                 Stanza::Unsubscribe => Self::Unsubscribe { channel },

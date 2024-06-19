@@ -10,9 +10,7 @@ use serde_with::{DeserializeFromStr, SerializeDisplay};
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 /// [`Message`]: ../messages/enum.Message.html
-#[derive(
-    Copy, Clone, Debug, Hash, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Copy, Clone, Debug, Hash, SerializeDisplay, DeserializeFromStr, PartialEq)]
 pub struct Channel {
     /// The sending [Deezer] [`UserId`].
     ///
@@ -57,9 +55,7 @@ pub enum UserId {
 /// A list of [Deezer Connect][Connect] websocket message events.
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-#[derive(
-    Copy, Clone, Debug, Hash, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord,
-)]
+#[derive(Copy, Clone, Debug, Hash, SerializeDisplay, DeserializeFromStr, PartialEq, Eq)]
 pub enum Event {
     /// Playback control and status information.
     RemoteCommand,
@@ -69,6 +65,9 @@ pub enum Event {
 
     /// Playback queue publications from the controlling device.
     RemoteQueue,
+
+    /// Playback notifications from Deezer Connect devices.
+    Stream,
 
     /// Following friends, commenting on playlists, sharing content.
     ///
@@ -93,6 +92,9 @@ impl Event {
 
     /// Wire value for [`Event::RemoteQueue`](#variant.RemoteQueue).
     const REMOTE_QUEUE: &'static str = "REMOTEQUEUE";
+
+    /// Write value for [`Event::Stream`](#variant.Stream).
+    const STREAM: &'static str = "STREAM";
 
     /// Wire value for [`Event::UserFeed`](#variant.UserFeed).
     const USER_FEED: &'static str = "USERFEED";
@@ -231,6 +233,7 @@ impl fmt::Display for Event {
             Self::RemoteCommand => write!(f, "{}", Self::REMOTE_COMMAND),
             Self::RemoteDiscover => write!(f, "{}", Self::REMOTE_DISCOVER),
             Self::RemoteQueue => write!(f, "{}", Self::REMOTE_QUEUE),
+            Self::Stream => write!(f, "{}", Self::STREAM),
             Self::UserFeed(id) => write!(f, "{}{}{}", Self::USER_FEED, Channel::SEPARATOR, id),
         }
     }
@@ -255,6 +258,7 @@ impl FromStr for Event {
             Self::REMOTE_COMMAND => Self::RemoteCommand,
             Self::REMOTE_DISCOVER => Self::RemoteDiscover,
             Self::REMOTE_QUEUE => Self::RemoteQueue,
+            Self::STREAM => Self::Stream,
             Self::USER_FEED => {
                 if let Some(id) = id {
                     let id = id.parse::<UserId>()?;
