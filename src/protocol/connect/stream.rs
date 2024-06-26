@@ -48,13 +48,14 @@ pub struct Contents {
 pub struct Value {
     #[serde(rename = "USER_ID")]
     #[serde_as(as = "DisplayFromStr")]
-    user: UserId,
+    pub user: UserId,
 
     #[serde(rename = "UNIQID")]
-    uuid: Uuid,
+    pub uuid: Uuid,
 
     #[serde(rename = "SNG_ID")]
-    track: NonZeroU64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub track_id: NonZeroU64,
 }
 
 #[derive(Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, Hash)]
@@ -77,11 +78,7 @@ impl Event {
 
 impl fmt::Display for Contents {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {}: {} {}",
-            self.event, self.value.uuid, self.action, self.value.track,
-        )
+        write!(f, "{} {}", self.action, self.value.track_id)
     }
 }
 

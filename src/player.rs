@@ -1,7 +1,6 @@
-use std::time::Duration;
+use std::{num::NonZeroU64, time::Duration};
 
 use thiserror::Error;
-use uuid::Uuid;
 
 use crate::protocol::connect::{
     contents::{self, AudioQuality, RepeatMode},
@@ -14,36 +13,43 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[error("{0}")]
 pub struct Error(String);
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Track {
+    // TODO : improve visibility
     pub element: Element,
     pub quality: AudioQuality,
     pub duration: Duration,
     pub buffered: Duration,
-    pub position: Duration,
+    pub progress: Percentage,
 }
 
 impl Track {
     #[must_use]
     pub fn progress(&self) -> Percentage {
-        // TODO: replace with `Duration::div_duration_f64` once stabilized
-        let position = self.position.as_secs_f64();
-        if position > 0.0 {
-            let duration = self.duration.as_secs_f64();
-            Percentage::from_ratio(duration / position)
-        } else {
-            Percentage::from_ratio(0.0)
-        }
+        // // TODO: replace with `Duration::div_duration_f64` once stabilized
+        // let position = self.position.as_secs_f64();
+        // if position > 0.0 {
+        //     let duration = self.duration.as_secs_f64();
+        //     Percentage::from_ratio(duration / position)
+        // } else {
+        //     Percentage::from_ratio(0.0)
+        // }
+        self.progress
+    }
+
+    #[must_use]
+    pub fn id(&self) -> NonZeroU64 {
+        self.element.track_id
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Player {
-    pub track: Option<Track>,
-    pub queue: Option<queue::List>,
-    pub playing: bool,
-    pub repeat_mode: RepeatMode,
-    pub shuffle: bool,
+    track: Option<Track>,
+    queue: Option<queue::List>,
+    playing: bool,
+    repeat_mode: RepeatMode,
+    shuffle: bool,
 
     // TODO : replace with Rodio volume
     volume: Percentage,
@@ -56,11 +62,29 @@ impl Player {
     }
 
     pub fn play(&mut self) {
+        debug!("starting playback");
         self.playing = true;
     }
 
     pub fn stop(&mut self) {
+        debug!("stopping playback");
         self.playing = false;
+    }
+
+    pub fn playing(&self) -> bool {
+        self.playing
+    }
+
+    pub fn set_playing(&mut self, should_play: bool) {
+        if self.playing {
+            if !should_play {
+                self.stop();
+            }
+        } else {
+            if should_play {
+                self.play();
+            }
+        }
     }
 
     #[must_use]
@@ -74,24 +98,44 @@ impl Player {
 
     #[must_use]
     pub fn track(&self) -> Option<Track> {
-        self.track
+        self.track.clone()
     }
 
     pub fn skip_to(&self, _position: usize) -> Option<Track> {
         todo!()
     }
 
-    pub fn set_track(&mut self, _track: Track) -> Result<()> {
-        todo!()
-    }
+    pub fn set_element(&mut self, element: contents::Element) {
+        debug!("setting track to {}", element);
 
-    pub fn set_shuffle(&mut self, shuffle: bool) {
-        self.shuffle = shuffle;
+        self.track = Some(Track {
+            element,
+            // TODO : get actual user audio quality
+            quality: AudioQuality::Lossless,
+            duration: Duration::from_secs(100),
+            buffered: Duration::from_secs(100),
+            progress: Percentage::from_ratio(0.0),
+        });
     }
 
     #[must_use]
     pub fn shuffle(&self) -> bool {
         self.shuffle
+    }
+
+    pub fn set_shuffle(&mut self, shuffle: bool) {
+        debug!("setting shuffle to {shuffle}");
+        self.shuffle = shuffle;
+    }
+
+    #[must_use]
+    pub fn repeat_mode(&self) -> RepeatMode {
+        self.repeat_mode
+    }
+
+    pub fn set_repeat_mode(&mut self, repeat_mode: RepeatMode) {
+        debug!("setting repeat mode to {repeat_mode}");
+        self.repeat_mode = repeat_mode;
     }
 
     #[must_use]
@@ -100,18 +144,25 @@ impl Player {
     }
 
     pub fn set_volume(&mut self, volume: Percentage) {
+        debug!("setting volume to {volume}");
         self.volume = volume;
     }
 
-    pub fn set_position(&mut self, progress: Percentage) -> Result<()> {
-        let progress = progress.as_ratio();
-        if !(0.0..=1.0).contains(&progress) {
-            return Err(Error(format!("position cannot be set to {progress}")));
+    #[must_use]
+    pub fn progress(&self) -> Option<Percentage> {
+        self.track.as_ref().map(|track| track.progress())
+    }
+
+    pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
+        if !(0.0..=1.0).contains(&progress.as_ratio()) {
+            return Err(Error(format!("progress cannot be set to {progress}")));
         }
 
-        if let Some(mut track) = self.track {
+        if let Some(ref mut track) = &mut self.track {
+            debug!("setting track progress to {progress}");
             // OK to multiply unchecked, because `progress` is clamped above.
-            track.position = track.duration.mul_f64(progress);
+            //track.position = track.duration.mul_f64(position);
+            track.progress = progress;
             Ok(())
         } else {
             Err(Error(
@@ -122,68 +173,6 @@ impl Player {
 
     pub fn load_track(&mut self, _track: Track) -> Result<()> {
         // retrieve metadata from web url, not download (yet) ?
-        Ok(())
-    }
-
-    // TODO : move to remote
-    pub fn set_state(
-        &mut self,
-        _queue_id: Uuid,
-        element: Option<contents::Element>,
-        progress: Option<Percentage>,
-        should_play: Option<bool>,
-        set_shuffle: Option<bool>,
-        set_repeat_mode: Option<RepeatMode>,
-        set_volume: Option<Percentage>,
-    ) -> Result<()> {
-        // TODO: check whether queue matches
-
-        if let Some(element) = element {
-            // TODO : move to load_track() or something
-            debug!("setting track to {}", element);
-            self.track = Some(Track {
-                element,
-                // TODO : get actual user audio quality
-                quality: AudioQuality::Lossless,
-                duration: Duration::from_secs(100),
-                buffered: Duration::from_secs(100),
-                position: Duration::from_secs(0),
-            });
-        }
-
-        if let Some(progress) = progress {
-            if self.track.is_some() {
-                // TODO : make it seek()
-                debug!("setting track position to {progress}");
-                let _ = self.set_position(progress);
-            } else {
-                error!("cannot set track position without a track");
-            }
-        }
-
-        if let Some(should_play) = should_play {
-            if should_play {
-                self.play();
-            } else {
-                self.stop();
-            }
-        }
-
-        if let Some(shuffle) = set_shuffle {
-            debug!("setting shuffle to {shuffle}");
-            self.shuffle = shuffle;
-        }
-
-        if let Some(repeat_mode) = set_repeat_mode {
-            debug!("setting repeat mode to {repeat_mode}");
-            self.repeat_mode = repeat_mode;
-        }
-
-        if let Some(volume) = set_volume {
-            debug!("setting volume to {volume}");
-            self.volume = volume;
-        }
-
         Ok(())
     }
 }

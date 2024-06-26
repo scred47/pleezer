@@ -1,6 +1,7 @@
 use std::{collections::HashSet, ops::ControlFlow, pin::Pin, time::Duration};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use log::Level;
 use lru_time_cache::LruCache;
 use semver;
 use thiserror::Error;
@@ -12,10 +13,10 @@ use uuid::Uuid;
 
 use crate::{
     config::Config,
-    player,
+    player::{Player, Track},
     protocol::connect::{
-        queue, Body, Channel, Contents, DeviceId, Element, Event, Headers, Message, Percentage,
-        RepeatMode, Status, UserId,
+        queue, stream, Body, Channel, Contents, DeviceId, Element, Event, Headers, Message,
+        Percentage, RepeatMode, Status, UserId,
     },
     tokens::{UserToken, UserTokenError, UserTokenProvider},
 };
@@ -66,7 +67,7 @@ pub struct Client {
     connection_offers: LruCache<Uuid, DeviceId>,
     interruptions: bool,
 
-    player: player::Player,
+    player: Player,
     reporting_timer: Pin<Box<tokio::time::Sleep>>,
 }
 
@@ -76,7 +77,6 @@ enum DiscoveryState {
     Connecting {
         controller: DeviceId,
         ready_message_id: Uuid,
-        skip_message_id: Option<Uuid>,
     },
     Taken,
 }
@@ -94,7 +94,7 @@ fn from_now(seconds: Duration) -> Option<tokio::time::Instant> {
 
 impl Client {
     const TOKEN_EXPIRATION_THRESHOLD: Duration = Duration::from_secs(60);
-    const REPORTING_INTERVAL: Duration = Duration::from_secs(2);
+    const REPORTING_INTERVAL: Duration = Duration::from_secs(3);
     const WATCHDOG_RX_TIMEOUT: Duration = Duration::from_secs(10);
     const WATCHDOG_TX_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -106,12 +106,7 @@ impl Client {
     /// - the `app_version` in `config` is not in [`SemVer`] format
     ///
     /// [SemVer]: https://semver.org/
-    pub fn new<P>(
-        config: &Config,
-        token_provider: P,
-        player: player::Player,
-        secure: bool,
-    ) -> Result<Self>
+    pub fn new<P>(config: &Config, token_provider: P, player: Player, secure: bool) -> Result<Self>
     where
         P: UserTokenProvider + 'static,
     {
@@ -212,11 +207,14 @@ impl Client {
 
         self.user_token = Some(user_token);
 
+        // TODO : include cookies with the request
         let (ws_stream, _) = tokio_tungstenite::connect_async(url).await?;
         let (websocket_tx, mut websocket_rx) = ws_stream.split();
         self.websocket_tx = Some(websocket_tx);
 
+        self.subscribe(Event::Stream).await?;
         self.subscribe(Event::RemoteDiscover).await?;
+
         info!("ready for discovery");
 
         let loop_result = loop {
@@ -238,7 +236,7 @@ impl Client {
                     break Err(UserTokenError::Refresh.into());
                 }
 
-                () = &mut self.reporting_timer, if self.is_connected() => {
+                () = &mut self.reporting_timer, if self.is_connected() && self.player.playing() => {
                     if let Err(e) = self.report_playback_progress().await {
                         error!("{e}");
                     }
@@ -330,6 +328,25 @@ impl Client {
         self.message(destination, remote_discover, body)
     }
 
+    fn stream(&self, track: Track) -> Message {
+        let contents = stream::Contents {
+            action: stream::Action::Play,
+            event: stream::Event::Limitation,
+            value: stream::Value {
+                user: self.user_id(),
+                // TODO: keep uuid when song remains the same
+                // (e.g. is paused/played)
+                uuid: Uuid::new_v4(),
+                track_id: track.id(),
+            },
+        };
+
+        Message::StreamSend {
+            channel: self.channel(Event::Stream),
+            contents,
+        }
+    }
+
     async fn disconnect(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let close = Body::Close {
@@ -400,7 +417,6 @@ impl Client {
         self.discovery_state = DiscoveryState::Connecting {
             controller: from,
             ready_message_id: message_id,
-            skip_message_id: None,
         };
 
         Ok(())
@@ -442,38 +458,29 @@ impl Client {
         if let DiscoveryState::Connecting {
             controller,
             ready_message_id,
-            skip_message_id,
         } = self.discovery_state.clone()
         {
             if from == controller && command_id == ready_message_id {
-                if skip_message_id.is_some() {
-                    if let ConnectionState::Connected { controller, .. } = &self.connection_state {
-                        // Evict the active connection.
-                        let close = Body::Close {
-                            message_id: Uuid::new_v4(),
-                        };
+                if let ConnectionState::Connected { controller, .. } = &self.connection_state {
+                    // Evict the active connection.
+                    let close = Body::Close {
+                        message_id: Uuid::new_v4(),
+                    };
 
-                        let command = self.command(controller.clone(), close);
-                        self.send_message(command).await?;
-                    }
-
-                    self.report_playback_progress().await?;
-
-                    if self.interruptions {
-                        self.discovery_state = DiscoveryState::Available;
-                    } else {
-                        self.discovery_state = DiscoveryState::Taken;
-                    }
-
-                    self.connection_state = ConnectionState::Connected { controller: from };
-
-                    info!("connected to {controller}");
-                    return Ok(());
+                    let command = self.command(controller.clone(), close);
+                    self.send_message(command).await?;
                 }
 
-                return Err(Error::Protocol(
-                    "should have received skip before initial status".to_string(),
-                ));
+                if self.interruptions {
+                    self.discovery_state = DiscoveryState::Available;
+                } else {
+                    self.discovery_state = DiscoveryState::Taken;
+                }
+
+                self.connection_state = ConnectionState::Connected { controller: from };
+
+                info!("connected to {controller}");
+                return Ok(());
             }
 
             return Err(Error::Protocol(
@@ -545,9 +552,7 @@ impl Client {
 
                 let remote_queue = self.channel(Event::RemoteQueue);
                 let queue = self.message(controller.clone(), remote_queue, queue);
-                self.send_message(queue).await?;
-
-                self.report_playback_progress().await
+                self.send_message(queue).await
             } else {
                 Err(Error::Protocol(
                     "queue refresh should have a published queue".to_string(),
@@ -562,8 +567,6 @@ impl Client {
 
     async fn send_acknowledgement(&mut self, acknowledgement_id: Uuid) -> Result<()> {
         if let Some(controller) = self.controller() {
-            trace!("acking {acknowledgement_id}");
-
             let acknowledgement = Body::Acknowledgement {
                 message_id: Uuid::new_v4(),
                 acknowledgement_id,
@@ -590,10 +593,13 @@ impl Client {
         set_repeat_mode: Option<RepeatMode>,
         set_volume: Option<Percentage>,
     ) -> Result<()> {
+        // Check for controller, not if we are connected: the first `Skip`
+        // message is received during the handshake, before the connection is
+        // ready.
         if self.controller().is_some() {
             self.send_acknowledgement(message_id).await?;
 
-            let status = match self.player.set_state(
+            self.set_player_state(
                 queue_id,
                 element,
                 progress,
@@ -601,43 +607,79 @@ impl Client {
                 set_shuffle,
                 set_repeat_mode,
                 set_volume,
-            ) {
-                Ok(()) => Status::OK,
-                Err(e) => {
-                    error!("{e}");
-                    Status::Error
-                }
+            )
+            .await?;
+
+            // Status response to the first skip - received during the
+            // handshake - is "1" (Error).
+            let status = if self.is_connected() {
+                Status::OK
+            } else {
+                Status::Error
             };
 
-            if let ConnectionState::Connected { .. } = &self.connection_state {
-                return self.send_status(message_id, status).await;
-            }
+            self.send_status(message_id, status).await?;
 
-            if let DiscoveryState::Connecting {
-                controller,
-                ready_message_id,
-                ..
-            } = self.discovery_state.clone()
-            {
-                self.discovery_state = DiscoveryState::Connecting {
-                    controller,
-                    ready_message_id,
-                    skip_message_id: Some(message_id),
-                };
-            }
+            Ok(())
+        } else {
+            Err(Error::Protocol(
+                "skip should have an active connection".to_string(),
+            ))
+        }
+    }
 
-            return Ok(());
+    pub async fn set_player_state(
+        &mut self,
+        _queue_id: Uuid,
+        element: Option<Element>,
+        progress: Option<Percentage>,
+        should_play: Option<bool>,
+        set_shuffle: Option<bool>,
+        set_repeat_mode: Option<RepeatMode>,
+        set_volume: Option<Percentage>,
+    ) -> Result<()> {
+        // TODO: check whether queue matches
+
+        // Set the element (track) before setting progress & playback.
+        if let Some(element) = element {
+            self.player.set_element(element);
         }
 
-        Err(Error::Protocol(
-            "skip should have an active connection".to_string(),
-        ))
+        if let Some(progress) = progress {
+            self.player.set_progress(progress);
+        }
+
+        if let Some(shuffle) = set_shuffle {
+            self.player.set_shuffle(shuffle);
+        }
+
+        if let Some(repeat_mode) = set_repeat_mode {
+            self.player.set_repeat_mode(repeat_mode);
+        }
+
+        if let Some(volume) = set_volume {
+            self.player.set_volume(volume);
+        }
+
+        if let Some(should_play) = should_play {
+            self.player.set_playing(should_play);
+
+            if let Some(track) = self.player.track() {
+                let streaming = self.stream(track);
+                self.send_message(streaming).await;
+                self.report_playback_progress().await;
+            } else {
+                return Err(Error::Protocol(
+                    "start playing should have an active track".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     async fn send_status(&mut self, command_id: Uuid, status: Status) -> Result<()> {
         if let Some(controller) = self.controller() {
-            trace!("reporting status for {command_id}");
-
             let status = Body::Status {
                 message_id: Uuid::new_v4(),
                 command_id,
@@ -659,7 +701,7 @@ impl Client {
         self.reset_reporting_timer();
 
         if let Some(controller) = self.controller() {
-            if let Some(track) = &self.player.track {
+            if let Some(track) = &self.player.track() {
                 let progress = Body::PlaybackProgress {
                     message_id: Uuid::new_v4(),
                     track: track.element,
@@ -668,9 +710,9 @@ impl Client {
                     buffered: track.buffered,
                     progress: track.progress(),
                     volume: self.player.volume(),
-                    is_playing: self.player.playing,
-                    is_shuffle: self.player.shuffle,
-                    repeat_mode: self.player.repeat_mode,
+                    is_playing: self.player.playing(),
+                    is_shuffle: self.player.shuffle(),
+                    repeat_mode: self.player.repeat_mode(),
                 };
 
                 let command = self.command(controller.clone(), progress);
@@ -710,12 +752,16 @@ impl Client {
                                     }
                                 }
 
-                                trace!("{message}");
-
                                 if let Some(controller) = self.controller() {
                                     if controller == from {
                                         self.reset_watchdog_rx();
                                     }
+                                }
+
+                                if log_enabled!(Level::Trace) {
+                                    trace!("{message:#?}");
+                                } else {
+                                    debug!("{message}");
                                 }
 
                                 if let Err(e) = self.dispatch(from, contents.body).await {
@@ -723,21 +769,24 @@ impl Client {
                                 }
                             }
 
+                            // Ignore streaming information from others.
+                            Message::StreamReceive { .. } => return ControlFlow::Continue(()),
+
                             _ => {
-                                trace!("ignoring unexpected message: {message}");
+                                trace!("ignoring unexpected message: {message:#?}");
                             }
                         }
                     }
 
                     Err(e) => {
-                        trace!("{message:#?}");
                         error!("error parsing message: {e}");
+                        trace!("{message:#?}");
                     }
                 }
             }
 
             // Deezer Connect sends pings as text message payloads, but so far
-            // not as websocket frames. Aim for RFC compliance anyway.
+            // not as websocket frames. Aim for RFC 6455 compliance anyway.
             WebsocketMessage::Ping(payload) => {
                 debug!("ping -> pong");
                 let pong = Frame::pong(payload.clone());
@@ -762,12 +811,9 @@ impl Client {
 
     async fn dispatch(&mut self, from: DeviceId, body: Body) -> Result<()> {
         match body {
-            Body::Acknowledgement {
-                acknowledgement_id, ..
-            } => {
-                debug!("controller acknowledged {acknowledgement_id}");
-                Ok(())
-            }
+            // TODO - Think about maintaining a queue of message IDs to be
+            // acknowledged, evictingt them one by one.
+            Body::Acknowledgement { .. } => Ok(()),
 
             Body::Close { .. } => self.handle_close().await,
 
@@ -775,7 +821,9 @@ impl Client {
 
             Body::DiscoveryRequest { from, .. } => self.handle_discovery_request(from).await,
 
-            Body::Ping { .. } => Ok(()),
+            // Pings don't use dedicated WebSocket frames, but are sent as
+            // normal data. An acknowledgement serves as pong.
+            Body::Ping { message_id } => self.send_acknowledgement(message_id).await,
 
             Body::PublishQueue { queue, .. } => self.handle_publish_queue(queue),
 
@@ -830,14 +878,17 @@ impl Client {
     }
 
     async fn send_message(&mut self, message: Message) -> Result<()> {
-        debug!("{message}");
-
         // Reset the timer regardless of success or failure, to prevent getting
         // stuck in a reporting state.
         self.reset_watchdog_tx();
 
+        if log_enabled!(Level::Trace) {
+            trace!("{message:#?}");
+        } else {
+            debug!("{message}");
+        }
+
         let json = serde_json::to_string(&message)?;
-        trace!("{json:#?}");
         let frame = WebsocketMessage::Text(json);
         self.send_frame(frame).await
     }

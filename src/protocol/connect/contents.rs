@@ -69,12 +69,7 @@ pub struct Contents {
 impl fmt::Display for Contents {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // FIXME: padding is not respected.
-        write!(
-            f,
-            "{:<16} {}",
-            self.body.message_type(),
-            self.body.message_id(),
-        )
+        write!(f, "{:<16}", self.body.message_type(),)
     }
 }
 
@@ -462,7 +457,9 @@ impl fmt::Display for Element {
         write!(
             f,
             "{}{}{}{}{}",
-            self.queue_id,
+            self.queue_id
+                .hyphenated()
+                .encode_upper(&mut Uuid::encode_buffer()),
             Self::SEPARATOR,
             self.track_id,
             Self::SEPARATOR,
@@ -634,6 +631,7 @@ pub enum MessageType {
 pub enum Payload {
     #[serde(rename_all = "camelCase")]
     PlaybackProgress {
+        #[serde(serialize_with = "serialize_uuid_uppercase")]
         queue_id: Uuid,
         element_id: Element,
         #[serde_as(as = "DurationSeconds<u64>")]
@@ -650,11 +648,13 @@ pub enum Payload {
 
     #[serde(rename_all = "camelCase")]
     Acknowledgement {
+        #[serde(serialize_with = "serialize_uuid_uppercase")]
         acknowledgement_id: Uuid,
     },
 
     #[serde(rename_all = "camelCase")]
     Status {
+        #[serde(serialize_with = "serialize_uuid_uppercase")]
         command_id: Uuid,
         status: Status,
     },
@@ -701,7 +701,7 @@ pub enum Params {
 }
 
 impl fmt::Display for Payload {
-    /// TODO: UPDATE
+    // TODO: UPDATE DOCS
     /// Converts to a [`Vec`]<[`u8`]> from a [`Payload`] of some
     /// [Deezer Connect][Connect] websocket [`Message`] [`Body`].
     ///
@@ -1243,4 +1243,13 @@ impl fmt::Display for MessageType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
+}
+
+// The Connect controller sends UUIDs for queues, tracks, and messages in
+// uppercase form, and expects them to be read back precisely the same.
+fn serialize_uuid_uppercase<S>(uuid: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(uuid.hyphenated().encode_upper(&mut Uuid::encode_buffer()))
 }
