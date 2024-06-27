@@ -25,6 +25,10 @@ use uuid::Uuid;
 use super::channel::Event;
 use super::protos::queue;
 
+// Most IDs are UUIDs, but case sensitive, while Deezer Connect uses
+// uppercase on iOS and lowercase on Android. Therefore, many IDs are typed
+// as `String` (and borrowed as &`str`) instead of a true `Uuid`.
+
 /// The `Contents` of a [`Message`] on a [Deezer Connect][Connect] websocket.
 ///
 /// [`Message`]: ../messages/enum.Message.html
@@ -157,34 +161,34 @@ impl fmt::Display for DeviceId {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Body {
     Acknowledgement {
-        message_id: Uuid,
-        acknowledgement_id: Uuid,
+        message_id: String,
+        acknowledgement_id: String,
     },
 
     Close {
-        message_id: Uuid,
+        message_id: String,
     },
 
     Connect {
-        message_id: Uuid,
+        message_id: String,
         from: DeviceId,
-        offer_id: Uuid,
+        offer_id: String,
     },
 
     ConnectionOffer {
-        message_id: Uuid,
+        message_id: String,
         from: DeviceId,
         device_name: String,
     },
 
     DiscoveryRequest {
-        message_id: Uuid,
+        message_id: String,
         from: DeviceId,
-        discovery_session: Uuid,
+        discovery_session: String,
     },
 
     PlaybackProgress {
-        message_id: Uuid,
+        message_id: String,
         track: Element,
         quality: AudioQuality,
         duration: Duration,
@@ -197,25 +201,25 @@ pub enum Body {
     },
 
     PublishQueue {
-        message_id: Uuid,
+        message_id: String,
         queue: queue::List,
     },
 
     Ping {
-        message_id: Uuid,
+        message_id: String,
     },
 
     Ready {
-        message_id: Uuid,
+        message_id: String,
     },
 
     RefreshQueue {
-        message_id: Uuid,
+        message_id: String,
     },
 
     Skip {
-        message_id: Uuid,
-        queue_id: Uuid,
+        message_id: String,
+        queue_id: String,
         track: Option<Element>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
@@ -225,13 +229,13 @@ pub enum Body {
     },
 
     Status {
-        message_id: Uuid,
-        command_id: Uuid,
+        message_id: String,
+        command_id: String,
         status: Status,
     },
 
     Stop {
-        message_id: Uuid,
+        message_id: String,
     },
 }
 
@@ -256,7 +260,7 @@ impl Body {
     }
 
     #[must_use]
-    pub fn message_id(&self) -> Uuid {
+    pub fn message_id(&self) -> &str {
         match self {
             Self::Acknowledgement { message_id, .. }
             | Self::Close { message_id, .. }
@@ -270,7 +274,7 @@ impl Body {
             | Self::RefreshQueue { message_id, .. }
             | Self::Skip { message_id, .. }
             | Self::Status { message_id, .. }
-            | Self::Stop { message_id, .. } => *message_id,
+            | Self::Stop { message_id, .. } => message_id,
         }
     }
 }
@@ -434,10 +438,10 @@ impl fmt::Display for Percentage {
 }
 
 #[derive(
-    Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord, PartialEq, Eq, Hash,
+    Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord, PartialEq, Eq, Hash,
 )]
 pub struct Element {
-    pub queue_id: Uuid,
+    pub queue_id: String,
     pub track_id: NonZeroU64,
     // `usize` because this will index into an array. Also from the protobuf it
     // is known that this really an `u32`.
@@ -457,9 +461,7 @@ impl fmt::Display for Element {
         write!(
             f,
             "{}{}{}{}{}",
-            self.queue_id
-                .hyphenated()
-                .encode_upper(&mut Uuid::encode_buffer()),
+            self.queue_id,
             Self::SEPARATOR,
             self.track_id,
             Self::SEPARATOR,
@@ -481,7 +483,12 @@ impl FromStr for Element {
         let mut queue_id = String::new();
         for i in 0..5 {
             match parts.next() {
-                Some(part) => write!(queue_id, "{part}")?,
+                Some(part) => {
+                    write!(queue_id, "{part}")?;
+                    if i < 4 {
+                        write!(queue_id, "{}", Self::SEPARATOR)?;
+                    }
+                }
                 None => {
                     return Err(Self::Err::Malformed(format!(
                         "list element string slice should hold five `queue_id` parts, found {i}"
@@ -489,8 +496,10 @@ impl FromStr for Element {
                 }
             }
         }
-        let queue_id = Uuid::try_parse(&queue_id)
-            .map_err(|e| Self::Err::Malformed(format!("queue id: {e}")))?;
+
+        if let Err(e) = Uuid::try_parse(&queue_id) {
+            return Err(Self::Err::Malformed(format!("queue id: {e}")));
+        }
 
         let track_id = parts.next().ok_or_else(|| {
             Self::Err::Malformed(
@@ -560,7 +569,7 @@ struct WireBody {
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     /// [`Message`]: ../messages/enum.Message.html
     /// [`Uuid`]: https://docs.rs/uuid/latest/uuid/
-    message_id: Uuid,
+    message_id: String,
 
     /// The [`MessageType`] that tags the `payload` of some
     /// [Deezer Connect][Connect] websocket [`Message`] that has this `Body`.
@@ -631,8 +640,7 @@ pub enum MessageType {
 pub enum Payload {
     #[serde(rename_all = "camelCase")]
     PlaybackProgress {
-        #[serde(serialize_with = "serialize_uuid_uppercase")]
-        queue_id: Uuid,
+        queue_id: String,
         element_id: Element,
         #[serde_as(as = "DurationSeconds<u64>")]
         duration: Duration,
@@ -648,14 +656,12 @@ pub enum Payload {
 
     #[serde(rename_all = "camelCase")]
     Acknowledgement {
-        #[serde(serialize_with = "serialize_uuid_uppercase")]
-        acknowledgement_id: Uuid,
+        acknowledgement_id: String,
     },
 
     #[serde(rename_all = "camelCase")]
     Status {
-        #[serde(serialize_with = "serialize_uuid_uppercase")]
-        command_id: Uuid,
+        command_id: String,
         status: Status,
     },
 
@@ -666,7 +672,7 @@ pub enum Payload {
 
     #[serde(rename_all = "camelCase")]
     Skip {
-        queue_id: Uuid,
+        queue_id: String,
         element_id: Option<Element>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
@@ -692,11 +698,11 @@ pub enum Params {
     },
 
     Connect {
-        offer_id: Uuid,
+        offer_id: String,
     },
 
     DiscoveryRequest {
-        discovery_session: Uuid,
+        discovery_session: String,
     },
 }
 
@@ -766,8 +772,9 @@ impl FromStr for Payload {
         let decoded = BASE64_STANDARD.decode(encoded)?;
 
         if let Ok(s) = std::str::from_utf8(&decoded) {
-            // `serde_with::NoneAsEmptyString` does not apply to `FromStr`.
-            if s.is_empty() {
+            // 1. `serde_with::NoneAsEmptyString` does not apply to `FromStr`.
+            // 2. Deezer on Android can send empty maps
+            if s.is_empty() || s == "{}" {
                 return Ok(Self::String(None));
             }
 
@@ -940,7 +947,7 @@ impl From<Body> for WireBody {
                 message_type: MessageType::PlaybackProgress,
                 protocol_version: Self::COMMAND_VERSION.to_string(),
                 payload: Payload::PlaybackProgress {
-                    queue_id: track.queue_id,
+                    queue_id: track.queue_id.clone(),
                     element_id: track,
                     duration,
                     buffered,
@@ -1034,12 +1041,12 @@ impl TryFrom<WireBody> for Body {
     /// [`WireMessage`]: struct.WireMessage.html
     #[allow(clippy::too_many_lines)]
     fn try_from(wire_body: WireBody) -> Result<Self, Self::Error> {
-        let message_id = wire_body.message_id;
-        let message_type = wire_body.message_type;
-
         if !wire_body.supported_protocol_version() {
             warn!("protocol version {} is unknown", wire_body.protocol_version);
         }
+
+        let message_id = wire_body.message_id;
+        let message_type = wire_body.message_type;
 
         let body = match message_type {
             MessageType::Acknowledgement => {
@@ -1243,13 +1250,4 @@ impl fmt::Display for MessageType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
-}
-
-// The Connect controller sends UUIDs for queues, tracks, and messages in
-// uppercase form, and expects them to be read back precisely the same.
-fn serialize_uuid_uppercase<S>(uuid: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(uuid.hyphenated().encode_upper(&mut Uuid::encode_buffer()))
 }

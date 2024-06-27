@@ -80,10 +80,8 @@ impl Player {
             if !should_play {
                 self.stop();
             }
-        } else {
-            if should_play {
-                self.play();
-            }
+        } else if should_play {
+            self.play();
         }
     }
 
@@ -150,7 +148,7 @@ impl Player {
 
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
-        self.track.as_ref().map(|track| track.progress())
+        self.track.as_ref().map(Track::progress)
     }
 
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
@@ -171,7 +169,7 @@ impl Player {
         }
     }
 
-    pub fn load_track(&mut self, _track: Track) -> Result<()> {
+    pub fn load_track(&mut self, _track: &Track) -> Result<()> {
         // retrieve metadata from web url, not download (yet) ?
         Ok(())
     }

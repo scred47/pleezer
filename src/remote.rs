@@ -32,6 +32,9 @@ pub enum Error {
     Json(#[from] serde_json::Error),
 
     #[error("{0}")]
+    Player(String),
+
+    #[error("{0}")]
     Protocol(String),
 
     #[error("error parsing app version: {0}")]
@@ -64,7 +67,7 @@ pub struct Client {
     watchdog_tx: Pin<Box<tokio::time::Sleep>>,
 
     discovery_state: DiscoveryState,
-    connection_offers: LruCache<Uuid, DeviceId>,
+    connection_offers: LruCache<String, DeviceId>,
     interruptions: bool,
 
     player: Player,
@@ -76,7 +79,7 @@ enum DiscoveryState {
     Available,
     Connecting {
         controller: DeviceId,
-        ready_message_id: Uuid,
+        ready_message_id: String,
     },
     Taken,
 }
@@ -328,7 +331,7 @@ impl Client {
         self.message(destination, remote_discover, body)
     }
 
-    fn stream(&self, track: Track) -> Message {
+    fn stream(&self, track: &Track) -> Message {
         let contents = stream::Contents {
             action: stream::Action::Play,
             event: stream::Event::Limitation,
@@ -350,7 +353,7 @@ impl Client {
     async fn disconnect(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let close = Body::Close {
-                message_id: Uuid::new_v4(),
+                message_id: Uuid::new_v4().into(),
             };
 
             let command = self.command(controller.clone(), close);
@@ -369,8 +372,9 @@ impl Client {
         // Controllers keep sending discovery requests about every two seconds
         // until it accepts some offer. `connection_offers` implements a LRU
         // cache to evict stale offers.
-        let message_id = Uuid::new_v4();
-        self.connection_offers.insert(message_id, from.clone());
+        let message_id = Uuid::new_v4().to_string();
+        self.connection_offers
+            .insert(message_id.clone(), from.clone());
 
         let offer = Body::ConnectionOffer {
             message_id,
@@ -382,8 +386,8 @@ impl Client {
         self.send_message(discover).await
     }
 
-    async fn handle_connect(&mut self, from: DeviceId, offer_id: Uuid) -> Result<()> {
-        let controller = self.connection_offers.remove(&offer_id).ok_or_else(|| {
+    async fn handle_connect(&mut self, from: DeviceId, offer_id: &str) -> Result<()> {
+        let controller = self.connection_offers.remove(offer_id).ok_or_else(|| {
             Error::Protocol(format!("connection offer {offer_id} should be active"))
         })?;
 
@@ -408,8 +412,10 @@ impl Client {
             return Err(e);
         }
 
-        let message_id = Uuid::new_v4();
-        let ready = Body::Ready { message_id };
+        let message_id = Uuid::new_v4().to_string();
+        let ready = Body::Ready {
+            message_id: message_id.clone(),
+        };
 
         let command = self.command(from.clone(), ready);
         self.send_message(command).await?;
@@ -446,7 +452,7 @@ impl Client {
     async fn handle_status(
         &mut self,
         from: DeviceId,
-        command_id: Uuid,
+        command_id: &str,
         status: Status,
     ) -> Result<()> {
         if status != Status::OK {
@@ -464,7 +470,7 @@ impl Client {
                 if let ConnectionState::Connected { controller, .. } = &self.connection_state {
                     // Evict the active connection.
                     let close = Body::Close {
-                        message_id: Uuid::new_v4(),
+                        message_id: Uuid::new_v4().into(),
                     };
 
                     let command = self.command(controller.clone(), close);
@@ -530,7 +536,7 @@ impl Client {
     async fn send_ping(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let ping = Body::Ping {
-                message_id: Uuid::new_v4(),
+                message_id: Uuid::new_v4().into(),
             };
 
             let command = self.command(controller.clone(), ping);
@@ -546,7 +552,7 @@ impl Client {
         if let Some(controller) = self.controller() {
             if let Some(queue) = self.player.queue() {
                 let queue = Body::PublishQueue {
-                    message_id: Uuid::new_v4(),
+                    message_id: Uuid::new_v4().into(),
                     queue,
                 };
 
@@ -565,11 +571,11 @@ impl Client {
         }
     }
 
-    async fn send_acknowledgement(&mut self, acknowledgement_id: Uuid) -> Result<()> {
+    async fn send_acknowledgement(&mut self, acknowledgement_id: &str) -> Result<()> {
         if let Some(controller) = self.controller() {
             let acknowledgement = Body::Acknowledgement {
-                message_id: Uuid::new_v4(),
-                acknowledgement_id,
+                message_id: Uuid::new_v4().into(),
+                acknowledgement_id: acknowledgement_id.to_string(),
             };
 
             let command = self.command(controller, acknowledgement);
@@ -584,8 +590,8 @@ impl Client {
     #[allow(clippy::too_many_arguments)]
     async fn handle_skip(
         &mut self,
-        message_id: Uuid,
-        queue_id: Uuid,
+        message_id: &str,
+        queue_id: &str,
         element: Option<Element>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
@@ -628,9 +634,10 @@ impl Client {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn set_player_state(
         &mut self,
-        _queue_id: Uuid,
+        _queue_id: &str,
         element: Option<Element>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
@@ -646,7 +653,9 @@ impl Client {
         }
 
         if let Some(progress) = progress {
-            self.player.set_progress(progress);
+            self.player
+                .set_progress(progress)
+                .map_err(|e| Error::Player(format!("unable to set progress: {e}")))?;
         }
 
         if let Some(shuffle) = set_shuffle {
@@ -665,9 +674,11 @@ impl Client {
             self.player.set_playing(should_play);
 
             if let Some(track) = self.player.track() {
-                let streaming = self.stream(track);
-                self.send_message(streaming).await;
-                self.report_playback_progress().await;
+                // TODO : send message when actually streaming
+                let streaming = self.stream(&track);
+                self.send_message(streaming)
+                    .await
+                    .map_err(|e| Error::Player(format!("unable to notify streaming: {e}")))?;
             } else {
                 return Err(Error::Protocol(
                     "start playing should have an active track".to_string(),
@@ -675,14 +686,18 @@ impl Client {
             }
         }
 
+        self.report_playback_progress()
+            .await
+            .map_err(|e| Error::Player(format!("unable to report playback progress: {e}")))?;
+
         Ok(())
     }
 
-    async fn send_status(&mut self, command_id: Uuid, status: Status) -> Result<()> {
+    async fn send_status(&mut self, command_id: &str, status: Status) -> Result<()> {
         if let Some(controller) = self.controller() {
             let status = Body::Status {
-                message_id: Uuid::new_v4(),
-                command_id,
+                message_id: Uuid::new_v4().into(),
+                command_id: command_id.to_string(),
                 status,
             };
 
@@ -703,8 +718,8 @@ impl Client {
         if let Some(controller) = self.controller() {
             if let Some(track) = &self.player.track() {
                 let progress = Body::PlaybackProgress {
-                    message_id: Uuid::new_v4(),
-                    track: track.element,
+                    message_id: Uuid::new_v4().into(),
+                    track: track.element.clone(),
                     quality: track.quality,
                     duration: track.duration,
                     buffered: track.buffered,
@@ -780,7 +795,7 @@ impl Client {
 
                     Err(e) => {
                         error!("error parsing message: {e}");
-                        trace!("{message:#?}");
+                        debug!("{message:#?}");
                     }
                 }
             }
@@ -817,13 +832,13 @@ impl Client {
 
             Body::Close { .. } => self.handle_close().await,
 
-            Body::Connect { from, offer_id, .. } => self.handle_connect(from, offer_id).await,
+            Body::Connect { from, offer_id, .. } => self.handle_connect(from, &offer_id).await,
 
             Body::DiscoveryRequest { from, .. } => self.handle_discovery_request(from).await,
 
             // Pings don't use dedicated WebSocket frames, but are sent as
             // normal data. An acknowledgement serves as pong.
-            Body::Ping { message_id } => self.send_acknowledgement(message_id).await,
+            Body::Ping { message_id } => self.send_acknowledgement(&message_id).await,
 
             Body::PublishQueue { queue, .. } => self.handle_publish_queue(queue),
 
@@ -840,8 +855,8 @@ impl Client {
                 set_volume,
             } => {
                 self.handle_skip(
-                    message_id,
-                    queue_id,
+                    &message_id,
+                    &queue_id,
                     track,
                     progress,
                     should_play,
@@ -854,7 +869,7 @@ impl Client {
 
             Body::Status {
                 command_id, status, ..
-            } => self.handle_status(from, command_id, status).await,
+            } => self.handle_status(from, &command_id, status).await,
 
             Body::Stop { .. } => {
                 self.player.stop();
