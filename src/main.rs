@@ -4,7 +4,7 @@ use clap::{command, Parser, ValueHint};
 use log::{debug, error, info, LevelFilter};
 use rand::Rng;
 
-use pleezer::{arl::Arl, config::Config, player::Player, remote, session::Session};
+use pleezer::{arl::Arl, config::Config, gateway::Gateway, player::Player, remote};
 
 /// Profile to display when not built in release mode.
 #[cfg(debug_assertions)]
@@ -127,7 +127,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .or_else(|| sysinfo::System::host_name().clone())
         .unwrap_or_else(|| config.app_name.clone());
 
-    let session = Session::new(&config, &arl)?;
+    let session = Gateway::new(&config, &arl)?;
     let player = Player::new();
     let mut client = remote::Client::new(&config, session, player, true)?;
 

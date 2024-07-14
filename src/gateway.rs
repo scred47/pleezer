@@ -28,11 +28,8 @@ use crate::{
     tokens::{UserToken, UserTokenError, UserTokenProvider},
 };
 
-pub trait SessionProvider: UserTokenProvider + UserSettingsProvider {}
-impl SessionProvider for Session {}
-
 #[derive(Debug)]
-pub struct Session {
+pub struct Gateway {
     client_id: usize,
     http_client: reqwest::Client,
     rate_limiter: RateLimiter<NotKeyed, InMemoryState, MonotonicClock, NoOpMiddleware>,
@@ -53,7 +50,7 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-impl Session {
+impl Gateway {
     const RATE_LIMIT_INTERVAL: Duration = Duration::from_secs(5);
     const RATE_LIMIT_CALLS_PER_INTERVAL: u8 = 50;
 
@@ -252,8 +249,8 @@ pub trait UserSettingsProvider {
     fn audio_quality(&self) -> Option<AudioQuality>;
 }
 
-impl UserSettingsProvider for Session {
-    /// The [`AudioQuality`] that the user set for casting.
+impl UserSettingsProvider for Gateway {
+    /// The [`AudioQuality`] that the user has set for casting.
     fn audio_quality(&self) -> Option<AudioQuality> {
         self.user_data.as_ref().and_then(|data| {
             AudioQuality::from_str(&data.user.audio_settings.connected_device_streaming_preset).ok()
@@ -262,7 +259,7 @@ impl UserSettingsProvider for Session {
 }
 
 #[async_trait]
-impl UserTokenProvider for Session {
+impl UserTokenProvider for Gateway {
     async fn user_token(&mut self) -> std::result::Result<UserToken, UserTokenError> {
         if self.is_expired() {
             self.refresh().await?;

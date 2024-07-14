@@ -13,13 +13,13 @@ use uuid::Uuid;
 
 use crate::{
     config::Config,
+    gateway::{Gateway, UserSettingsProvider},
     player::{Player, Track},
     protocol::connect::{
         queue, stream, Body, Channel, Contents, DeviceId, Element, Event, Headers, Message,
         Percentage, RepeatMode, Status, UserId,
     },
-    session::SessionProvider,
-    tokens::{UserToken, UserTokenError},
+    tokens::{UserToken, UserTokenError, UserTokenProvider},
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -47,6 +47,11 @@ pub enum Error {
     #[error("websocket error: {0}")]
     WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
 }
+
+// `NewTrait` for the `Client` that requires some provider to provide both a
+// `UserToken` and `UserData`.
+pub trait SessionProvider: UserTokenProvider + UserSettingsProvider + 'static {}
+impl SessionProvider for Gateway {}
 
 // TODO: implement Debug manually to not print the user_token
 pub struct Client {
@@ -119,7 +124,7 @@ impl Client {
         secure: bool,
     ) -> Result<Self>
     where
-        P: SessionProvider + 'static,
+        P: SessionProvider,
     {
         // Construct version in the form of `Mmmppp` where:
         // - `M` is the major version
