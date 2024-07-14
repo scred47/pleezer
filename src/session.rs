@@ -1,5 +1,6 @@
 use std::{
     num::NonZeroU32,
+    str::FromStr,
     sync::Arc,
     time::{Duration, SystemTime},
 };
@@ -20,9 +21,15 @@ use thiserror::Error;
 use crate::{
     arl::Arl,
     config::Config,
-    protocol::gateway::{self, UserData},
+    protocol::{
+        connect::AudioQuality,
+        gateway::{self, UserData},
+    },
     tokens::{UserToken, UserTokenError, UserTokenProvider},
 };
+
+pub trait SessionProvider: UserTokenProvider + UserSettingsProvider {}
+impl SessionProvider for Session {}
 
 #[derive(Debug)]
 pub struct Session {
@@ -168,17 +175,6 @@ impl Session {
         match self.request::<gateway::user_data::Response>("{}").await {
             Ok(response) => {
                 self.set_user_data(response.results);
-
-                if let Ok(time_to_live) = self.expires_at().duration_since(SystemTime::now()) {
-                    // This takes a few milliseconds and would normally
-                    // truncate (round down). Return `ceil` is more human
-                    // readable.
-                    debug!(
-                        "user data time to live: {:.0}s",
-                        time_to_live.as_secs_f32().ceil()
-                    );
-                }
-
                 Ok(())
             }
             Err(Error::HttpClient(e)) => {
@@ -242,18 +238,26 @@ impl Session {
     }
 
     pub fn set_user_data(&mut self, data: UserData) {
-        debug!("user id: {}", data.user.id);
-        debug!("user plan: {}", data.plan);
-        info!(
-            "user casting quality: {}",
-            data.user.audio_settings.connected_device_streaming_preset
-        );
+        trace!("{data:#?}");
         self.user_data = Some(data);
     }
 
     #[must_use]
-    pub fn user_data(&self) -> Option<gateway::UserData> {
-        self.user_data.clone()
+    pub fn user_data(&self) -> Option<&gateway::UserData> {
+        self.user_data.as_ref()
+    }
+}
+
+pub trait UserSettingsProvider {
+    fn audio_quality(&self) -> Option<AudioQuality>;
+}
+
+impl UserSettingsProvider for Session {
+    /// The [`AudioQuality`] that the user set for casting.
+    fn audio_quality(&self) -> Option<AudioQuality> {
+        self.user_data.as_ref().and_then(|data| {
+            AudioQuality::from_str(&data.user.audio_settings.connected_device_streaming_preset).ok()
+        })
     }
 }
 

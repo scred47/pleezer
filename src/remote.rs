@@ -18,7 +18,8 @@ use crate::{
         queue, stream, Body, Channel, Contents, DeviceId, Element, Event, Headers, Message,
         Percentage, RepeatMode, Status, UserId,
     },
-    tokens::{UserToken, UserTokenError, UserTokenProvider},
+    session::SessionProvider,
+    tokens::{UserToken, UserTokenError},
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -53,7 +54,7 @@ pub struct Client {
     device_name: String,
 
     user_token: Option<UserToken>,
-    token_provider: Box<dyn UserTokenProvider>,
+    session: Box<dyn SessionProvider>,
 
     scheme: String,
     version: String,
@@ -101,7 +102,9 @@ impl Client {
     const WATCHDOG_RX_TIMEOUT: Duration = Duration::from_secs(10);
     const WATCHDOG_TX_TIMEOUT: Duration = Duration::from_secs(5);
 
-    /// todo
+    const MESSAGE_SIZE_MAX: usize = 8192;
+
+    /// TODO
     ///
     /// # Errors
     ///
@@ -109,9 +112,14 @@ impl Client {
     /// - the `app_version` in `config` is not in [`SemVer`] format
     ///
     /// [SemVer]: https://semver.org/
-    pub fn new<P>(config: &Config, token_provider: P, player: Player, secure: bool) -> Result<Self>
+    pub fn new<P>(
+        config: &Config,
+        session_provider: P,
+        player: Player,
+        secure: bool,
+    ) -> Result<Self>
     where
-        P: UserTokenProvider + 'static,
+        P: SessionProvider + 'static,
     {
         // Construct version in the form of `Mmmppp` where:
         // - `M` is the major version
@@ -150,7 +158,7 @@ impl Client {
             device_id: config.device_id.into(),
             device_name: config.device_name.clone(),
 
-            token_provider: Box::new(token_provider),
+            session: Box::new(session_provider),
             user_token: None,
 
             scheme: scheme.to_owned(),
@@ -172,7 +180,7 @@ impl Client {
         })
     }
 
-    /// todo
+    /// TODO
     ///
     /// # Errors
     ///
@@ -180,21 +188,36 @@ impl Client {
     /// - the websocket could not be connected to
     /// - sending or receiving messages failed
     pub async fn start(&mut self) -> Result<()> {
-        // Loop until an user token is supplied that expires after the
+        // Loop until a user token is supplied that expires after the
         // threshold. If rate limiting is necessary, then that should be done
         // by the token token_provider.
         let (user_token, time_to_live) = loop {
-            let token = self.token_provider.user_token().await?;
+            let token = self.session.user_token().await?;
 
             let time_to_live = token
                 .time_to_live()
                 .checked_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
+
             if let Some(duration) = time_to_live {
+                debug!("user id: {}", token.user_id);
+                info!(
+                    "user casting quality: {}",
+                    self.session.audio_quality().unwrap_or_default(),
+                );
+
+                // This takes a few milliseconds and would normally
+                // truncate (round down). Return `ceil` is more human
+                // readable.
+                debug!(
+                    "user data time to live: {:.0}s",
+                    duration.as_secs_f32().ceil(),
+                );
+
                 break (token, duration);
             }
 
             // Flush user tokens that expire within the threshold.
-            self.token_provider.flush_user_token();
+            self.session.flush_user_token();
         };
 
         // Set timer for user token expiration. Wake a short while before
@@ -251,8 +274,9 @@ impl Client {
                             // Do not parse exceedingly large messages to
                             // prevent out of memory conditions.
                             let message_size = message.len();
-                            if message_size > 8192 {
+                            if message_size > Self::MESSAGE_SIZE_MAX {
                                 error!("ignoring oversized message with {message_size} bytes");
+                                continue;
                             }
 
                             match self.handle_message(&message).await {
@@ -260,7 +284,7 @@ impl Client {
 
                                 ControlFlow::Break(Error::UserToken(UserTokenError::Refresh)) => {
                                     info!("stopping client: {}", UserTokenError::Refresh);
-                                    self.token_provider.flush_user_token();
+                                    self.session.flush_user_token();
                                     break Ok(());
                                 }
 
@@ -270,6 +294,10 @@ impl Client {
                         Err(e) => error!("error receiving message: {e}"),
                     }
                 }
+
+                // Some(notification) = self.player.notification() => {
+                //     // TODO
+                // }
             }
         };
 
@@ -331,7 +359,7 @@ impl Client {
         self.message(destination, remote_discover, body)
     }
 
-    fn stream(&self, track: &Track) -> Message {
+    fn report_stream(&self, track: &Track) -> Message {
         let contents = stream::Contents {
             action: stream::Action::Play,
             event: stream::Event::Limitation,
@@ -553,7 +581,7 @@ impl Client {
             if let Some(queue) = self.player.queue() {
                 let queue = Body::PublishQueue {
                     message_id: Uuid::new_v4().into(),
-                    queue,
+                    queue: queue.clone(),
                 };
 
                 let remote_queue = self.channel(Event::RemoteQueue);
@@ -634,6 +662,11 @@ impl Client {
         }
     }
 
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - `progress` could not be set
+    /// - playback progress could not be reported
     #[allow(clippy::too_many_arguments)]
     pub async fn set_player_state(
         &mut self,
@@ -675,10 +708,11 @@ impl Client {
 
             if let Some(track) = self.player.track() {
                 // TODO : send message when actually streaming
-                let streaming = self.stream(&track);
-                self.send_message(streaming)
-                    .await
-                    .map_err(|e| Error::Player(format!("unable to notify streaming: {e}")))?;
+                let streaming = self.report_stream(track);
+                if let Err(e) = self.send_message(streaming).await {
+                    // Non-fatal: print the error, but continue processing.
+                    error!("unable to notify streaming: {e}");
+                }
             } else {
                 return Err(Error::Protocol(
                     "start playing should have an active track".to_string(),
@@ -719,10 +753,11 @@ impl Client {
             if let Some(track) = &self.player.track() {
                 let progress = Body::PlaybackProgress {
                     message_id: Uuid::new_v4().into(),
-                    track: track.element.clone(),
-                    quality: track.quality,
-                    duration: track.duration,
-                    buffered: track.buffered,
+                    track: track.element().clone(),
+                    // TODO: use actual track quality
+                    quality: self.session.audio_quality().unwrap_or_default(),
+                    duration: track.duration(),
+                    buffered: track.buffered(),
                     progress: track.progress(),
                     volume: self.player.volume(),
                     is_playing: self.player.playing(),

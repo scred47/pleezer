@@ -117,7 +117,6 @@ fn load_arl(arl_file: &str) -> io::Result<Arl> {
     arl
 }
 
-// TODO: fn docs
 async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let arl = load_arl(&args.arl_file)?;
 
@@ -169,7 +168,6 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     }
 }
 
-/// TODO
 #[tokio::main]
 async fn main() {
     // `clap` handles our command line arguments and help text.

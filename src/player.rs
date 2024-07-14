@@ -3,7 +3,7 @@ use std::{num::NonZeroU64, time::Duration};
 use thiserror::Error;
 
 use crate::protocol::connect::{
-    contents::{self, AudioQuality, RepeatMode},
+    contents::{self, RepeatMode},
     queue, Element, Percentage,
 };
 
@@ -15,31 +15,36 @@ pub struct Error(String);
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Track {
-    // TODO : improve visibility
-    pub element: Element,
-    pub quality: AudioQuality,
-    pub duration: Duration,
-    pub buffered: Duration,
-    pub progress: Percentage,
+    element: Element,
+    duration: Duration,
+    buffered: Duration,
+    progress: Percentage,
 }
 
 impl Track {
     #[must_use]
-    pub fn progress(&self) -> Percentage {
-        // // TODO: replace with `Duration::div_duration_f64` once stabilized
-        // let position = self.position.as_secs_f64();
-        // if position > 0.0 {
-        //     let duration = self.duration.as_secs_f64();
-        //     Percentage::from_ratio(duration / position)
-        // } else {
-        //     Percentage::from_ratio(0.0)
-        // }
-        self.progress
+    pub fn id(&self) -> NonZeroU64 {
+        self.element.track_id
     }
 
     #[must_use]
-    pub fn id(&self) -> NonZeroU64 {
-        self.element.track_id
+    pub fn element(&self) -> &Element {
+        &self.element
+    }
+
+    #[must_use]
+    pub fn duration(&self) -> Duration {
+        self.duration
+    }
+
+    #[must_use]
+    pub fn buffered(&self) -> Duration {
+        self.buffered
+    }
+
+    #[must_use]
+    pub fn progress(&self) -> Percentage {
+        self.progress
     }
 }
 
@@ -86,8 +91,8 @@ impl Player {
     }
 
     #[must_use]
-    pub fn queue(&self) -> Option<queue::List> {
-        self.queue.clone()
+    pub fn queue(&self) -> Option<&queue::List> {
+        self.queue.as_ref()
     }
 
     pub fn set_queue(&mut self, queue: queue::List) {
@@ -95,11 +100,11 @@ impl Player {
     }
 
     #[must_use]
-    pub fn track(&self) -> Option<Track> {
-        self.track.clone()
+    pub fn track(&self) -> Option<&Track> {
+        self.track.as_ref()
     }
 
-    pub fn skip_to(&self, _position: usize) -> Option<Track> {
+    pub fn skip_to(&self, _position: usize) -> Option<&Track> {
         todo!()
     }
 
@@ -108,8 +113,7 @@ impl Player {
 
         self.track = Some(Track {
             element,
-            // TODO : get actual user audio quality
-            quality: AudioQuality::Lossless,
+            // TODO
             duration: Duration::from_secs(100),
             buffered: Duration::from_secs(100),
             progress: Percentage::from_ratio(0.0),
@@ -151,6 +155,10 @@ impl Player {
         self.track.as_ref().map(Track::progress)
     }
 
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - there is no active track
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
         if !(0.0..=1.0).contains(&progress.as_ratio()) {
             return Err(Error(format!("progress cannot be set to {progress}")));
@@ -169,6 +177,9 @@ impl Player {
         }
     }
 
+    /// # Errors
+    ///
+    /// TODO
     pub fn load_track(&mut self, _track: &Track) -> Result<()> {
         // retrieve metadata from web url, not download (yet) ?
         Ok(())
