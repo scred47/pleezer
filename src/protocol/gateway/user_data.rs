@@ -5,8 +5,6 @@ use serde_with::{formats::Flexible, serde_as, DisplayFromStr, TimestampSeconds};
 
 use super::Method;
 
-// TODO: implement ads and free accounts
-
 // TODO: implement defaults, options
 
 #[derive(Clone, Eq, PartialEq, Deserialize, Debug)]

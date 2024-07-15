@@ -171,7 +171,9 @@ impl Gateway {
     pub async fn refresh(&mut self) -> Result<()> {
         match self.request::<gateway::user_data::Response>("{}").await {
             Ok(response) => {
-                self.set_user_data(response.results);
+                let data = response.results;
+                trace!("{data:#?}");
+                self.set_user_data(data);
                 Ok(())
             }
             Err(Error::HttpClient(e)) => {
@@ -235,7 +237,6 @@ impl Gateway {
     }
 
     pub fn set_user_data(&mut self, data: UserData) {
-        trace!("{data:#?}");
         self.user_data = Some(data);
     }
 
