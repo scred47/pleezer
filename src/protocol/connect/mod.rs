@@ -11,7 +11,7 @@ pub mod stream;
 
 pub use channel::{Channel, Event, UserId};
 pub use contents::{
-    AudioQuality, Body, Contents, DeviceId, Element, Headers, Percentage, RepeatMode, Status,
+    AudioQuality, Body, Contents, DeviceId, Headers, Percentage, QueueItem, RepeatMode, Status,
 };
 pub use messages::Message;
 pub use protos::queue;

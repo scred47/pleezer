@@ -189,7 +189,7 @@ pub enum Body {
 
     PlaybackProgress {
         message_id: String,
-        track: Element,
+        track: QueueItem,
         quality: AudioQuality,
         duration: Duration,
         buffered: Duration,
@@ -220,7 +220,7 @@ pub enum Body {
     Skip {
         message_id: String,
         queue_id: String,
-        track: Option<Element>,
+        track: Option<QueueItem>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
         set_repeat_mode: Option<RepeatMode>,
@@ -440,7 +440,7 @@ impl fmt::Display for Percentage {
 #[derive(
     Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord, PartialEq, Eq, Hash,
 )]
-pub struct Element {
+pub struct QueueItem {
     pub queue_id: String,
     pub track_id: NonZeroU64,
     // `usize` because this will index into an array. Also from the protobuf it
@@ -448,11 +448,11 @@ pub struct Element {
     pub position: usize,
 }
 
-impl Element {
+impl QueueItem {
     const SEPARATOR: char = '-';
 }
 
-impl fmt::Display for Element {
+impl fmt::Display for QueueItem {
     /// Formats an `Event` as a wire string for use on a
     /// [Deezer Connect][Connect] websocket.
     ///
@@ -470,7 +470,7 @@ impl fmt::Display for Element {
     }
 }
 
-impl FromStr for Element {
+impl FromStr for QueueItem {
     type Err = super::Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
@@ -641,7 +641,7 @@ pub enum Payload {
     #[serde(rename_all = "camelCase")]
     PlaybackProgress {
         queue_id: String,
-        element_id: Element,
+        element_id: QueueItem,
         #[serde_as(as = "DurationSeconds<u64>")]
         duration: Duration,
         #[serde_as(as = "DurationSeconds<u64>")]
@@ -673,7 +673,7 @@ pub enum Payload {
     #[serde(rename_all = "camelCase")]
     Skip {
         queue_id: String,
-        element_id: Option<Element>,
+        element_id: Option<QueueItem>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
         set_repeat_mode: Option<RepeatMode>,

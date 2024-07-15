@@ -16,8 +16,8 @@ use crate::{
     gateway::{Gateway, UserSettingsProvider},
     player::{Player, Track},
     protocol::connect::{
-        queue, stream, Body, Channel, Contents, DeviceId, Element, Event, Headers, Message,
-        Percentage, RepeatMode, Status, UserId,
+        queue, stream, Body, Channel, Contents, DeviceId, Event, Headers, Message, Percentage,
+        QueueItem, RepeatMode, Status, UserId,
     },
     tokens::{UserToken, UserTokenError, UserTokenProvider},
 };
@@ -625,7 +625,7 @@ impl Client {
         &mut self,
         message_id: &str,
         queue_id: &str,
-        element: Option<Element>,
+        item: Option<QueueItem>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
         set_shuffle: Option<bool>,
@@ -640,7 +640,7 @@ impl Client {
 
             self.set_player_state(
                 queue_id,
-                element,
+                item,
                 progress,
                 should_play,
                 set_shuffle,
@@ -675,19 +675,34 @@ impl Client {
     #[allow(clippy::too_many_arguments)]
     pub async fn set_player_state(
         &mut self,
-        _queue_id: &str,
-        element: Option<Element>,
+        queue_id: &str,
+        item: Option<QueueItem>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
         set_shuffle: Option<bool>,
         set_repeat_mode: Option<RepeatMode>,
         set_volume: Option<Percentage>,
     ) -> Result<()> {
-        // TODO: check whether queue matches
-
         // Set the element (track) before setting progress & playback.
-        if let Some(element) = element {
-            self.player.set_element(element);
+        if let Some(item) = item {
+            if item.queue_id == queue_id {
+                if let Some(list) = self.player.queue() {
+                    if list.id != queue_id {
+                        return Err(Error::Protocol(format!(
+                            "remote queue {queue_id} does not match player queue {}",
+                            list.id
+                        )));
+                    }
+                } else {
+                    // Weird but non-fatal - just play a single track then
+                    warn!("setting track without an active queue");
+                }
+                self.player.set_item(item);
+            } else {
+                return Err(Error::Protocol(format!(
+                    "queue {queue_id} does not match queue item {item}"
+                )));
+            }
         }
 
         if let Some(progress) = progress {
@@ -758,7 +773,7 @@ impl Client {
             if let Some(track) = &self.player.track() {
                 let progress = Body::PlaybackProgress {
                     message_id: Uuid::new_v4().into(),
-                    track: track.element().clone(),
+                    track: track.item().clone(),
                     // TODO: use actual track quality
                     quality: self.session.audio_quality().unwrap_or_default(),
                     duration: track.duration(),

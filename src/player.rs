@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::protocol::connect::{
     contents::{self, RepeatMode},
-    queue, Element, Percentage,
+    queue, Percentage, QueueItem,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -15,7 +15,7 @@ pub struct Error(String);
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Track {
-    element: Element,
+    item: QueueItem,
     duration: Duration,
     buffered: Duration,
     progress: Percentage,
@@ -24,12 +24,12 @@ pub struct Track {
 impl Track {
     #[must_use]
     pub fn id(&self) -> NonZeroU64 {
-        self.element.track_id
+        self.item.track_id
     }
 
     #[must_use]
-    pub fn element(&self) -> &Element {
-        &self.element
+    pub fn item(&self) -> &QueueItem {
+        &self.item
     }
 
     #[must_use]
@@ -108,11 +108,11 @@ impl Player {
         todo!()
     }
 
-    pub fn set_element(&mut self, element: contents::Element) {
-        debug!("setting track to {}", element);
+    pub fn set_item(&mut self, item: contents::QueueItem) {
+        debug!("setting track to {}", item);
 
         self.track = Some(Track {
-            element,
+            item,
             // TODO
             duration: Duration::from_secs(100),
             buffered: Duration::from_secs(100),
