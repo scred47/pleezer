@@ -12,6 +12,9 @@ impl Arl {
     /// Will return `Err` if:
     /// - `arl` contains invalid characters
     pub fn new(arl: &str) -> io::Result<Self> {
+        // Dummy-proofing
+        let arl = arl.replace("deezer://autolog/", "");
+
         // An `arl` must hold a valid cookie value.
         for chr in arl.chars() {
             if !arl.is_ascii()
@@ -26,7 +29,7 @@ impl Arl {
             }
         }
 
-        Ok(Self(arl.to_owned()))
+        Ok(Self(arl))
     }
 
     /// TODO
