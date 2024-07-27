@@ -146,7 +146,7 @@ impl Gateway {
                 .map_or(0, |result: &str| result.split(';').count())
         });
         if cookie_count != 2 {
-            return Err(Error::Assertion(String::from("cookie count invalid")));
+            return Err(Error::Assertion("cookie count invalid".to_string()));
         }
 
         // `Arc` wrap the jar for use in a asynchronous context and build a
@@ -161,9 +161,9 @@ impl Gateway {
             .build()?;
 
         // Rate limit own requests as to not DoS the Deezer infrastructure.
-        let replenish_interval = Self::RATE_LIMIT_INTERVAL.as_secs_f32()
-            / f32::from(Self::RATE_LIMIT_CALLS_PER_INTERVAL);
-        let quota = Quota::with_period(Duration::from_secs_f32(replenish_interval))
+        let replenish_interval =
+            Self::RATE_LIMIT_INTERVAL / u32::from(Self::RATE_LIMIT_CALLS_PER_INTERVAL);
+        let quota = Quota::with_period(replenish_interval)
             .ok_or_else(|| Error::Assertion("quota time interval is zero".to_string()))?
             .allow_burst(
                 NonZeroU32::new(Self::RATE_LIMIT_CALLS_PER_INTERVAL.into())
