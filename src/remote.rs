@@ -78,6 +78,8 @@ pub struct Client {
 
     player: Player,
     reporting_timer: Pin<Box<tokio::time::Sleep>>,
+
+    queue: Option<queue::List>,
 }
 
 #[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
@@ -182,6 +184,8 @@ impl Client {
             discovery_state: DiscoveryState::Available,
             connection_offers,
             interruptions: config.interruptions,
+
+            queue: None,
         })
     }
 
@@ -554,8 +558,12 @@ impl Client {
         self.discovery_state = DiscoveryState::Available;
     }
 
-    fn handle_publish_queue(&mut self, queue: queue::List) -> Result<()> {
+    async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
         if self.controller().is_some() {
+            let queue = self.session.list_to_queue(list.clone()).await.unwrap();
+            trace!("{queue:#?}");
+
+            self.queue = Some(list);
             self.player.set_queue(queue);
 
             return Ok(());
@@ -583,15 +591,15 @@ impl Client {
 
     async fn handle_refresh_queue(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
-            if let Some(queue) = self.player.queue() {
-                let queue = Body::PublishQueue {
+            if let Some(ref queue) = self.queue {
+                let contents = Body::PublishQueue {
                     message_id: Uuid::new_v4().into(),
                     queue: queue.clone(),
                 };
 
-                let remote_queue = self.channel(Event::RemoteQueue);
-                let queue = self.message(controller.clone(), remote_queue, queue);
-                self.send_message(queue).await
+                let channel = self.channel(Event::RemoteQueue);
+                let publish_queue = self.message(controller.clone(), channel, contents);
+                self.send_message(publish_queue).await
             } else {
                 Err(Error::Protocol(
                     "queue refresh should have a published queue".to_string(),
@@ -686,16 +694,16 @@ impl Client {
         // Set the element (track) before setting progress & playback.
         if let Some(item) = item {
             if item.queue_id == queue_id {
-                if let Some(list) = self.player.queue() {
-                    if list.id != queue_id {
+                if let Some(ref local) = self.queue {
+                    if local.id != queue_id {
                         return Err(Error::Protocol(format!(
-                            "remote queue {queue_id} does not match player queue {}",
-                            list.id
+                            "remote queue {queue_id} does not match local queue {}",
+                            local.id
                         )));
                     }
                 } else {
                     // Weird but non-fatal - just play a single track then
-                    warn!("setting track without an active queue");
+                    warn!("setting track without a local queue");
                 }
                 self.player.set_item(item);
             } else {
@@ -895,7 +903,7 @@ impl Client {
             // normal data. An acknowledgement serves as pong.
             Body::Ping { message_id } => self.send_acknowledgement(&message_id).await,
 
-            Body::PublishQueue { queue, .. } => self.handle_publish_queue(queue),
+            Body::PublishQueue { queue, .. } => self.handle_publish_queue(queue).await,
 
             Body::RefreshQueue { .. } => self.handle_refresh_queue().await,
 

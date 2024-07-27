@@ -22,8 +22,8 @@ use crate::{
     arl::Arl,
     config::Config,
     protocol::{
-        connect::AudioQuality,
-        gateway::{self, UserData},
+        connect::{queue, AudioQuality},
+        gateway::{self, Queue, UserData},
     },
     tokens::{UserToken, UserTokenError, UserTokenProvider},
 };
@@ -44,6 +44,9 @@ pub enum Error {
     #[error("http client error: {0}")]
     HttpClient(#[from] reqwest::Error),
 
+    #[error("parsing JSON error: {0}")]
+    JsonParse(#[from] serde_json::Error),
+
     #[error("parsing url failed: {0}")]
     UrlParse(#[from] url::ParseError),
 }
@@ -51,6 +54,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Gateway {
+    const EMPTY_JSON_BODY: &'static str = "{}";
     const RATE_LIMIT_INTERVAL: Duration = Duration::from_secs(5);
     const RATE_LIMIT_CALLS_PER_INTERVAL: u8 = 50;
 
@@ -169,11 +173,16 @@ impl Gateway {
     /// - the `arl` is invalid or expired
     /// - the HTTP request failed
     pub async fn refresh(&mut self) -> Result<()> {
-        match self.request::<gateway::user_data::Response>("{}").await {
+        match self
+            .request::<gateway::UserData>(Self::EMPTY_JSON_BODY)
+            .await
+        {
             Ok(response) => {
-                let data = response.results;
-                trace!("{data:#?}");
-                self.set_user_data(data);
+                if let Some(data) = response.first() {
+                    self.set_user_data(data.clone());
+                } else {
+                    return Err(Error::Assertion("no user data received".to_string()));
+                }
                 Ok(())
             }
             Err(Error::HttpClient(e)) => {
@@ -197,16 +206,18 @@ impl Gateway {
     /// - no valid [`Url`] can be created out of the session data
     /// - the HTTP request fails
     /// - the HTTP response cannot be parsed as [JSON]
-    pub async fn request<T>(&mut self, body: impl Into<reqwest::Body>) -> Result<T>
+    pub async fn request<T>(
+        &mut self,
+        body: impl Into<reqwest::Body>,
+    ) -> Result<gateway::Response<T>>
     where
-        T: for<'a> gateway::Method<'a> + for<'de> Deserialize<'de>,
+        T: std::fmt::Debug + gateway::Method + for<'de> Deserialize<'de>,
     {
-        let method = format!("deezer.{}", T::METHOD);
         let api_token = self
             .user_data
             .as_ref()
             .map_or_else(String::new, |data| data.api_token.clone());
-        let url_str = format!("https://www.deezer.com/ajax/gw-light.php?method={method}&input=3&api_version=1.0&api_token={api_token}&cid={}", self.client_id);
+        let url_str = format!("https://www.deezer.com/ajax/gw-light.php?method={}&input=3&api_version=1.0&api_token={api_token}&cid={}", T::METHOD, self.client_id);
 
         // Check the URL early to not needlessly hit the rate limiter below.
         let url = url_str.parse::<reqwest::Url>()?;
@@ -215,7 +226,16 @@ impl Gateway {
         self.rate_limiter.until_ready().await;
 
         let response = self.http_client.post(url).body(body).send().await?;
-        response.json::<T>().await.map_err(Into::into)
+        let result = response
+            .json::<gateway::Response<T>>()
+            .await
+            .map_err(Into::into);
+
+        if let Ok(ref body) = result {
+            trace!("{}: {body:#?}", T::METHOD);
+        }
+
+        result
     }
 
     #[must_use]
@@ -246,16 +266,37 @@ impl Gateway {
     }
 }
 
+// TODO : move into Gateway
+#[async_trait]
 pub trait UserSettingsProvider {
     fn audio_quality(&self) -> Option<AudioQuality>;
+    async fn list_to_queue(&mut self, list: queue::List) -> Result<Queue>;
 }
 
+#[async_trait]
 impl UserSettingsProvider for Gateway {
     /// The [`AudioQuality`] that the user has set for casting.
     fn audio_quality(&self) -> Option<AudioQuality> {
         self.user_data.as_ref().and_then(|data| {
             AudioQuality::from_str(&data.user.audio_settings.connected_device_streaming_preset).ok()
         })
+    }
+
+    async fn list_to_queue(&mut self, list: queue::List) -> Result<Queue> {
+        let track_list = gateway::list_data::Request {
+            track_ids: list
+                .tracks
+                .into_iter()
+                .map(|track| track.id.parse())
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|_| Error::Assertion("track number must not be zero".to_string()))?,
+        };
+
+        let body = serde_json::to_string(&track_list)?;
+        match self.request::<gateway::ListData>(body).await {
+            Ok(response) => Ok(response.all().clone()),
+            Err(e) => Err(e),
+        }
     }
 }
 

@@ -7,17 +7,13 @@ use super::Method;
 
 // TODO: implement defaults, options
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
-pub struct Response {
-    pub results: UserData,
+impl Method for UserData {
+    const METHOD: &'static str = "deezer.getUserData";
 }
 
-impl<'a> Method<'a> for Response {
-    const METHOD: &'a str = "getUserData";
-}
-
+// TODO : #[serde(rename_all = "UPPERCASE")]
 #[serde_as]
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Deserialize, Debug)]
 pub struct UserData {
     #[serde(rename = "USER")]
     pub user: User,
@@ -42,7 +38,7 @@ pub struct UserData {
     gain: Gain,
 }
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct User {
     #[serde(rename = "USER_ID")]
     pub id: NonZeroU64,
@@ -54,8 +50,10 @@ pub struct User {
     settings: Settings,
 }
 
+// TODO: find out how to register our own device.
+
 #[serde_as]
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct Options {
     license_token: String,
     audio_quality_default_preset: String,
@@ -72,50 +70,50 @@ pub struct Options {
     // queuelist_edition: bool,
 }
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct AudioSettings {
     presets: Vec<AudioPreset>,
     default_preset: String,
     pub connected_device_streaming_preset: String,
 }
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct AudioPreset {
     id: String,
     #[serde(rename = "wifi_download")]
     audio_quality: String,
 }
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct Settings {
     site: SiteSettings,
     adjust: AdjustSettings,
     audio_quality_settings: AudioQualitySettings,
 }
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct SiteSettings {
     player_hq: bool,
     player_audio_quality: String,
-    player_repeat: i64,
+    player_repeat: i64, // TODO: use repeat enum
     player_normalize: bool,
     cast_audio_quality: String,
 }
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct AdjustSettings {
     // TODO: what do these do?
     d0_stream: String,
     d7_stream: String,
 }
 
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct AudioQualitySettings {
     preset: String,
     connected_device_streaming_preset: String,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Gatekeeps {
     disable_device_limitation: bool,
@@ -135,9 +133,9 @@ pub struct Gatekeeps {
 }
 
 #[serde_as]
-#[derive(Copy, Clone, Eq, PartialEq, Deserialize, Debug)]
+#[derive(Copy, Clone, PartialEq, Deserialize, Debug)]
 pub struct Gain {
     #[serde(rename = "TARGET")]
     #[serde_as(as = "DisplayFromStr")]
-    target: i64,
+    target: f32,
 }

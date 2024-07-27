@@ -2,9 +2,12 @@ use std::{num::NonZeroU64, time::Duration};
 
 use thiserror::Error;
 
-use crate::protocol::connect::{
-    contents::{self, RepeatMode},
-    queue, Percentage, QueueItem,
+use crate::protocol::{
+    connect::{
+        contents::{self, RepeatMode},
+        Percentage, QueueItem,
+    },
+    gateway::Queue,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -51,7 +54,7 @@ impl Track {
 #[derive(Clone, Debug, Default)]
 pub struct Player {
     track: Option<Track>,
-    queue: Option<queue::List>,
+    queue: Option<Queue>,
     playing: bool,
     repeat_mode: RepeatMode,
     shuffle: bool,
@@ -76,6 +79,7 @@ impl Player {
         self.playing = false;
     }
 
+    #[must_use]
     pub fn playing(&self) -> bool {
         self.playing
     }
@@ -91,11 +95,11 @@ impl Player {
     }
 
     #[must_use]
-    pub fn queue(&self) -> Option<&queue::List> {
+    pub fn queue(&self) -> Option<&Queue> {
         self.queue.as_ref()
     }
 
-    pub fn set_queue(&mut self, queue: queue::List) {
+    pub fn set_queue(&mut self, queue: Queue) {
         self.queue = Some(queue);
     }
 

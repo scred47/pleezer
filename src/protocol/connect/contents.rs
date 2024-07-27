@@ -14,7 +14,6 @@ use flate2::{
 };
 use protobuf::Message;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::{
     json::JsonString, serde_as, DeserializeFromStr, DisplayFromStr, DurationSeconds,
@@ -324,6 +323,7 @@ impl fmt::Display for Status {
     PartialEq,
     Eq,
 )]
+// `i64` because this is serialized into and deserialized from JSON.
 #[repr(i64)]
 pub enum RepeatMode {
     #[default]
@@ -610,7 +610,7 @@ struct WireBody {
     ///
     /// This implementation is provided for sake of completeness and may change
     /// in the future.
-    clock: HashMap<String, Value>,
+    clock: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -849,7 +849,7 @@ impl From<Body> for WireBody {
     /// Converts to a `WireBody` from a [`Body`](struct.Body.html).
     #[allow(clippy::too_many_lines)]
     fn from(body: Body) -> Self {
-        let clock: HashMap<String, Value> = HashMap::new();
+        let clock: HashMap<String, serde_json::Value> = HashMap::new();
 
         match body {
             Body::Acknowledgement {
