@@ -13,7 +13,11 @@ use governor::{
     Quota, RateLimiter,
 };
 use rand::Rng;
-use reqwest::{self, cookie::CookieStore};
+use reqwest::{
+    self,
+    cookie::CookieStore,
+    header::{HeaderValue, ACCEPT_LANGUAGE, CONTENT_TYPE},
+};
 use serde::Deserialize;
 use sysinfo;
 use thiserror::Error;
@@ -115,6 +119,19 @@ impl Gateway {
         let cookie_origin =
             reqwest::Url::parse("https://www.deezer.com/desktop/login/electron/callback")?;
 
+        // Although all gateway requests are JSON, the `Content-Type` is not.
+        // Note: requests to the media server *do* have it set to JSON.
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/plain;charset=UTF-8"),
+        );
+
+        // Not having `Accept-Language` set is non-fatal.
+        if let Ok(language) = HeaderValue::from_str(app_lang) {
+            headers.insert(ACCEPT_LANGUAGE, language);
+        }
+
         // Create a new cookie jar and put the cookies in.
         let cookie_jar = reqwest::cookie::Jar::default();
         cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
@@ -140,6 +157,7 @@ impl Gateway {
             .tcp_keepalive(Duration::from_secs(60))
             .timeout(Duration::from_secs(60))
             .user_agent(user_agent)
+            .default_headers(headers)
             .build()?;
 
         // Rate limit own requests as to not DoS the Deezer infrastructure.
