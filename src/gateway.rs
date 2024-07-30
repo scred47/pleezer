@@ -1,30 +1,19 @@
-use std::{
-    num::NonZeroU32,
-    str::FromStr,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{str::FromStr, sync::Arc, time::SystemTime};
 
 use async_trait::async_trait;
-use governor::{
-    clock::MonotonicClock,
-    middleware::NoOpMiddleware,
-    state::{InMemoryState, NotKeyed},
-    Quota, RateLimiter,
-};
 use rand::Rng;
 use reqwest::{
     self,
     cookie::CookieStore,
-    header::{HeaderValue, ACCEPT_LANGUAGE, CONTENT_TYPE},
+    header::{HeaderValue, CONTENT_TYPE},
 };
 use serde::Deserialize;
-use sysinfo;
 use thiserror::Error;
 
 use crate::{
     arl::Arl,
     config::Config,
+    http::Client as HttpClient,
     protocol::{
         connect::{queue, AudioQuality},
         gateway::{self, Queue, UserData},
@@ -35,8 +24,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Gateway {
     client_id: usize,
-    http_client: reqwest::Client,
-    rate_limiter: RateLimiter<NotKeyed, InMemoryState, MonotonicClock, NoOpMiddleware>,
+    http_client: HttpClient,
     user_data: Option<UserData>,
 }
 
@@ -45,13 +33,13 @@ pub enum Error {
     #[error("assertion failed: {0}")]
     Assertion(String),
 
-    #[error("http client error: {0}")]
+    #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
 
     #[error("parsing JSON error: {0}")]
     JsonParse(#[from] serde_json::Error),
 
-    #[error("parsing url failed: {0}")]
+    #[error("parsing URL failed: {0}")]
     UrlParse(#[from] url::ParseError),
 }
 
@@ -59,8 +47,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl Gateway {
     const EMPTY_JSON_BODY: &'static str = "{}";
-    const RATE_LIMIT_INTERVAL: Duration = Duration::from_secs(5);
-    const RATE_LIMIT_CALLS_PER_INTERVAL: u8 = 50;
 
     /// TODO
     ///
@@ -71,74 +57,26 @@ impl Gateway {
     /// - no valid OS name and/or version can be detected
     /// - no valid cookies can be created out of the `arl` and/or `config` fields
     pub fn new(config: &Config, arl: &Arl) -> Result<Self> {
-        let app_name = &config.app_name;
-        let app_version = &config.app_version;
-        let app_lang = &config.app_lang;
-
-        // Additional `User-Agent` string checks on top of `reqwest`.
-        let illegal_chars = |chr| chr == '/' || chr == ';';
-        if app_name.is_empty()
-            || app_name.contains(illegal_chars)
-            || app_version.is_empty()
-            || app_version.contains(illegal_chars)
-            || app_lang.chars().count() != 2
-            || app_lang.contains(illegal_chars)
-        {
-            return Err(Error::Assertion(format!(
-                "application name, version and/or language invalid (\"{app_name}\"; \"{app_version}\"; \"{app_lang}\")"
-            )));
-        }
-
-        let os_name = match std::env::consts::OS {
-            "macos" => "osx",
-            other => other,
-        };
-        let os_version = sysinfo::System::os_version().unwrap_or_else(|| String::from("0"));
-        if os_name.is_empty()
-            || os_name.contains(illegal_chars)
-            || os_version.is_empty()
-            || os_version.contains(illegal_chars)
-        {
-            return Err(Error::Assertion(format!(
-                "os name and/or version invalid (\"{os_name}\"; \"{os_version}\")"
-            )));
-        }
-
-        // Set `User-Agent` to be served like Deezer on desktop.
-        let user_agent =
-            format!("{app_name}/{app_version} (Rust; {os_name}/{os_version}; Desktop; {app_lang})");
-        debug!("user agent: {user_agent}");
+        // Create a new cookie jar and put the cookies in.
+        let cookie_jar = reqwest::cookie::Jar::default();
+        let cookie_origin =
+            reqwest::Url::parse("https://www.deezer.com/desktop/login/electron/callback")?;
 
         // `arl`s expire in about 190 days but users cannot simply copy & paste
         // the expiration from their browser into the `arl_file`, because there
         // they are displayed in human-readable and internationalized form.
         // Instead we will try to detect ARL expiration when API requests fail.
         let arl_cookie = format!("arl={arl}; Domain=deezer.com; Path=/; Secure; HttpOnly");
-        let lang_cookie =
-            format!("dz_lang={app_lang}; Domain=deezer.com; Path=/; Secure; HttpOnly");
-        let cookie_origin =
-            reqwest::Url::parse("https://www.deezer.com/desktop/login/electron/callback")?;
-
-        // Although all gateway requests are JSON, the `Content-Type` is not.
-        // Note: requests to the media server *do* have it set to JSON.
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("text/plain;charset=UTF-8"),
-        );
-
-        // Not having `Accept-Language` set is non-fatal.
-        if let Ok(language) = HeaderValue::from_str(app_lang) {
-            headers.insert(ACCEPT_LANGUAGE, language);
-        }
-
-        // Create a new cookie jar and put the cookies in.
-        let cookie_jar = reqwest::cookie::Jar::default();
         cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
+
+        let lang_cookie = format!(
+            "dz_lang={}; Domain=deezer.com; Path=/; Secure; HttpOnly",
+            &config.app_lang
+        );
         cookie_jar.add_cookie_str(&lang_cookie, &cookie_origin);
 
-        // The functions above are infallible. Check if the jar really contains
-        // the cookies now.
+        // The function results above are infallible, but can reject invalid
+        // cookies nonetheless. Check if the jar really contains our cookies.
         let cookie_check = cookie_jar.cookies(&cookie_origin);
         let cookie_count = cookie_check.map_or(0, |header_value| {
             header_value
@@ -152,24 +90,7 @@ impl Gateway {
         // `Arc` wrap the jar for use in a asynchronous context and build a
         // HTTP client with it.
         let cookie_jar = Arc::new(cookie_jar);
-        let http_client = reqwest::Client::builder()
-            .cookie_provider(Arc::clone(&cookie_jar))
-            .tcp_keepalive(Duration::from_secs(60))
-            .timeout(Duration::from_secs(60))
-            .user_agent(user_agent)
-            .default_headers(headers)
-            .build()?;
-
-        // Rate limit own requests as to not DoS the Deezer infrastructure.
-        let replenish_interval =
-            Self::RATE_LIMIT_INTERVAL / u32::from(Self::RATE_LIMIT_CALLS_PER_INTERVAL);
-        let quota = Quota::with_period(replenish_interval)
-            .ok_or_else(|| Error::Assertion("quota time interval is zero".to_string()))?
-            .allow_burst(
-                NonZeroU32::new(Self::RATE_LIMIT_CALLS_PER_INTERVAL.into())
-                    .ok_or_else(|| Error::Assertion("calls per interval is zero".to_string()))?,
-            );
-        let rate_limiter = governor::RateLimiter::direct(quota);
+        let http_client = HttpClient::new(config, Some(cookie_jar))?;
 
         // Deezer on desktop uses a new `cid` on every start.
         let client_id = rand::thread_rng().gen_range(100_000_000..=999_999_999);
@@ -178,7 +99,6 @@ impl Gateway {
         Ok(Self {
             client_id,
             http_client,
-            rate_limiter,
             user_data: None,
         })
     }
@@ -237,13 +157,18 @@ impl Gateway {
             .map_or_else(String::new, |data| data.api_token.clone());
         let url_str = format!("https://www.deezer.com/ajax/gw-light.php?method={}&input=3&api_version=1.0&api_token={api_token}&cid={}", T::METHOD, self.client_id);
 
-        // Check the URL early to not needlessly hit the rate limiter below.
+        // Check the URL early to not needlessly hit the rate limiter.
         let url = url_str.parse::<reqwest::Url>()?;
+        let mut request = self.http_client.post(url, body);
 
-        // No need to await with jitter because the level of concurrency is low.
-        self.rate_limiter.until_ready().await;
+        // Although all gateway requests are JSON, the `Content-Type` is not.
+        let headers = request.headers_mut();
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/plain;charset=UTF-8"),
+        );
 
-        let response = self.http_client.post(url).body(body).send().await?;
+        let response = self.http_client.execute(request).await?;
         let result = response
             .json::<gateway::Response<T>>()
             .await
