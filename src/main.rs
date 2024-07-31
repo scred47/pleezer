@@ -4,7 +4,7 @@ use clap::{command, Parser, ValueHint};
 use log::{debug, error, info, LevelFilter};
 use rand::Rng;
 
-use pleezer::{arl::Arl, config::Config, gateway::Gateway, player::Player, remote};
+use pleezer::{arl::Arl, config::Config, player::Player, remote};
 
 /// Profile to display when not built in release mode.
 #[cfg(debug_assertions)]
@@ -120,16 +120,15 @@ fn load_arl(arl_file: &str) -> io::Result<Arl> {
 async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let arl = load_arl(&args.arl_file)?;
 
-    let mut config = Config::default();
+    let mut config = Config::with_arl(arl);
     config.interruptions = args.interruptions;
     config.device_name = args
         .name
         .or_else(|| sysinfo::System::host_name().clone())
         .unwrap_or_else(|| config.app_name.clone());
 
-    let session = Gateway::new(&config, &arl)?;
     let player = Player::new();
-    let mut client = remote::Client::new(&config, session, player, true)?;
+    let mut client = remote::Client::new(&config, player, true)?;
 
     // Restart after sleeping some duration to prevent accidental denial of
     // service attacks on the Deezer infrastructure. The initial connection
@@ -157,7 +156,9 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     error!("{e}");
                 }
 
-                // Sleep with jitter to prevent thundering herds.
+                // Sleep with jitter to prevent thundering herds. Subsecond
+                // precision further prevents that by spreading requests
+                // when users are launching this from some crontab.
                 let duration = Duration::from_millis(rand::thread_rng().gen_range(5_000..6_000));
                 info!("restarting in {:.1}s", duration.as_secs_f32());
                 restart_timer.as_mut().reset(tokio::time::Instant::now() + duration);

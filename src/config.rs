@@ -2,6 +2,8 @@ use machine_uid;
 use sysinfo;
 use uuid::Uuid;
 
+use crate::arl::Arl;
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Config {
     pub app_name: String,
@@ -14,10 +16,13 @@ pub struct Config {
     pub interruptions: bool,
 
     pub user_agent: String,
+
+    pub arl: Arl,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    #[must_use]
+    pub fn with_arl(arl: Arl) -> Self {
         let app_name = env!("CARGO_PKG_NAME").to_owned();
         let app_version = env!("CARGO_PKG_VERSION").to_owned();
         let app_lang = "en".to_owned();
@@ -77,6 +82,8 @@ impl Default for Config {
             interruptions: true,
 
             user_agent,
+
+            arl,
         }
     }
 }

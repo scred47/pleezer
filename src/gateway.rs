@@ -1,27 +1,24 @@
-use std::{str::FromStr, sync::Arc, time::SystemTime};
+use std::{str::FromStr, time::SystemTime};
 
-use async_trait::async_trait;
 use rand::Rng;
 use reqwest::{
     self,
-    cookie::CookieStore,
     header::{HeaderValue, CONTENT_TYPE},
 };
 use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
-    arl::Arl,
     config::Config,
     http::Client as HttpClient,
     protocol::{
         connect::{queue, AudioQuality},
         gateway::{self, Queue, UserData},
     },
-    tokens::{UserToken, UserTokenError, UserTokenProvider},
+    // TODO : move into gateway
+    tokens::{UserToken, UserTokenError},
 };
 
-#[derive(Debug)]
 pub struct Gateway {
     client_id: usize,
     http_client: HttpClient,
@@ -46,7 +43,10 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Gateway {
-    const EMPTY_JSON_BODY: &'static str = "{}";
+    fn cookie_origin() -> reqwest::Url {
+        reqwest::Url::parse("https://www.deezer.com/desktop/login/electron/callback")
+            .expect("invalid cookie origin")
+    }
 
     /// TODO
     ///
@@ -56,17 +56,19 @@ impl Gateway {
     /// - no valid `User-Agent` can be created out of the `config` fields
     /// - no valid OS name and/or version can be detected
     /// - no valid cookies can be created out of the `arl` and/or `config` fields
-    pub fn new(config: &Config, arl: &Arl) -> Result<Self> {
+    pub fn new(config: &Config) -> Result<Self> {
         // Create a new cookie jar and put the cookies in.
         let cookie_jar = reqwest::cookie::Jar::default();
-        let cookie_origin =
-            reqwest::Url::parse("https://www.deezer.com/desktop/login/electron/callback")?;
+        let cookie_origin = Self::cookie_origin();
 
         // `arl`s expire in about 190 days but users cannot simply copy & paste
         // the expiration from their browser into the `arl_file`, because there
         // they are displayed in human-readable and internationalized form.
         // Instead we will try to detect ARL expiration when API requests fail.
-        let arl_cookie = format!("arl={arl}; Domain=deezer.com; Path=/; Secure; HttpOnly");
+        let arl_cookie = format!(
+            "arl={}; Domain=deezer.com; Path=/; Secure; HttpOnly",
+            &config.arl
+        );
         cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
 
         let lang_cookie = format!(
@@ -75,22 +77,7 @@ impl Gateway {
         );
         cookie_jar.add_cookie_str(&lang_cookie, &cookie_origin);
 
-        // The function results above are infallible, but can reject invalid
-        // cookies nonetheless. Check if the jar really contains our cookies.
-        let cookie_check = cookie_jar.cookies(&cookie_origin);
-        let cookie_count = cookie_check.map_or(0, |header_value| {
-            header_value
-                .to_str()
-                .map_or(0, |result: &str| result.split(';').count())
-        });
-        if cookie_count != 2 {
-            return Err(Error::Assertion("cookie count invalid".to_string()));
-        }
-
-        // `Arc` wrap the jar for use in a asynchronous context and build a
-        // HTTP client with it.
-        let cookie_jar = Arc::new(cookie_jar);
-        let http_client = HttpClient::new(config, Some(cookie_jar))?;
+        let http_client = HttpClient::with_cookies(config, cookie_jar)?;
 
         // Deezer on desktop uses a new `cid` on every start.
         let client_id = rand::thread_rng().gen_range(100_000_000..=999_999_999);
@@ -103,6 +90,13 @@ impl Gateway {
         })
     }
 
+    pub fn cookies(&self) -> Option<HeaderValue> {
+        self.http_client
+            .cookie_jar
+            .as_ref()
+            .and_then(|jar| jar.cookies(&Self::cookie_origin()))
+    }
+
     /// TODO
     ///
     /// # Errors
@@ -111,10 +105,8 @@ impl Gateway {
     /// - the `arl` is invalid or expired
     /// - the HTTP request failed
     pub async fn refresh(&mut self) -> Result<()> {
-        match self
-            .request::<gateway::UserData>(Self::EMPTY_JSON_BODY)
-            .await
-        {
+        // Send an empty JSON map
+        match self.request::<gateway::UserData>("{}").await {
             Ok(response) => {
                 if let Some(data) = response.first() {
                     self.set_user_data(data.clone());
@@ -207,25 +199,15 @@ impl Gateway {
     pub fn user_data(&self) -> Option<&gateway::UserData> {
         self.user_data.as_ref()
     }
-}
 
-// TODO : move into Gateway
-#[async_trait]
-pub trait UserSettingsProvider {
-    fn audio_quality(&self) -> Option<AudioQuality>;
-    async fn list_to_queue(&mut self, list: queue::List) -> Result<Queue>;
-}
-
-#[async_trait]
-impl UserSettingsProvider for Gateway {
     /// The [`AudioQuality`] that the user has set for casting.
-    fn audio_quality(&self) -> Option<AudioQuality> {
+    pub fn audio_quality(&self) -> Option<AudioQuality> {
         self.user_data.as_ref().and_then(|data| {
             AudioQuality::from_str(&data.user.audio_settings.connected_device_streaming_preset).ok()
         })
     }
 
-    async fn list_to_queue(&mut self, list: queue::List) -> Result<Queue> {
+    pub async fn list_to_queue(&mut self, list: queue::List) -> Result<Queue> {
         let track_list = gateway::list_data::Request {
             track_ids: list
                 .tracks
@@ -241,11 +223,8 @@ impl UserSettingsProvider for Gateway {
             Err(e) => Err(e),
         }
     }
-}
 
-#[async_trait]
-impl UserTokenProvider for Gateway {
-    async fn user_token(&mut self) -> std::result::Result<UserToken, UserTokenError> {
+    pub async fn user_token(&mut self) -> std::result::Result<UserToken, UserTokenError> {
         if self.is_expired() {
             self.refresh().await?;
         }
@@ -274,7 +253,7 @@ impl UserTokenProvider for Gateway {
         }
     }
 
-    fn flush_user_token(&mut self) {
+    pub fn flush_user_token(&mut self) {
         // Force refreshing user data, but do not set `user_data` to `None` so
         // so we can continue using the `api_token` it contains.
         if let Some(ref mut data) = self.user_data {

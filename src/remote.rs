@@ -6,20 +6,22 @@ use lru_time_cache::LruCache;
 use semver;
 use thiserror::Error;
 use tokio_tungstenite::{
-    tungstenite::{protocol::frame::Frame, Message as WebsocketMessage},
+    tungstenite::{
+        client::ClientRequestBuilder, protocol::frame::Frame, Message as WebsocketMessage,
+    },
     MaybeTlsStream, WebSocketStream,
 };
 use uuid::Uuid;
 
 use crate::{
     config::Config,
-    gateway::{Gateway, UserSettingsProvider},
+    gateway::{self, Gateway},
     player::{Player, Track},
     protocol::connect::{
         queue, stream, Body, Channel, Contents, DeviceId, Event, Headers, Message, Percentage,
         QueueItem, RepeatMode, Status, UserId,
     },
-    tokens::{UserToken, UserTokenError, UserTokenProvider},
+    tokens::{UserToken, UserTokenError},
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -29,13 +31,16 @@ pub enum Error {
     #[error("connection error: {0}")]
     Connection(String),
 
-    #[error(transparent)]
+    #[error("gateway error: {0}")]
+    Gateway(#[from] gateway::Error),
+
+    #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("{0}")]
+    #[error("player error: {0}")]
     Player(String),
 
-    #[error("{0}")]
+    #[error("protocol error: {0}")]
     Protocol(String),
 
     #[error("error parsing app version: {0}")]
@@ -48,18 +53,14 @@ pub enum Error {
     WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
 }
 
-// `NewTrait` for the `Client` that requires some provider to provide both a
-// `UserToken` and `UserData`.
-pub trait SessionProvider: UserTokenProvider + UserSettingsProvider + 'static {}
-impl SessionProvider for Gateway {}
-
 // TODO: implement Debug manually to not print the user_token
 pub struct Client {
     device_id: DeviceId,
     device_name: String,
 
+    gateway: Gateway,
+    // TODO : just get from gateway
     user_token: Option<UserToken>,
-    session: Box<dyn SessionProvider>,
 
     scheme: String,
     version: String,
@@ -119,15 +120,7 @@ impl Client {
     /// - the `app_version` in `config` is not in [`SemVer`] format
     ///
     /// [SemVer]: https://semver.org/
-    pub fn new<P>(
-        config: &Config,
-        session_provider: P,
-        player: Player,
-        secure: bool,
-    ) -> Result<Self>
-    where
-        P: SessionProvider,
-    {
+    pub fn new(config: &Config, player: Player, secure: bool) -> Result<Self> {
         // Construct version in the form of `Mmmppp` where:
         // - `M` is the major version
         // - `mm` is the minor version
@@ -165,7 +158,8 @@ impl Client {
             device_id: config.device_id.into(),
             device_name: config.device_name.clone(),
 
-            session: Box::new(session_provider),
+            gateway: Gateway::new(config)?,
+
             user_token: None,
 
             scheme: scheme.to_owned(),
@@ -201,7 +195,7 @@ impl Client {
         // threshold. If rate limiting is necessary, then that should be done
         // by the token token_provider.
         let (user_token, time_to_live) = loop {
-            let token = self.session.user_token().await?;
+            let token = self.gateway.user_token().await?;
 
             let time_to_live = token
                 .time_to_live()
@@ -211,7 +205,7 @@ impl Client {
                 debug!("user id: {}", token.user_id);
                 info!(
                     "user casting quality: {}",
-                    self.session.audio_quality().unwrap_or_default(),
+                    self.gateway.audio_quality().unwrap_or_default(),
                 );
 
                 // This takes a few milliseconds and would normally
@@ -226,7 +220,7 @@ impl Client {
             }
 
             // Flush user tokens that expire within the threshold.
-            self.session.flush_user_token();
+            self.gateway.flush_user_token();
         };
 
         // Set timer for user token expiration. Wake a short while before
@@ -235,17 +229,28 @@ impl Client {
         let expiry = tokio::time::sleep(time_to_live);
         tokio::pin!(expiry);
 
-        let url = format!(
+        let uri = format!(
             "{}://live.deezer.com/ws/{}?version={}",
             self.scheme, user_token, self.version
-        );
+        )
+        .parse::<http::Uri>()
+        .map_err(|e| Error::Connection(e.to_string()))?;
+        let mut request = ClientRequestBuilder::new(uri);
 
-        self.user_token = Some(user_token);
+        // Decorate the websocket request with the same cookies as the gateway.
+        if let Some(cookies) = self.gateway.cookies() {
+            if let Ok(cookie_str) = cookies.to_str() {
+                request = request.with_header("Cookie", cookie_str);
+            } else {
+                warn!("unable to set cookie header on websocket");
+            }
+        }
 
-        // TODO : include cookies with the request
-        let (ws_stream, _) = tokio_tungstenite::connect_async(url).await?;
+        let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
         let (websocket_tx, mut websocket_rx) = ws_stream.split();
         self.websocket_tx = Some(websocket_tx);
+
+        self.user_token = Some(user_token);
 
         self.subscribe(Event::Stream).await?;
         self.subscribe(Event::RemoteDiscover).await?;
@@ -273,7 +278,7 @@ impl Client {
 
                 () = &mut self.reporting_timer, if self.is_connected() && self.player.playing() => {
                     if let Err(e) = self.report_playback_progress().await {
-                        error!("{e}");
+                        error!("error reporting playback progress: {e}");
                     }
                 }
 
@@ -293,7 +298,7 @@ impl Client {
 
                                 ControlFlow::Break(Error::UserToken(UserTokenError::Refresh)) => {
                                     info!("stopping client: {}", UserTokenError::Refresh);
-                                    self.session.flush_user_token();
+                                    self.gateway.flush_user_token();
                                     break Ok(());
                                 }
 
@@ -303,10 +308,6 @@ impl Client {
                         Err(e) => error!("error receiving message: {e}"),
                     }
                 }
-
-                // Some(notification) = self.player.notification() => {
-                //     // TODO
-                // }
             }
         };
 
@@ -560,7 +561,7 @@ impl Client {
 
     async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
         if self.controller().is_some() {
-            let queue = self.session.list_to_queue(list.clone()).await.unwrap();
+            let queue = self.gateway.list_to_queue(list.clone()).await.unwrap();
             trace!("{queue:#?}");
 
             self.queue = Some(list);
@@ -783,7 +784,7 @@ impl Client {
                     message_id: Uuid::new_v4().into(),
                     track: track.item().clone(),
                     // TODO: use actual track quality
-                    quality: self.session.audio_quality().unwrap_or_default(),
+                    quality: self.gateway.audio_quality().unwrap_or_default(),
                     duration: track.duration(),
                     buffered: track.buffered(),
                     progress: track.progress(),
