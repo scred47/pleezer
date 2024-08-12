@@ -1,0 +1,57 @@
+name: Cross-compilation on Rust stable
+
+on:
+  push:
+    branches: [ "main" ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/docs/**'
+  pull_request:
+    branches: [ "main" ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/docs/**'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, x86_64-apple-darwin, x86_64-pc-windows-msvc]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Cache Cargo registry on ${{ matrix.os }} (${{ matrix.target }})
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
+
+    - name: Cache Cargo build on ${{ matrix.os }} (${{ matrix.target }})
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.target }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-build-${{ matrix.target }}
+
+    - name: Install Rust stable on ${{ matrix.os }}
+      run: rustup install stable
+
+    - name: Add cross-compilation target ${{ matrix.target }} on ${{ matrix.os }}
+      run: rustup target add ${{ matrix.target }}
+
+    - name: Build ${{ matrix.target }} on ${{ matrix.os }}
+      run: cargo build --verbose --target ${{ matrix.target }}
+
+    - name: Upload Binaries for ${{ matrix.target }} on ${{ matrix.os }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: my-binary-${{ matrix.target }}-stable
+        path: target/${{ matrix.target }}/debug/
