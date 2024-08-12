@@ -50,7 +50,7 @@ jobs:
     - name: Build ${{ matrix.target }} on ${{ matrix.os }}
       run: cargo build --verbose --target ${{ matrix.target }}
 
-    - name: Upload Binaries for ${{ matrix.target }} on ${{ matrix.os }}
+    - name: Upload binaries for ${{ matrix.target }} on ${{ matrix.os }}
       uses: actions/upload-artifact@v3
       with:
         name: my-binary-${{ matrix.target }}-stable
