@@ -1,0 +1,29 @@
+name: Check code quality
+
+on:
+  push:
+    branches: [ "main" ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/docs/**'
+  pull_request:
+    branches: [ "main" ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/docs/**'
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust stable
+      run: rustup install stable
+
+    - name: Check code formatting
+      run: cargo fmt --all -- --check
+
+    - name: Run Clippy linter
+      run: cargo clippy --all-targets -- -D warnings
