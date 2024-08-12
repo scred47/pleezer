@@ -1,3 +1,19 @@
-arl.toml*
-config.toml*
-/target
+# Build artifacts
+/target/
+
+# IDE configurations
+/.vscode/
+/.idea/
+
+# Backup files
+*.rs.bk
+*.swp
+
+# Log files
+*.log
+
+# Docker ignore file (if applicable)
+.dockerignore
+
+# Credentials and secret keys
+secrets.toml
