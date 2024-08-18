@@ -53,7 +53,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
 
     - name: Security audit
-      run: cargo audit
+      uses: actions-rust-lang/audit@v1
 
     - name: Cross-compile for ${{ matrix.target }} on Rust beta
       run: |
