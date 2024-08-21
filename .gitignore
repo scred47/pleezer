@@ -4,6 +4,7 @@
 # IDE configurations
 /.vscode/
 /.idea/
+/.zed/
 
 # Backup files
 *.rs.bk
