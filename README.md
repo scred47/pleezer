@@ -4,7 +4,7 @@
 
 ## Project Status
 
-**pleezer** is a new project and is actively being developed. We welcome contributions and feedback from the community. Please see the [Contributing](#contributing) section for more details.
+**pleezer** is a new project and is actively being developed. We welcome contributions and feedback from the community. For more details, see the [Contributing](#contributing) section.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@
 
 ### Supported Features
 
-- **Audio Quality**: Stream audio in basic, standard, HQ, and lossless formats according to your Deezer subscription level.
+- **Audio Quality**: Stream audio in basic, standard, HQ, and lossless formats based on your Deezer subscription level.
 - **Gapless Playback**: Enjoy uninterrupted transitions between tracks.
 - **Playback Controls**: Includes options for repeat, shuffle, radio, Flow, mixes, and playback of user-uploaded MP3 files to Deezer.
 - **Playback Reporting**: Provides accurate playback data for artist monetization.
@@ -41,38 +41,38 @@
 
 ## Installation
 
-Before installing **pleezer**, make sure you have set up the necessary build environment on your system. If you haven't, please refer to the [Setting Up Your Build Environment](#setting-up-your-build-environment) section for instructions.
+Before installing **pleezer**, ensure your system has the necessary build environment set up. Refer to the [Setting Up Your Build Environment](#setting-up-your-build-environment) section for instructions.
 
 **pleezer** can be installed in one of two ways:
 
 1. **Install the Latest Stable Version**
 
-  You can install the latest stable release of **pleezer** directly from [crates.io](https://crates.io/crates/pleezer) using Cargo:
+   You can install the latest stable release of **pleezer** directly from [crates.io](https://crates.io/crates/pleezer) using Cargo:
 
-  ```bash
-  cargo install pleezer
-  ```
+   ```bash
+   cargo install pleezer
+   ```
 
-  This command downloads, compiles, and installs the latest release version of **pleezer**. The binary will be placed in `~/.cargo/bin/` on Unix-like systems or `C:\Users\<YourUsername>\.cargo\bin\` on Windows.
+   This command downloads, compiles, and installs the latest release version of **pleezer**. The binary will be placed in `~/.cargo/bin/` on Unix-like systems or `C:\Users\<YourUsername>\.cargo\bin\` on Windows.
 
 2. **Build the Latest Development Version**
 
-  If you want the latest development version, follow these steps:
+   If you want the latest development version, follow these steps:
 
-  1. Clone the repository:
+   1. Clone the repository:
       ```bash
       git clone https://github.com/your-repo/pleezer.git
       cd pleezer
       ```
 
-  2. Build the project:
+   2. Build the project:
       ```bash
       cargo build --release
       ```
 
       This command compiles the project and produces the binary in the `target/release/` directory.
 
-  3. (Optional) Install the built version system-wide:
+   3. (Optional) Install the built version system-wide:
       ```bash
       cargo install --path .
       ```
@@ -81,12 +81,12 @@ Before installing **pleezer**, make sure you have set up the necessary build env
 
 ## Usage
 
-After launching **pleezer**, it will wait for a connection from another Deezer client. Here’s how to connect and use **pleezer** with your mobile device or other Deezer clients:
+Once **pleezer** is launched, it will wait for a connection from another Deezer client. Here’s how to connect and use **pleezer** with your mobile device or other Deezer clients:
 
 1. **Open** the Deezer app on your mobile device or another Deezer client.
 2. **Tap** the loudspeaker icon, usually found in the bottom-left corner, to access the Audio Output section.
 3. **Select** **Deezer Connect** to view a list of available devices.
-4. **Choose** the device named with either the name you specified using the `-n` option or the default system host name.
+4. **Choose** the device named with either the name you specified using the `-n` option or the default system hostname.
 
 Your music will start playing on the selected device.
 
@@ -94,7 +94,7 @@ Your music will start playing on the selected device.
 
 ### Command-Line Arguments
 
-- `-n` or `--name`: Set the player’s name as it appears to Deezer clients. By default, it uses the system host name. Example:
+- `-n` or `--name`: Set the player's name as it appears to Deezer clients. By default, it uses the system hostname. Example:
     ```bash
     pleezer --name "My Deezer Player"
     ```
@@ -138,13 +138,13 @@ Your music will start playing on the selected device.
 
 ### Stateless Configuration
 
-**pleezer** operates statelessly and loads user settings, such as normalization and audio quality, when it connects. To apply changes, disconnect and reconnect. This limitation arises from the Deezer Connect protocol.
+**pleezer** operates statelessly and loads user settings, such as normalization and audio quality, when it connects. To apply changes, disconnect and reconnect. This limitation is due to the Deezer Connect protocol.
 
 Command-line options handle settings that cannot be managed statelessly.
 
 ### Configuring the Secrets File
 
-For authentication, **pleezer** requires a `secrets.toml` file that includes either:
+For authentication, **pleezer** requires a `secrets.toml` file containing either:
 
 - **email** and **password**: Your Deezer account email address and password, or
 - **arl**: The Authentication Reference Link for your Deezer account. If present, this will override the email and password authentication. ARLs expire over time, so using email and password authentication is preferred for long-term access.
@@ -181,11 +181,11 @@ You can start with the [`secrets.toml.example`](secrets.toml.example) file provi
 
 ## Troubleshooting
 
-If you encounter any issues while using **pleezer**, please check out our [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions) for help and advice. You can also post your issue there to get help from the community.
+If you encounter any issues while using **pleezer**, visit our [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions) for help and advice. You can also post your issue there to get help from the community.
 
 ## Building pleezer
 
-**pleezer** is supported on Linux and macOS with full compatibility. Windows support is tier two, meaning it is not fully tested and complete compatibility is not guaranteed. Contributions to improve Windows support are welcome.
+**pleezer** is supported on Linux and macOS with full compatibility. Windows support is tier two, meaning it is not fully tested and complete compatibility is not guaranteed. Contributions to enhance Windows support are welcome.
 
 ### Setting Up Your Build Environment
 
@@ -198,7 +198,7 @@ Before building **pleezer**, make sure your system is set up with a build enviro
     ```bash
     sudo apt-get update
     sudo apt-get install build-essential libasound2-dev pkg-config
-  ```
+    ```
   - On Fedora:
     ```bash
     sudo dnf groupinstall 'Development Tools'
@@ -241,7 +241,7 @@ Before building **pleezer**, make sure your system is set up with a build enviro
 
 ## Contributing
 
-We appreciate and encourage contributions to **pleezer**! Whether you’re fixing bugs, adding features, or improving documentation, your involvement is valuable.
+We appreciate and encourage contributions to **pleezer**! Whether you're fixing bugs, adding features, or improving documentation, your involvement is valuable.
 
 ### How to Contribute
 
@@ -274,7 +274,7 @@ If **pleezer** doesn't meet your needs, you might consider using the official De
 
 ## License
 
-**pleezer** is licensed under the [Sustainable Use License]x(LICENSE.md). This license promotes [fair use](https://faircode.io) and sustainable development of open-source software while preventing unregulated commercial exploitation.
+**pleezer** is licensed under the [Sustainable Use License](LICENSE.md). This license promotes [fair use](https://faircode.io) and sustainable development of open-source software while preventing unregulated commercial exploitation.
 
 ### Non-Commercial Use
 
@@ -293,7 +293,7 @@ This approach addresses challenges seen with projects like [librespot](https://g
 
 ## Contacting the Author
 
-For general inquiries, please use [GitHub](https://github.com/roderickvd/pleezer) issues or discussions. For commercial licensing or to report security vulnerabilities, you may contact me directly via email. Please avoid using email for general support or feature requests.
+For general inquiries, please use [GitHub Issues](https://github.com/roderickvd/pleezer/issues) or [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions). For commercial licensing or to report security vulnerabilities, you may contact me directly via email. Please avoid using email for general support or feature requests.
 
 ## Support My Work
 
@@ -315,3 +315,7 @@ When using **pleezer**, you must comply with [Deezer's Terms of Service](https:/
 - Avoiding any activities that violate Deezer's policies or terms.
 
 It is your responsibility to thoroughly understand and adhere to Deezer’s Terms of Service while using **pleezer**.
+
+## Security
+
+For information on how security is handled, including how to report vulnerabilities, please refer to the [SECURITY.md](SECURITY.md) file.
