@@ -2,36 +2,36 @@ name: Check code quality
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths-ignore:
-      - '**/*.md'
-      - '**/docs/**'
+      - "**.md"
+      - "docs/**"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
     paths-ignore:
-      - '**/*.md'
-      - '**/docs/**'
+      - "**.md"
+      - "docs/**"
 
 jobs:
   code-quality:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install build tools and ALSA dependencies
-      run: |
-        sudo apt-get update && sudo apt-get install -y build-essential libasound2-dev pkg-config
+      - name: Install build tools and ALSA dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y build-essential libasound2-dev pkg-config
 
-    - name: Install Rust stable
-      run: rustup toolchain install stable
+      - name: Install Rust stable
+        run: rustup toolchain install stable
 
-    - name: Cache Rust dependencies
-      uses: Swatinem/rust-cache@v2
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
 
-    - name: Check code formatting
-      run: cargo fmt --all -- --check
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
 
-    - name: Run Clippy linter
-      run: cargo clippy --all-targets -- -D warnings
+      - name: Run Clippy linter
+        run: cargo clippy --all-targets -- -D warnings

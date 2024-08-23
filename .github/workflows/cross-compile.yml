@@ -2,15 +2,15 @@ name: Cross-compilation on Rust stable
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths-ignore:
-      - '**/*.md'
-      - '**/docs/**'
+      - "**.md"
+      - "docs/**"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
     paths-ignore:
-      - '**/*.md'
-      - '**/docs/**'
+      - "**.md"
+      - "docs/**"
 
 jobs:
   cross-compile:
@@ -35,31 +35,31 @@ jobs:
             target: x86_64-pc-windows-msvc
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install build tools and ALSA dependencies (Linux only)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update && sudo apt-get install -y build-essential libasound2-dev pkg-config
+      - name: Install build tools and ALSA dependencies (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update && sudo apt-get install -y build-essential libasound2-dev pkg-config
 
-    - name: Install cross compiler (aarch64 and armv7 only)
-      if: matrix.cross
-      run: |
-        sudo apt-get install -y ${{ matrix.linker }}
+      - name: Install cross compiler (aarch64 and armv7 only)
+        if: matrix.cross
+        run: |
+          sudo apt-get install -y ${{ matrix.linker }}
 
-    - name: Install Visual Studio Build Tools (Windows only)
-      if: matrix.os == 'windows-latest'
-      run: |
-        choco install visualstudio2022-workload-vctools --yes
+      - name: Install Visual Studio Build Tools (Windows only)
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install visualstudio2022-workload-vctools --yes
 
-    - name: Install Rust stable
-      run: rustup toolchain install stable --profile minimal
+      - name: Install Rust stable
+        run: rustup toolchain install stable --profile minimal
 
-    - name: Cache Rust dependencies
-      uses: Swatinem/rust-cache@v2
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
 
-    - name: Cross-compile for ${{ matrix.target }} on Rust stable
-      run: |
-        rustup target add ${{ matrix.target }}
-        cargo build --verbose --target ${{ matrix.target }}
+      - name: Cross-compile for ${{ matrix.target }} on Rust stable
+        run: |
+          rustup target add ${{ matrix.target }}
+          cargo build --verbose --target ${{ matrix.target }}
