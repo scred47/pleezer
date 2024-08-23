@@ -10,6 +10,7 @@ Thank you for your interest in contributing to **pleezer**! Your support is cruc
   - [Reporting Bugs](#reporting-bugs)
   - [Feature Requests](#feature-requests)
   - [Pull Request Process](#pull-request-process)
+  - [Security](#security)
 - [Project History](#project-history)
 - [Financial Contributions](#financial-contributions)
 - [CI Pipeline](#ci-pipeline)
@@ -17,11 +18,12 @@ Thank you for your interest in contributing to **pleezer**! Your support is cruc
 - [Performance Testing](#performance-testing)
 - [Coding Conventions](#coding-conventions)
 - [Documentation](#documentation)
+- [Release Process](#release-process)
 - [Acknowledgments](#acknowledgments)
 
 ## Code of Conduct and Project Governance
 
-We require all contributors to adhere to our [Code of Conduct](CODE_OF_CONDUCT.md), which ensures a respectful and constructive environment for everyone. The project is currently maintained by the author, who holds the final decision-making power. We expect all contributors to resolve any conflicts, either technical or interpersonal, in a manner that aligns with the Code of Conduct. The final decision on any conflicts rests with the author.
+We require all contributors to adhere to our [Code of Conduct](CODE_OF_CONDUCT.md), which ensures a respectful and constructive environment for everyone. The project is currently maintained by the author, who has the final decision-making authority. We expect all contributors to resolve any conflicts, either technical or interpersonal, in a manner that aligns with the Code of Conduct. The final decision on any conflicts rests with the author.
 
 ## Getting Started
 
@@ -34,7 +36,7 @@ We require all contributors to adhere to our [Code of Conduct](CODE_OF_CONDUCT.m
 ### Reporting Bugs
 
 1. **Check for Existing Issues**: Before reporting a bug, search the issue tracker to avoid duplicates.
-2. **Create a GitHub Issue**: If the bug is new, create a [GitHub issue](https://github.com/roderickvd/pleezer/issues) and label it as "bug". Include as much detail as possible—steps to reproduce, logs, and screenshots are particularly helpful.
+2. **Create a GitHub Issue**: If the bug is new, create a [GitHub issue](https://github.com/roderickvd/pleezer/issues) and label it as "bug". Include as much detail as possible—steps to reproduce and logs are required.
 
 ### Feature Requests
 
@@ -43,16 +45,21 @@ We require all contributors to adhere to our [Code of Conduct](CODE_OF_CONDUCT.m
 
 ### Pull Request Process
 
-1. **Create a Branch**: Always create a new branch for each feature or bug fix. Avoid committing directly to the `main` branch.
+1. **Create a Branch**: Always create a new branch for each feature or bug fix. Avoid committing directly to the `main` branch. Use descriptive branch names.
 2. **Test Your Code**: Ensure your code works as expected before submitting a pull request. Cross-platform testing is encouraged if possible.
-3. **Open a Pull Request**: Submit a pull request against the `main` branch. Include a clear description of your changes and reference any related issues.
-4. **Review Process**: We will review your pull request as soon as possible, but response times can vary.
-5. **Testing**: Although we encourage writing new tests, it’s not required at this stage because we do not yet have a test harness. Just make sure your code passes any existing tests.
-6. **Documentation**: Contributions to documentation are highly valued. If your pull request includes changes that require documentation updates, please include them.
+3. **Update the Changelog**: Update the [CHANGELOG.md](CHANGELOG.md) file with a summary of your changes under the "Unreleased" section. Follow the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+4. **Open a Pull Request**: Submit a pull request against the `main` branch. Include a clear description of your changes and reference any related issues. Use descriptive and imperative commit messages.
+5. **Review Process**: We will review your pull request as soon as possible, but response times can vary.
+6. **Testing**: While writing new tests is encouraged, it’s not required at this stage as we do not yet have a test harness. Just make sure your code passes any existing tests.
+7. **Documentation**: Contributions to documentation are highly valued. If your pull request includes changes that require documentation updates, please include them.
 
 We will acknowledge contributors in the release notes unless they choose to opt out. Sponsoring the project via [GitHub Sponsors](https://github.com/sponsors/roderickvd) is also a meaningful way to contribute.
 
 By contributing, you agree that your code will be licensed under the terms of the [Sustainable Use License](LICENSE.md).
+
+### Security
+
+Please refer to the [SECURITY.md](SECURITY.md) file for information on how to report security vulnerabilities. Do not use GitHub issues or discussions for reporting security vulnerabilities.
 
 ## Financial Contributions
 
@@ -63,14 +70,14 @@ If you wish to support the project financially, you can do so through the [GitHu
 Our CI pipeline, managed with [GitHub Actions](https://github.com/roderickvd/pleezer/actions), includes the following workflows:
 
 - **Cross-Compilation**: Checks for cross-compilation on Rust stable with every push and pull request.
-- **Code Quality**: Checks code formatting and linting on Rust stable.
+- **Code Quality**: Checks code formatting and linting on Rust stable using `rustfmt` and `clippy`.
 - **Weekly Maintenance**: Periodically checks for compilation on Rust beta to ensure readiness for the next stable release of Rust.
 
 Please ensure your code passes these checks before submitting a pull request.
 
 ## Automated Testing
 
-We currently do not have a test harness. However, we encourage you to thoroughly test your changes before submitting a pull request.
+We currently do not have a test harness. However, we encourage you to thoroughly test your changes using the built-in Rust testing framework before submitting a pull request.
 
 ## Performance Testing
 
@@ -82,7 +89,16 @@ We follow Rust's idiomatic style and use `rustfmt` and `clippy` to enforce forma
 
 ## Documentation
 
-Our goal is to provide thorough documentation for **pleezer**. Contributions to improve documentation are highly valued. Although we currently have limited documentation, we aim to improve this over time and publish it to docs.rs when it's mature enough.
+Our goal is to provide thorough documentation for **pleezer**. Contributions to improve documentation are highly valued. We use Rustdoc for generating documentation. Although we currently have limited documentation, we aim to improve this over time and publish it to docs.rs when it's mature enough.
+
+## Release Process
+
+We aim for fast and frequent releases to ensure that improvements and fixes are delivered to users as quickly as possible. Our release process involves the following steps:
+
+1. **Merge Pull Requests**: Ensure all relevant pull requests are merged into the `main` branch.
+2. **Update Changelog**: Ensure the [CHANGELOG.md](CHANGELOG.md) file is up-to-date with the latest changes.
+3. **Tag a New Release**: Create a new tag for the release.
+4. **Publish to Crates.io**: Publish the new version to [crates.io](https://crates.io/crates/pleezer).
 
 ## Acknowledgments
 
