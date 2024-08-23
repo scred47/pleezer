@@ -20,48 +20,51 @@ const ARGS_GROUP_LOGGING: &str = "logging";
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Configuration file with the `arl` cookie.
+    /// Secrets file
     ///
-    /// For security, make this file accessible only to the owner of the Deezer
-    /// account. Do not share this file or its contents with anyone.
-    #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath, default_value_t = String::from("arl.toml"))]
-    arl_file: String,
+    /// Ensure that the this file is kept secure and not shared publicly, as it
+    /// contains sensitive information that can grant access to your Deezer
+    /// account.
+    #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath, default_value_t = String::from("secrets.toml"))]
+    secrets_file: String,
 
-    /// Device name
+    /// Player's name
     ///
-    /// [default: hostname]
+    /// Set the player's name as it appears to Deezer clients.
+    ///
+    /// [default: system hostname]
     #[arg(short, long, value_hint = ValueHint::Hostname)]
     name: Option<String>,
 
-    /// Allow session interruption
+    /// Prevent session interruptions
     ///
-    /// When enabled, active connections will be disconnected and replaced by
-    /// later connections. When disabled, this device will still show up but
-    /// not accept new connections when already connected.
-    #[arg(short, long, default_value_t = true)]
-    interruptions: bool,
+    /// Prevent other clients from taking over the connection after pleezer has
+    /// connected.
+    #[arg(long, default_value_t = false)]
+    no_interruptions: bool,
 
-    /// Quiet; no logging
+    /// Suppresses all output except warnings and errors.
     #[arg(short, long, default_value_t = false, group = ARGS_GROUP_LOGGING)]
     quiet: bool,
 
-    /// Verbose logging
+    /// Enable verbose logging
     ///
-    /// Specify twice to be extra verbose.
+    /// Specify twice for trace logging.
     #[arg(short, long, action = clap::ArgAction::Count, group = ARGS_GROUP_LOGGING)]
     verbose: u8,
 }
 
-/// Initializes the logger facade. The logging level is determined as follows,
-/// in order of precedence from highest to lowest:
+/// Initializes the logger facade.
+///
+/// The logging level is determined as follows, in order of precedence from
+/// highest to lowest:
 /// 1. Command line arguments
 /// 2. `RUST_LOG` environment variable
 /// 3. Hard coded default
 ///
 /// # Parameters
 ///
-/// - `config`: an `Args` struct with `quiet` field as `bool` and `verbose` as
-///   `usize`.
+/// - `config`: a `&Args` with the command line arguments.
 ///
 /// # Panics
 ///
@@ -78,7 +81,7 @@ fn init_logger(config: &Args) {
             0 => {
                 // Quiet and verbose are mutually exclusive, and `verbose` is 0
                 // by default. So this arm means: quiet mode.
-                LevelFilter::Off
+                LevelFilter::Warn
             }
             1 => LevelFilter::Debug,
             _ => LevelFilter::Trace,
@@ -91,20 +94,21 @@ fn init_logger(config: &Args) {
     logger.init();
 }
 
-/// Loads an `arl` from a `arl_file`.
+/// Loads the `arl` from a file.
 ///
 /// # Parameters
 ///
-/// - `arl_file`: a path to a TOML file that contains an `arl`.
+/// - `arl_file`: a `&str` with the path to the file containing the `arl`.
 ///
 /// # Returns
 ///
 /// - `Ok`: a `String` with the `arl` to access the Deezer streaming service.
+/// - `Err`: an `io::Error` if the file could not be read.
 ///
 /// # Errors
 ///
-/// Will return `Err` if:
-/// - loading `arl_file` fails
+/// This function returns an error if the file could not be read. This could be
+/// due to the file not existing or not having the correct permissions.
 fn load_arl(arl_file: &str) -> io::Result<Arl> {
     let arl = Arl::from_file(arl_file);
 
@@ -117,11 +121,26 @@ fn load_arl(arl_file: &str) -> io::Result<Arl> {
     arl
 }
 
+/// Main application loop.
+///
+/// # Parameters
+///
+/// - `args`: a `Args` with the command line arguments.
+///
+/// # Returns
+///
+/// - `Ok`: a `()` when the application exits successfully.
+/// - `Err`: a `Box<dyn Error>` when an error occurs.
+///
+/// # Errors
+///
+/// This function returns an error when an error occurs. This could be due to
+/// the user interrupting the application or an unrecoverable network error.
 async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let arl = load_arl(&args.arl_file)?;
+    let arl = load_arl(&args.secrets_file)?;
 
     let mut config = Config::with_arl(arl);
-    config.interruptions = args.interruptions;
+    config.interruptions = !args.no_interruptions;
     config.device_name = args
         .name
         .or_else(|| sysinfo::System::host_name().clone())
@@ -169,6 +188,10 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// Main entry point of the application.
+///
+/// This function initializes the logger facade, parses the command line
+/// arguments, and starts the main application loop.
 #[tokio::main]
 async fn main() {
     // `clap` handles our command line arguments and help text.
