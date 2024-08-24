@@ -38,6 +38,7 @@
 
 - **Queue List Synchronization**: Sync your playback queue across multiple devices for a seamless listening experience.
 - **Proxy Support**: Enable the use of **pleezer** in environments with restricted internet access.
+- **Device Registration**: Register unique devices and adhere to Deezer’s device limit policy.
 
 ## Installation
 
