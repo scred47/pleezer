@@ -1,10 +1,10 @@
-use std::{error::Error, io, process, time::Duration};
+use std::{error::Error, fs, io, path::Path, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
-use log::{debug, error, info, LevelFilter};
+use log::{debug, error, info, trace, LevelFilter};
 use rand::Rng;
 
-use pleezer::{arl::Arl, config::Config, player::Player, remote};
+use pleezer::{arl::Arl, config::Config, gateway::Gateway, player::Player, remote};
 
 /// Profile to display when not built in release mode.
 #[cfg(debug_assertions)]
@@ -94,31 +94,37 @@ fn init_logger(config: &Args) {
     logger.init();
 }
 
-/// Loads the `arl` from a file.
+/// Parse the secrets file into a `toml::Value`.
 ///
 /// # Parameters
 ///
-/// - `arl_file`: a `&str` with the path to the file containing the `arl`.
+/// - `secrets_file`: a `Path` to the secrets file.
 ///
 /// # Returns
 ///
-/// - `Ok`: a `String` with the `arl` to access the Deezer streaming service.
-/// - `Err`: an `io::Error` if the file could not be read.
-///
-/// # Errors
-///
-/// This function returns an error if the file could not be read. This could be
-/// due to the file not existing or not having the correct permissions.
-fn load_arl(arl_file: &str) -> io::Result<Arl> {
-    let arl = Arl::from_file(arl_file);
-
-    if let Err(ref e) = arl {
-        if e.kind() == io::ErrorKind::NotFound {
-            info!("read the documentation on how to set your ARL in {arl_file}");
-        }
+/// - `Ok`: a `toml::Value` when the secrets file is successfully parsed.
+/// - `Err`: an `io::Error` when an error occurs.
+fn parse_secrets(secrets_file: impl AsRef<Path>) -> io::Result<toml::Value> {
+    // Prevent out-of-memory condition: secrets file should be small.
+    let attributes = fs::metadata(&secrets_file)?;
+    let file_size = attributes.len();
+    if file_size > 1024 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "{secrets_file} too large: {file_size} bytes",
+        ));
     }
 
-    arl
+    let contents = fs::read_to_string(&secrets_file)?;
+    contents.parse::<toml::Value>().map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "{} format invalid: {e}",
+                secrets_file.as_ref().to_string_lossy()
+            ),
+        )
+    })
 }
 
 /// Main application loop.
@@ -134,24 +140,66 @@ fn load_arl(arl_file: &str) -> io::Result<Arl> {
 ///
 /// # Errors
 ///
-/// This function returns an error when an error occurs. This could be due to
-/// the user interrupting the application or an unrecoverable network error.
+/// This function returns `Err` when an error occurs. This could be due to the
+/// user interrupting the application or an unrecoverable network error.
 async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    let arl = load_arl(&args.secrets_file)?;
-
-    let mut config = Config::with_arl(arl);
+    // Configure the applcation according to the command line arguments.
+    let mut config = Config::default();
     config.interruptions = !args.no_interruptions;
     config.device_name = args
         .name
         .or_else(|| sysinfo::System::host_name().clone())
         .unwrap_or_else(|| config.app_name.clone());
 
+    // Get the arl from the secrets file or login with email and password.
+    let secrets = parse_secrets(args.secrets_file)?;
+    let arl = match secrets.get("arl").and_then(|value| value.as_str()) {
+        Some(arl) => {
+            let result = arl.parse::<Arl>();
+            if result.is_ok() {
+                info!("using arl from secrets file");
+            }
+            result
+        }
+        None => {
+            let email = secrets
+                .get("email")
+                .and_then(|email| email.as_str())
+                .ok_or(io::Error::new(io::ErrorKind::NotFound, "email not found"))?;
+            let password = secrets
+                .get("password")
+                .and_then(|password| password.as_str())
+                .ok_or(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "password not found",
+                ))?;
+
+            // TODO : keep the gateway around and pass it to the remote client
+            // with the arl cookie in the jar.
+            let gateway = Gateway::new(&config)?;
+            let result = Arl::from_credentials(gateway, email, password).await;
+
+            if result.is_err() {
+                error!("login failed");
+            }
+            result
+        }
+    }?;
+
+    // Redact the arl for logging purposes. Print the first 8 characters or
+    // less if the arl is shorter.
+    let len = arl.len();
+    let min = usize::min(len, 8);
+    trace!("redacted arl {}... with {} characters", &arl[0..min], len);
+
+    config.arl = Some(arl);
+
     let player = Player::new();
     let mut client = remote::Client::new(&config, player, true)?;
 
     // Restart after sleeping some duration to prevent accidental denial of
-    // service attacks on the Deezer infrastructure. The initial connection
-    // happens immediately.
+    // service attacks on the Deezer infrastructure. Initially set the timer to
+    // zero to immediately connect to the Deezer servers.
     let restart_timer = tokio::time::sleep(Duration::ZERO);
     tokio::pin!(restart_timer);
 
@@ -164,12 +212,16 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             // Prioritize shutdown signals.
             biased;
 
+            // Handle shutdown signals.
             _ = tokio::signal::ctrl_c() => {
                 info!("shutting down gracefully");
                 client.stop().await;
                 break Ok(())
             }
 
+            // Restart the client when it gets disconnected. The initial
+            // connection happens immediately, because the timer elapses
+            // immediately.
             result = client.start(), if restart_timer.is_elapsed() => {
                 if let Err(e) = result {
                     error!("{e}");
@@ -183,6 +235,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 restart_timer.as_mut().reset(tokio::time::Instant::now() + duration);
             }
 
+            // Keep the timer running until the client is ready to restart.
             () = &mut restart_timer, if !restart_timer.is_elapsed() => {}
         }
     }

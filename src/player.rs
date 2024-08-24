@@ -108,6 +108,7 @@ impl Player {
         self.track.as_ref()
     }
 
+    #[allow(clippy::must_use_candidate)]
     pub fn skip_to(&self, _position: usize) -> Option<&Track> {
         todo!()
     }

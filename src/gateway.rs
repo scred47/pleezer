@@ -1,28 +1,29 @@
 use std::{str::FromStr, time::SystemTime};
 
-use rand::Rng;
+use http::header::{InvalidHeaderValue, MaxSizeReached};
 use reqwest::{
     self,
-    header::{HeaderValue, CONTENT_TYPE},
+    header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE},
 };
 use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
+    arl::{self, Arl},
     config::Config,
     http::Client as HttpClient,
     protocol::{
         connect::{queue, AudioQuality},
-        gateway::{self, Queue, UserData},
+        gateway::{self, Method, Queue, UserData},
     },
     // TODO : move into gateway
     tokens::{UserToken, UserTokenError},
 };
 
 pub struct Gateway {
-    client_id: usize,
     http_client: HttpClient,
     user_data: Option<UserData>,
+    client_id: usize,
 }
 
 #[derive(Error, Debug)]
@@ -32,6 +33,9 @@ pub enum Error {
 
     #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
+
+    #[error("HTTP header error: {0}")]
+    HttpHeader(String),
 
     #[error("parsing JSON error: {0}")]
     JsonParse(#[from] serde_json::Error),
@@ -43,9 +47,63 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Gateway {
+    /// The URL of the Deezer cookie origin.
+    ///
+    /// This URL is not entirely correct, as the cookies could come from
+    /// `connect.deezer.com` or `www.deezer.com` as well. What
+    /// matters is that the domain matches with `deezer.com`.
+    const COOKIE_ORIGIN: &'static str = "https://www.deezer.com";
+
+    /// The URL of the Deezer gateway.
+    const GATEWAY_URL: &'static str = "https://www.deezer.com/ajax/gw-light.php";
+
+    /// The Deezer gateway version.
+    const GATEWAY_VERSION: &'static str = "1.0";
+
+    /// The Deezer gateway input type.
+    const GATEWAY_INPUT: usize = 3;
+
+    /// The `Content-Type` header value for the Deezer gateway requests.
+    ///
+    /// Although the bodies of all gateway requests are JSON, the
+    /// `Content-Type` is not.
+    const PLAIN_TEXT_CONTENT: HeaderValue = HeaderValue::from_static("text/plain;charset=UTF-8");
+
+    /// An empty JSON object that is used as the default body for the Deezer
+    /// API gateway requests.
+    const EMPTY_JSON_OBJECT: &'static str = "{}";
+
+    /// The cookie origin for the Deezer API as a `reqwest::Url`.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the URL is invalid.
     fn cookie_origin() -> reqwest::Url {
-        reqwest::Url::parse("https://www.deezer.com/desktop/login/electron/callback")
-            .expect("invalid cookie origin")
+        reqwest::Url::parse(Self::COOKIE_ORIGIN).expect("invalid cookie origin")
+    }
+
+    /// Creates a new `reqwest::cookie::Jar` containing the necessary cookies
+    /// for the Deezer API.
+    fn cookie_jar(config: &Config) -> reqwest::cookie::Jar {
+        let cookie_jar = reqwest::cookie::Jar::default();
+        let cookie_origin = Self::cookie_origin();
+
+        let lang_cookie = format!(
+            "dz_lang={}; Domain=deezer.com; Path=/; Secure; HttpOnly",
+            &config.app_lang
+        );
+        cookie_jar.add_cookie_str(&lang_cookie, &cookie_origin);
+
+        if let Some(ref arl) = config.arl {
+            let arl_cookie = format!("arl={arl}; Domain=deezer.com; Path=/; Secure; HttpOnly");
+            cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
+        }
+
+        cookie_jar
+    }
+
+    pub fn http_client(&self) -> reqwest::Client {
+        self.http_client.inner.clone()
     }
 
     /// TODO
@@ -58,33 +116,11 @@ impl Gateway {
     /// - no valid cookies can be created out of the `arl` and/or `config` fields
     pub fn new(config: &Config) -> Result<Self> {
         // Create a new cookie jar and put the cookies in.
-        let cookie_jar = reqwest::cookie::Jar::default();
-        let cookie_origin = Self::cookie_origin();
-
-        // `arl`s expire in about 190 days but users cannot simply copy & paste
-        // the expiration from their browser into the `arl_file`, because there
-        // they are displayed in human-readable and internationalized form.
-        // Instead we will try to detect ARL expiration when API requests fail.
-        let arl_cookie = format!(
-            "arl={}; Domain=deezer.com; Path=/; Secure; HttpOnly",
-            &config.arl
-        );
-        cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
-
-        let lang_cookie = format!(
-            "dz_lang={}; Domain=deezer.com; Path=/; Secure; HttpOnly",
-            &config.app_lang
-        );
-        cookie_jar.add_cookie_str(&lang_cookie, &cookie_origin);
-
+        let cookie_jar = Self::cookie_jar(config);
         let http_client = HttpClient::with_cookies(config, cookie_jar)?;
 
-        // Deezer on desktop uses a new `cid` on every start.
-        let client_id = rand::thread_rng().gen_range(100_000_000..=999_999_999);
-        debug!("client id: {client_id}");
-
         Ok(Self {
-            client_id,
+            client_id: config.client_id,
             http_client,
             user_data: None,
         })
@@ -106,7 +142,10 @@ impl Gateway {
     /// - the HTTP request failed
     pub async fn refresh(&mut self) -> Result<()> {
         // Send an empty JSON map
-        match self.request::<gateway::UserData>("{}").await {
+        match self
+            .request::<gateway::UserData>(Self::EMPTY_JSON_OBJECT, None)
+            .await
+        {
             Ok(response) => {
                 if let Some(data) = response.first() {
                     self.set_user_data(data.clone());
@@ -139,38 +178,51 @@ impl Gateway {
     pub async fn request<T>(
         &mut self,
         body: impl Into<reqwest::Body>,
+        headers: Option<HeaderMap>,
     ) -> Result<gateway::Response<T>>
     where
         T: std::fmt::Debug + gateway::Method + for<'de> Deserialize<'de>,
     {
+        // Get the API token from the user data or use an empty string.
         let api_token = self
             .user_data
             .as_ref()
-            .map_or_else(String::new, |data| data.api_token.clone());
-        let url_str = format!("https://www.deezer.com/ajax/gw-light.php?method={}&input=3&api_version=1.0&api_token={api_token}&cid={}", T::METHOD, self.client_id);
+            .map(|data| data.api_token.as_str())
+            .unwrap_or_default();
 
         // Check the URL early to not needlessly hit the rate limiter.
+        let url_str = format!(
+            "{}?method={}&input={}&api_version={}&api_token={api_token}&cid={}",
+            Self::GATEWAY_URL,
+            T::METHOD,
+            Self::GATEWAY_INPUT,
+            Self::GATEWAY_VERSION,
+            self.client_id,
+        );
         let url = url_str.parse::<reqwest::Url>()?;
         let mut request = self.http_client.post(url, body);
 
-        // Although all gateway requests are JSON, the `Content-Type` is not.
-        let headers = request.headers_mut();
-        headers.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("text/plain;charset=UTF-8"),
-        );
+        let request_headers = request.headers_mut();
+        request_headers.try_insert(CONTENT_TYPE, Self::PLAIN_TEXT_CONTENT)?;
 
-        let response = self.http_client.execute(request).await?;
-        let result = response
-            .json::<gateway::Response<T>>()
-            .await
-            .map_err(Into::into);
-
-        if let Ok(ref body) = result {
-            trace!("{}: {body:#?}", T::METHOD);
+        // Add any headers that were passed in.
+        if let Some(headers) = headers {
+            request_headers.extend(headers);
         }
 
-        result
+        let response = self.http_client.execute(request).await?;
+        let result = response.json::<gateway::Response<T>>().await;
+
+        let redacted = T::METHOD == gateway::get_arl::GetArl::METHOD;
+        if let Ok(ref body) = result {
+            if redacted {
+                trace!("{}: {{ ... }}", T::METHOD);
+            } else {
+                trace!("{}: {body:#?}", T::METHOD);
+            }
+        }
+
+        result.map_err(Into::into)
     }
 
     #[must_use]
@@ -218,10 +270,30 @@ impl Gateway {
         };
 
         let body = serde_json::to_string(&track_list)?;
-        match self.request::<gateway::ListData>(body).await {
+        match self.request::<gateway::ListData>(body, None).await {
             Ok(response) => Ok(response.all().clone()),
             Err(e) => Err(e),
         }
+    }
+
+    pub async fn get_arl(&mut self, access_token: &str) -> Result<Arl> {
+        let mut headers = HeaderMap::new();
+        headers.try_insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {access_token}"))?,
+        )?;
+
+        let arl = self
+            .request::<gateway::GetArl>(Self::EMPTY_JSON_OBJECT, Some(headers))
+            .await
+            .and_then(|response| {
+                response
+                    .first()
+                    .map(|result| result.0.clone())
+                    .ok_or_else(|| Error::Assertion("no arl received".to_string()))
+            })?;
+
+        arl.parse::<Arl>().map_err(Into::into)
     }
 
     pub async fn user_token(&mut self) -> std::result::Result<UserToken, UserTokenError> {
@@ -265,5 +337,23 @@ impl Gateway {
 impl From<Error> for UserTokenError {
     fn from(e: Error) -> Self {
         Self::Provider(e.into())
+    }
+}
+
+impl From<MaxSizeReached> for Error {
+    fn from(e: MaxSizeReached) -> Self {
+        Self::HttpHeader(e.to_string())
+    }
+}
+
+impl From<InvalidHeaderValue> for Error {
+    fn from(e: InvalidHeaderValue) -> Self {
+        Self::HttpHeader(e.to_string())
+    }
+}
+
+impl From<arl::Error> for Error {
+    fn from(e: arl::Error) -> Self {
+        Self::Assertion(e.to_string())
     }
 }

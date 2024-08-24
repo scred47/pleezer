@@ -26,6 +26,9 @@ pub enum UserTokenError {
     Provider(Box<dyn std::error::Error>),
 }
 
+// TODO : remove this trait and merge it into the gateway, because there are no
+// other implementations of this trait.
+
 #[async_trait]
 pub trait UserTokenProvider {
     async fn user_token(&mut self) -> Result<UserToken, UserTokenError>;
