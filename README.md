@@ -16,7 +16,6 @@
 - [Contributing](#contributing)
 - [Versioning](#versioning)
 - [Related Projects](#related-projects)
-- [Alternatives](#alternatives)
 - [License](#license)
 - [Contacting the Author](#contacting-the-author)
 - [Support My Work](#support-my-work)
@@ -262,16 +261,10 @@ All significant changes are documented in the [Changelog](CHANGELOG.md).
 
 ## Related Projects
 
-There are several projects that have influenced **pleezer**, or are used by **pleezer**. Here are a few:
+There are several projects that have influenced **pleezer**. Here are a few:
 
-- [foo](#): A brief description of how this project relates to **pleezer**.
-- [bar](#): A brief description of how this project relates to **pleezer**.
-
-We encourage you to explore these projects.
-
-## Alternatives
-
-If **pleezer** doesn't meet your needs, you might consider using the official Deezer Connect client, which is available on Mac, Windows, iOS, Android, and the web.
+- [librespot](https://github.com/librespot-org/librespot): An open-source client library for Spotify with support for Spotify Connect.
+- [lms-deezer](https://github.com/philippe44/lms-deezer): A plugin for Logitech Media Server to stream music from Deezer.
 
 ## License
 
