@@ -2,7 +2,7 @@ use std::{error::Error, fs, io, path::Path, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
 use log::{debug, error, info, LevelFilter};
-use rand::Rng;
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
 use pleezer::{
     arl::Arl,
@@ -184,48 +184,13 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .or_else(|| sysinfo::System::host_name().clone())
         .unwrap_or_else(|| config.app_name.clone());
 
-    // let arl = match secrets.get("arl").and_then(|value| value.as_str()) {
-    //     Some(arl) => {
-    //         let result = arl.parse::<Arl>();
-    //         if result.is_ok() {
-    //             info!("using arl from secrets file");
-    //         }
-    //         result
-    //     }
-    //     None => {
-    //         let email = secrets
-    //             .get("email")
-    //             .and_then(|email| email.as_str())
-    //             .ok_or(io::Error::new(io::ErrorKind::NotFound, "email not found"))?;
-    //         let password = secrets
-    //             .get("password")
-    //             .and_then(|password| password.as_str())
-    //             .ok_or(io::Error::new(
-    //                 io::ErrorKind::NotFound,
-    //                 "password not found",
-    //             ))?;
-
-    //         // TODO : keep the gateway around and pass it to the remote client
-    //         // with the arl cookie in the jar.
-    //         let gateway = Gateway::new(&config)?;
-    //         let result = Arl::from_credentials(gateway, email, password).await;
-
-    //         if result.is_err() {
-    //             error!("login failed");
-    //         }
-    //         result
-    //     }
-    // }?;
-
-    // Redact the arl for logging purposes. Print the first 8 characters or
-    // less if the arl is shorter.
-
     let player = Player::new();
     let mut client = remote::Client::new(&config, player, true)?;
 
     // Restart after sleeping some duration to prevent accidental denial of
     // service attacks on the Deezer infrastructure. Initially set the timer to
     // zero to immediately connect to the Deezer servers.
+    let mut small_rng = SmallRng::from_entropy();
     let restart_timer = tokio::time::sleep(Duration::ZERO);
     tokio::pin!(restart_timer);
 
@@ -260,7 +225,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 // Sleep with jitter to prevent thundering herds. Subsecond
                 // precision further prevents that by spreading requests
                 // when users are launching this from some crontab.
-                let duration = Duration::from_millis(rand::thread_rng().gen_range(5_000..6_000));
+                let duration = Duration::from_millis(small_rng.gen_range(5_000..6_000));
                 info!("restarting in {:.1}s", duration.as_secs_f32());
                 restart_timer.as_mut().reset(tokio::time::Instant::now() + duration);
             }

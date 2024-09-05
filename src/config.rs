@@ -1,5 +1,5 @@
 use machine_uid;
-use rand::Rng;
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 use sysinfo;
 use thiserror::Error;
 use uuid::Uuid;
@@ -158,7 +158,7 @@ impl Config {
         trace!("user agent: {user_agent}");
 
         // Deezer on desktop uses a new `cid` on every start.
-        let client_id = rand::thread_rng().gen_range(100_000_000..=999_999_999);
+        let client_id = SmallRng::from_entropy().gen_range(100_000_000..=999_999_999);
         debug!("client id: {client_id}");
 
         Ok(Self {
