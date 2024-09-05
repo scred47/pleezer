@@ -1,10 +1,15 @@
 use std::{error::Error, fs, io, path::Path, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
-use log::{debug, error, info, trace, LevelFilter};
+use log::{debug, error, info, LevelFilter};
 use rand::Rng;
 
-use pleezer::{arl::Arl, config::Config, gateway::Gateway, player::Player, remote};
+use pleezer::{
+    arl::Arl,
+    config::{Config, Credentials},
+    player::Player,
+    remote,
+};
 
 /// Profile to display when not built in release mode.
 #[cfg(debug_assertions)]
@@ -143,23 +148,13 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> io::Result<toml::Value> {
 /// This function returns `Err` when an error occurs. This could be due to the
 /// user interrupting the application or an unrecoverable network error.
 async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    // Configure the applcation according to the command line arguments.
-    let mut config = Config::default();
-    config.interruptions = !args.no_interruptions;
-    config.device_name = args
-        .name
-        .or_else(|| sysinfo::System::host_name().clone())
-        .unwrap_or_else(|| config.app_name.clone());
-
-    // Get the arl from the secrets file or login with email and password.
+    // Get the credentials from the secrets file.
     let secrets = parse_secrets(args.secrets_file)?;
-    let arl = match secrets.get("arl").and_then(|value| value.as_str()) {
+    let credentials = match secrets.get("arl").and_then(|value| value.as_str()) {
         Some(arl) => {
-            let result = arl.parse::<Arl>();
-            if result.is_ok() {
-                info!("using arl from secrets file");
-            }
-            result
+            let result = arl.parse::<Arl>()?;
+            info!("using arl from secrets file");
+            Credentials::Arl(result)
         }
         None => {
             let email = secrets
@@ -174,25 +169,56 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                     "password not found",
                 ))?;
 
-            // TODO : keep the gateway around and pass it to the remote client
-            // with the arl cookie in the jar.
-            let gateway = Gateway::new(&config)?;
-            let result = Arl::from_credentials(gateway, email, password).await;
-
-            if result.is_err() {
-                error!("login failed");
+            Credentials::Login {
+                email: email.to_string(),
+                password: password.to_string(),
             }
-            result
         }
-    }?;
+    };
+
+    // Configure the applcation according to the command line arguments.
+    let mut config = Config::new(credentials)?;
+    config.interruptions = !args.no_interruptions;
+    config.device_name = args
+        .name
+        .or_else(|| sysinfo::System::host_name().clone())
+        .unwrap_or_else(|| config.app_name.clone());
+
+    // let arl = match secrets.get("arl").and_then(|value| value.as_str()) {
+    //     Some(arl) => {
+    //         let result = arl.parse::<Arl>();
+    //         if result.is_ok() {
+    //             info!("using arl from secrets file");
+    //         }
+    //         result
+    //     }
+    //     None => {
+    //         let email = secrets
+    //             .get("email")
+    //             .and_then(|email| email.as_str())
+    //             .ok_or(io::Error::new(io::ErrorKind::NotFound, "email not found"))?;
+    //         let password = secrets
+    //             .get("password")
+    //             .and_then(|password| password.as_str())
+    //             .ok_or(io::Error::new(
+    //                 io::ErrorKind::NotFound,
+    //                 "password not found",
+    //             ))?;
+
+    //         // TODO : keep the gateway around and pass it to the remote client
+    //         // with the arl cookie in the jar.
+    //         let gateway = Gateway::new(&config)?;
+    //         let result = Arl::from_credentials(gateway, email, password).await;
+
+    //         if result.is_err() {
+    //             error!("login failed");
+    //         }
+    //         result
+    //     }
+    // }?;
 
     // Redact the arl for logging purposes. Print the first 8 characters or
     // less if the arl is shorter.
-    let len = arl.len();
-    let min = usize::min(len, 8);
-    trace!("redacted arl {}... with {} characters", &arl[0..min], len);
-
-    config.arl = Some(arl);
 
     let player = Player::new();
     let mut client = remote::Client::new(&config, player, true)?;
@@ -223,8 +249,12 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             // connection happens immediately, because the timer elapses
             // immediately.
             result = client.start(), if restart_timer.is_elapsed() => {
-                if let Err(e) = result {
+                if let Err(e) = &result {
                     error!("{e}");
+                }
+
+                if let Err(remote::Error::Login(_)) = &result {
+                    break result.map_err(Into::into);
                 }
 
                 // Sleep with jitter to prevent thundering herds. Subsecond

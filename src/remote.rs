@@ -14,7 +14,7 @@ use tokio_tungstenite::{
 use uuid::Uuid;
 
 use crate::{
-    config::Config,
+    config::{Config, Credentials},
     gateway::{self, Gateway},
     player::{Player, Track},
     protocol::connect::{
@@ -26,16 +26,23 @@ use crate::{
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Errors that can occur when interacting with Deezer Connect.
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("connection error: {0}")]
     Connection(String),
 
     #[error("gateway error: {0}")]
-    Gateway(#[from] gateway::Error),
+    Gateway(String),
+
+    #[error("HTTP client error: {0}")]
+    HttpClient(#[from] reqwest::Error),
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("login error: {0}")]
+    Login(String),
 
     #[error("player error: {0}")]
     Player(String),
@@ -47,19 +54,19 @@ pub enum Error {
     Semver(#[from] semver::Error),
 
     #[error("user token error: {0}")]
-    UserToken(#[from] UserTokenError),
+    UserToken(UserTokenError),
 
     #[error("websocket error: {0}")]
     WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
 }
 
-// TODO: implement Debug manually to not print the user_token
 pub struct Client {
     device_id: DeviceId,
     device_name: String,
 
+    credentials: Credentials,
     gateway: Gateway,
-    // TODO : just get from gateway
+    // TODO : merge with gateway
     user_token: Option<UserToken>,
 
     scheme: String,
@@ -158,8 +165,8 @@ impl Client {
             device_id: config.device_id.into(),
             device_name: config.device_name.clone(),
 
+            credentials: config.credentials.clone(),
             gateway: Gateway::new(config)?,
-
             user_token: None,
 
             scheme: scheme.to_owned(),
@@ -191,6 +198,14 @@ impl Client {
     /// - the websocket could not be connected to
     /// - sending or receiving messages failed
     pub async fn start(&mut self) -> Result<()> {
+        if let Credentials::Login { email, password } = &self.credentials {
+            let arl = self.gateway.login(email, password).await?;
+
+            let len = arl.len();
+            let min = usize::min(len, 8);
+            trace!("redacted arl {}... with {} characters", &arl[0..min], len);
+        }
+
         // Loop until a user token is supplied that expires after the
         // threshold. If rate limiting is necessary, then that should be done
         // by the token token_provider.
@@ -1018,6 +1033,24 @@ impl Client {
             from,
             to: user_id,
             event,
+        }
+    }
+}
+
+impl From<UserTokenError> for Error {
+    fn from(e: UserTokenError) -> Self {
+        match e {
+            UserTokenError::PermissionDenied(e) => Error::Login(e),
+            other => Error::UserToken(other),
+        }
+    }
+}
+
+impl From<gateway::Error> for Error {
+    fn from(e: gateway::Error) -> Self {
+        match e {
+            gateway::Error::Login(e) => Error::Login(e),
+            other => Error::Gateway(other.to_string()),
         }
     }
 }

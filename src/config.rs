@@ -1,9 +1,37 @@
 use machine_uid;
 use rand::Rng;
 use sysinfo;
+use thiserror::Error;
 use uuid::Uuid;
 
 use crate::arl::Arl;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Errors that can occur when creating a configuration.
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("invalid application data: {0}")]
+    AppData(String),
+
+    #[error("invalid OS data: {0}")]
+    OsData(String),
+}
+
+/// Methods that can be used to authenticate with Deezer.
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Credentials {
+    /// The user's email and password.
+    Login {
+        /// The user's email.
+        email: String,
+        /// The user's password.
+        password: String,
+    },
+
+    /// The user's `arl` token.
+    Arl(Arl),
+}
 
 /// The configuration of pleezer.
 // TODO: implement Debug manually to avoid leaking the arl.
@@ -55,21 +83,28 @@ pub struct Config {
     /// language, to be like the official Deezer Desktop client.
     pub user_agent: String,
 
-    /// The `arl` token used in API requests.
-    ///
-    /// By default this is `None` and must be set before making authenticated
-    /// requests.
-    pub arl: Option<Arl>,
+    /// The credentials used to authenticate with Deezer.
+    pub credentials: Credentials,
 }
 
-impl Default for Config {
-    /// Creates a new configuration from `Cargo.toml` and system information.
+impl Config {
+    /// Creates a new configuration with the given credentials.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the application name, version, language, OS name and/or
-    /// version are invalid.
-    fn default() -> Self {
+    /// Returns an error if the application name, version, or language are
+    /// invalid, or if the OS name or version are invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use pleezer::config::{Config, Credentials};
+    /// use pleezer::arl::Arl;
+    ///
+    /// let arl = "arl-1234567890".parse::<Arl>().unwrap();
+    /// let config = Config::new(Credentials::Arl(arl)).unwrap();
+    /// ```
+    pub fn new(credentials: Credentials) -> Result<Self> {
         let app_name = env!("CARGO_PKG_NAME").to_owned();
         let app_version = env!("CARGO_PKG_VERSION").to_owned();
         let app_lang = "en".to_owned();
@@ -96,9 +131,9 @@ impl Default for Config {
             || app_lang.chars().count() != 2
             || app_lang.contains(illegal_chars)
         {
-            panic!(
-                "application name, version and/or language invalid (\"{app_name}\"; \"{app_version}\"; \"{app_lang}\")"
-            );
+            return Err(Error::AppData(format!(
+                "application name, version and/or language invalid (\"{app_name}\"; \"{app_version}\"; \"{app_lang}\")")
+            ));
         }
 
         let os_name = match std::env::consts::OS {
@@ -111,7 +146,9 @@ impl Default for Config {
             || os_version.is_empty()
             || os_version.contains(illegal_chars)
         {
-            panic!("os name and/or version invalid (\"{os_name}\"; \"{os_version}\")");
+            return Err(Error::OsData(format!(
+                "os name and/or version invalid (\"{os_name}\"; \"{os_version}\")"
+            )));
         }
 
         // Set `User-Agent` to be served like Deezer on desktop.
@@ -124,7 +161,7 @@ impl Default for Config {
         let client_id = rand::thread_rng().gen_range(100_000_000..=999_999_999);
         debug!("client id: {client_id}");
 
-        Self {
+        Ok(Self {
             app_name: app_name.clone(),
             app_version,
             app_lang,
@@ -137,7 +174,7 @@ impl Default for Config {
             client_id,
             user_agent,
 
-            arl: None,
-        }
+            credentials,
+        })
     }
 }

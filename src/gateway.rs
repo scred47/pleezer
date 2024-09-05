@@ -4,13 +4,14 @@ use http::header::{InvalidHeaderValue, MaxSizeReached};
 use reqwest::{
     self,
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE},
+    Url,
 };
 use serde::Deserialize;
 use thiserror::Error;
 
 use crate::{
     arl::{self, Arl},
-    config::Config,
+    config::{Config, Credentials},
     http::Client as HttpClient,
     protocol::{
         connect::{queue, AudioQuality},
@@ -37,6 +38,9 @@ pub enum Error {
     #[error("HTTP header error: {0}")]
     HttpHeader(String),
 
+    #[error("login error: {0}")]
+    Login(String),
+
     #[error("parsing JSON error: {0}")]
     JsonParse(#[from] serde_json::Error),
 
@@ -62,6 +66,18 @@ impl Gateway {
 
     /// The Deezer gateway input type.
     const GATEWAY_INPUT: usize = 3;
+
+    /// The Deezer API client ID for authenticating.
+    const OAUTH_CLIENT_ID: usize = 447_462;
+
+    /// The Deezer API salt for the password.
+    const OAUTH_SALT: &'static str = "a83bf7f38ad2f137e444727cfc3775cf";
+
+    /// The Deezer API URL that will be used to get the session ID.
+    const OAUTH_SID_URL: &'static str = "https://connect.deezer.com/oauth/auth.php";
+
+    /// The Deezer API authentication URL.
+    const OAUTH_LOGIN_URL: &'static str = "https://connect.deezer.com/oauth/user_auth.php";
 
     /// The `Content-Type` header value for the Deezer gateway requests.
     ///
@@ -94,7 +110,7 @@ impl Gateway {
         );
         cookie_jar.add_cookie_str(&lang_cookie, &cookie_origin);
 
-        if let Some(ref arl) = config.arl {
+        if let Credentials::Arl(ref arl) = config.credentials {
             let arl_cookie = format!("arl={arl}; Domain=deezer.com; Path=/; Secure; HttpOnly");
             cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
         }
@@ -159,7 +175,7 @@ impl Gateway {
                 // fields as integer `0` which are normally typed as string,
                 // which causes JSON deserialization to fail.
                 if e.is_decode() {
-                    return Err(Error::Assertion(format!("{e}: please refresh your arl")));
+                    return Err(Error::Login("arl invalid or expired".to_string()));
                 }
                 Err(e.into())
             }
@@ -331,6 +347,48 @@ impl Gateway {
         if let Some(ref mut data) = self.user_data {
             data.user.options.expiration_timestamp = SystemTime::now();
         }
+    }
+
+    pub async fn login(&mut self, email: &str, password: &str) -> Result<Arl> {
+        // Check email and password length to prevent out-of-memory conditions.
+        const LENGTH_CHECK: std::ops::Range<usize> = 1..255;
+        if !LENGTH_CHECK.contains(&email.len()) || !LENGTH_CHECK.contains(&password.len()) {
+            return Err(Error::Login(
+                "email and password must be between 1 and 255 characters".to_string(),
+            ));
+        }
+
+        // Hash the passwords.
+        let password = md5::compute(password);
+        let hash = md5::compute(format!(
+            "{}{email}{password:x}{}",
+            Self::OAUTH_CLIENT_ID,
+            Self::OAUTH_SALT,
+        ));
+
+        // First get a session ID. The response can be ignored because the
+        // session ID is stored in the cookie store.
+        let request = self.http_client.get(Url::parse(Self::OAUTH_SID_URL)?, "");
+        let _ = self.http_client.execute(request).await?;
+
+        // Then login and get an access token.
+        let query = Url::parse(&format!(
+            "{}?app_id={}&login={email}&password={password:x}&hash={hash:x}",
+            Self::OAUTH_LOGIN_URL,
+            Self::OAUTH_CLIENT_ID,
+        ))?;
+
+        let request = self.http_client.get(query, "");
+        let response = self.http_client.execute(request).await?;
+
+        let json = response.json::<serde_json::Value>().await?;
+        let access_token = json
+            .get("access_token")
+            .and_then(|token| token.as_str())
+            .ok_or_else(|| Error::Login("permission denied".to_string()))?;
+
+        // Finally use the access token to get an ARL.
+        self.get_arl(access_token).await.map_err(Into::into)
     }
 }
 
