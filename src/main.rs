@@ -1,8 +1,9 @@
 use std::{error::Error, fs, io, path::Path, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
-use log::{debug, error, info, LevelFilter};
+use log::{debug, error, info, trace, warn, LevelFilter};
 use rand::{rngs::SmallRng, Rng, SeedableRng};
+use uuid::Uuid;
 
 use pleezer::{
     arl::Arl,
@@ -148,41 +149,114 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> io::Result<toml::Value> {
 /// This function returns `Err` when an error occurs. This could be due to the
 /// user interrupting the application or an unrecoverable network error.
 async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    // Get the credentials from the secrets file.
-    let secrets = parse_secrets(args.secrets_file)?;
-    let credentials = match secrets.get("arl").and_then(|value| value.as_str()) {
-        Some(arl) => {
-            let result = arl.parse::<Arl>()?;
-            info!("using arl from secrets file");
-            Credentials::Arl(result)
-        }
-        None => {
-            let email = secrets
-                .get("email")
-                .and_then(|email| email.as_str())
-                .ok_or(io::Error::new(io::ErrorKind::NotFound, "email not found"))?;
-            let password = secrets
-                .get("password")
-                .and_then(|password| password.as_str())
-                .ok_or(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "password not found",
-                ))?;
+    // Seed the random number generator.
+    let mut small_rng = SmallRng::from_entropy();
 
-            Credentials::Login {
-                email: email.to_string(),
-                password: password.to_string(),
+    let config = {
+        // Get the credentials from the secrets file.
+        let secrets = parse_secrets(args.secrets_file)?;
+        let credentials = match secrets.get("arl").and_then(|value| value.as_str()) {
+            Some(arl) => {
+                let result = arl.parse::<Arl>()?;
+                info!("using arl from secrets file");
+                Credentials::Arl(result)
             }
+            None => {
+                let email = secrets
+                    .get("email")
+                    .and_then(|email| email.as_str())
+                    .ok_or(io::Error::new(io::ErrorKind::NotFound, "email not found"))?;
+                let password = secrets
+                    .get("password")
+                    .and_then(|password| password.as_str())
+                    .ok_or(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "password not found",
+                    ))?;
+
+                Credentials::Login {
+                    email: email.to_string(),
+                    password: password.to_string(),
+                }
+            }
+        };
+
+        let app_name = env!("CARGO_PKG_NAME").to_owned();
+        let app_version = env!("CARGO_PKG_VERSION").to_owned();
+        let app_lang = "en".to_owned();
+
+        let device_id = match machine_uid::get() {
+            Ok(machine_id) => {
+                let namespace = Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"deezer.com");
+                Uuid::new_v5(&namespace, machine_id.as_bytes())
+            }
+            Err(e) => {
+                warn!("could not get machine id, using random device id: {e}");
+                Uuid::new_v4()
+            }
+        };
+        trace!("device uuid: {device_id}");
+
+        // Additional `User-Agent` string checks on top of what
+        // `reqwest::HeaderValue` already checks.
+        let illegal_chars = |chr| chr == '/' || chr == ';';
+        if app_name.is_empty()
+            || app_name.contains(illegal_chars)
+            || app_version.is_empty()
+            || app_version.contains(illegal_chars)
+            || app_lang.chars().count() != 2
+            || app_lang.contains(illegal_chars)
+        {
+            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, format!(
+            "application name, version and/or language invalid (\"{app_name}\"; \"{app_version}\"; \"{app_lang}\")"))
+        ));
+        }
+
+        let os_name = match std::env::consts::OS {
+            "macos" => "osx",
+            other => other,
+        };
+        let os_version = sysinfo::System::os_version().unwrap_or_else(|| String::from("0"));
+        if os_name.is_empty()
+            || os_name.contains(illegal_chars)
+            || os_version.is_empty()
+            || os_version.contains(illegal_chars)
+        {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("os name and/or version invalid (\"{os_name}\"; \"{os_version}\")"),
+            )));
+        }
+
+        // Set `User-Agent` to be served like Deezer on desktop.
+        let user_agent = format!(
+            "{app_name}/{app_version} (Rust; {os_name}/{os_version}; like Desktop; {app_lang})"
+        );
+        trace!("user agent: {user_agent}");
+
+        // Deezer on desktop uses a new `cid` on every start.
+        let client_id = small_rng.gen_range(100_000_000..=999_999_999);
+        debug!("client id: {client_id}");
+
+        Config {
+            app_name: app_name.clone(),
+            app_version,
+            app_lang,
+
+            device_name: args
+                .name
+                .or_else(|| sysinfo::System::host_name().clone())
+                .unwrap_or_else(|| app_name.clone()),
+            device_id,
+
+            interruptions: !args.no_interruptions,
+
+            client_id,
+            user_agent,
+
+            credentials,
         }
     };
-
-    // Configure the applcation according to the command line arguments.
-    let mut config = Config::new(credentials)?;
-    config.interruptions = !args.no_interruptions;
-    config.device_name = args
-        .name
-        .or_else(|| sysinfo::System::host_name().clone())
-        .unwrap_or_else(|| config.app_name.clone());
 
     let player = Player::new();
     let mut client = remote::Client::new(&config, player, true)?;
@@ -190,7 +264,6 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     // Restart after sleeping some duration to prevent accidental denial of
     // service attacks on the Deezer infrastructure. Initially set the timer to
     // zero to immediately connect to the Deezer servers.
-    let mut small_rng = SmallRng::from_entropy();
     let restart_timer = tokio::time::sleep(Duration::ZERO);
     tokio::pin!(restart_timer);
 
