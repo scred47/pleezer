@@ -1,4 +1,4 @@
-use std::{error::Error, fs, io, path::Path, process, time::Duration};
+use std::{fs, path::Path, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
 use log::{debug, error, info, trace, warn, LevelFilter};
@@ -8,6 +8,7 @@ use uuid::Uuid;
 use pleezer::{
     arl::Arl,
     config::{Config, Credentials},
+    error::{Error, ErrorKind, Result},
     player::Player,
     remote,
 };
@@ -66,7 +67,7 @@ struct Args {
 /// highest to lowest:
 /// 1. Command line arguments
 /// 2. `RUST_LOG` environment variable
-/// 3. Hard coded default
+/// 3. Hard-coded default
 ///
 /// # Parameters
 ///
@@ -101,35 +102,22 @@ fn init_logger(config: &Args) {
 }
 
 /// Parse the secrets file into a `toml::Value`.
-///
-/// # Parameters
-///
-/// - `secrets_file`: a `Path` to the secrets file.
-///
-/// # Returns
-///
-/// - `Ok`: a `toml::Value` when the secrets file is successfully parsed.
-/// - `Err`: an `io::Error` when an error occurs.
-fn parse_secrets(secrets_file: impl AsRef<Path>) -> io::Result<toml::Value> {
+fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
     // Prevent out-of-memory condition: secrets file should be small.
     let attributes = fs::metadata(&secrets_file)?;
     let file_size = attributes.len();
     if file_size > 1024 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
+        return Err(Error::out_of_range(
             "{secrets_file} too large: {file_size} bytes",
         ));
     }
 
     let contents = fs::read_to_string(&secrets_file)?;
     contents.parse::<toml::Value>().map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "{} format invalid: {e}",
-                secrets_file.as_ref().to_string_lossy()
-            ),
-        )
+        Error::invalid_argument(format!(
+            "{} format invalid: {e}",
+            secrets_file.as_ref().to_string_lossy()
+        ))
     })
 }
 
@@ -148,7 +136,7 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> io::Result<toml::Value> {
 ///
 /// This function returns `Err` when an error occurs. This could be due to the
 /// user interrupting the application or an unrecoverable network error.
-async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+async fn run(args: Args) -> Result<()> {
     // Seed the random number generator.
     let mut small_rng = SmallRng::from_entropy();
 
@@ -165,14 +153,11 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
                 let email = secrets
                     .get("email")
                     .and_then(|email| email.as_str())
-                    .ok_or(io::Error::new(io::ErrorKind::NotFound, "email not found"))?;
+                    .ok_or(Error::unauthenticated("email not found"))?;
                 let password = secrets
                     .get("password")
                     .and_then(|password| password.as_str())
-                    .ok_or(io::Error::new(
-                        io::ErrorKind::NotFound,
-                        "password not found",
-                    ))?;
+                    .ok_or(Error::unauthenticated("password not found"))?;
 
                 Credentials::Login {
                     email: email.to_string(),
@@ -207,8 +192,8 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             || app_lang.chars().count() != 2
             || app_lang.contains(illegal_chars)
         {
-            return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, format!(
-            "application name, version and/or language invalid (\"{app_name}\"; \"{app_version}\"; \"{app_lang}\")"))
+            return Err(Error::invalid_argument(format!(
+            "application name, version and/or language invalid (\"{app_name}\"; \"{app_version}\"; \"{app_lang}\")")
         ));
         }
 
@@ -222,9 +207,8 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             || os_version.is_empty()
             || os_version.contains(illegal_chars)
         {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("os name and/or version invalid (\"{os_name}\"; \"{os_version}\")"),
+            return Err(Error::invalid_argument(format!(
+                "os name and/or version invalid (\"{os_name}\"; \"{os_version}\")"
             )));
         }
 
@@ -236,7 +220,7 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
         // Deezer on desktop uses a new `cid` on every start.
         let client_id = small_rng.gen_range(100_000_000..=999_999_999);
-        debug!("client id: {client_id}");
+        trace!("client id: {client_id}");
 
         Config {
             app_name: app_name.clone(),
@@ -287,12 +271,16 @@ async fn run(args: Args) -> Result<(), Box<dyn Error>> {
             // connection happens immediately, because the timer elapses
             // immediately.
             result = client.start(), if restart_timer.is_elapsed() => {
+                // Bail out if the error is a permission denied error. This
+                // could be due to the user not being able to login.
+                // Otherwise, try to recover from the error by restarting the
+                // client.
                 if let Err(e) = &result {
-                    error!("{e}");
-                }
+                    if e.kind == ErrorKind::PermissionDenied {
+                        break result;
+                    }
 
-                if let Err(remote::Error::Login(_)) = &result {
-                    break result.map_err(Into::into);
+                    error!("{e}");
                 }
 
                 // Sleep with jitter to prevent thundering herds. Subsecond

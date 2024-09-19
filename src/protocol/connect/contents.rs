@@ -23,6 +23,7 @@ use uuid::Uuid;
 
 use super::channel::Event;
 use super::protos::queue;
+use crate::error::Error;
 
 // Most IDs are UUIDs, but case sensitive, while Deezer Connect uses
 // uppercase on iOS and lowercase on Android. Therefore, many IDs are typed
@@ -136,9 +137,9 @@ impl From<Uuid> for DeviceId {
 }
 
 impl FromStr for DeviceId {
-    type Err = super::Error;
+    type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let device = match Uuid::try_parse(s) {
             Ok(uuid) => Self::from(uuid),
             Err(_) => Self::Other(s.to_owned()),
@@ -395,9 +396,9 @@ impl fmt::Display for AudioQuality {
 }
 
 impl FromStr for AudioQuality {
-    type Err = super::Error;
+    type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let variant = match s {
             "low" => AudioQuality::Basic,
             "standard" => AudioQuality::Standard,
@@ -471,13 +472,13 @@ impl fmt::Display for QueueItem {
 }
 
 impl FromStr for QueueItem {
-    type Err = super::Error;
+    type Err = Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
     /// return an track on a queue.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let mut parts = s.split(Self::SEPARATOR);
 
         let mut queue_id = String::new();
@@ -490,7 +491,7 @@ impl FromStr for QueueItem {
                     }
                 }
                 None => {
-                    return Err(Self::Err::Malformed(format!(
+                    return Err(Self::Err::invalid_argument(format!(
                         "list element string slice should hold five `queue_id` parts, found {i}"
                     )))
                 }
@@ -498,26 +499,22 @@ impl FromStr for QueueItem {
         }
 
         if let Err(e) = Uuid::try_parse(&queue_id) {
-            return Err(Self::Err::Malformed(format!("queue id: {e}")));
+            return Err(Self::Err::invalid_argument(format!("queue id: {e}")));
         }
 
         let track_id = parts.next().ok_or_else(|| {
-            Self::Err::Malformed(
+            Self::Err::invalid_argument(
                 "list element string slice should hold `track_id` part".to_string(),
             )
         })?;
-        let track_id = track_id
-            .parse::<NonZeroU64>()
-            .map_err(|e| Self::Err::Malformed(format!("track id: {e}")))?;
+        let track_id = track_id.parse::<NonZeroU64>()?;
 
         let position = parts.next().ok_or_else(|| {
-            Self::Err::Malformed(
+            Self::Err::invalid_argument(
                 "list element string slice should hold `position` part".to_string(),
             )
         })?;
-        let position = position
-            .parse::<usize>()
-            .map_err(|e| Self::Err::Malformed(format!("position: {e}")))?;
+        let position = position.parse::<usize>()?;
 
         Ok(Self {
             queue_id,
@@ -534,7 +531,7 @@ impl Serialize for Body {
     ///
     /// [JSON]: https://www.json.org/
     /// [`WireMessage`]: enum.WireMessage.html
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         let wire_body = WireBody::from(self.clone());
         wire_body.serialize(serializer)
     }
@@ -547,7 +544,7 @@ impl<'de> Deserialize<'de> for Body {
     ///
     /// [JSON]: https://www.json.org/
     /// [`WireMessage`]: enum.WireMessage.html
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         let wire_body = WireBody::deserialize(deserializer)?;
         Self::try_from(wire_body).map_err(serde::de::Error::custom)
     }
@@ -765,10 +762,10 @@ impl fmt::Display for Payload {
 }
 
 impl FromStr for Payload {
-    type Err = super::Error;
+    type Err = Error;
 
     /// TODO : first decode base64 in fromstr, then deserialize json with traits
-    fn from_str(encoded: &str) -> Result<Self, Self::Err> {
+    fn from_str(encoded: &str) -> std::result::Result<Self, Self::Err> {
         let decoded = BASE64_STANDARD.decode(encoded)?;
 
         if let Ok(s) = std::str::from_utf8(&decoded) {
@@ -812,7 +809,7 @@ impl FromStr for Payload {
                 }
             }
 
-            Err(Self::Err::Unsupported(
+            Err(Self::Err::unimplemented(
                 "protobuf should match some variant".to_string(),
             ))
         }
@@ -1034,13 +1031,13 @@ impl From<Body> for WireBody {
 }
 
 impl TryFrom<WireBody> for Body {
-    type Error = super::Error;
+    type Error = Error;
 
     /// Performs the conversion from [`WireBody`] into `Body`.
     ///
     /// [`WireMessage`]: struct.WireMessage.html
     #[allow(clippy::too_many_lines)]
-    fn try_from(wire_body: WireBody) -> Result<Self, Self::Error> {
+    fn try_from(wire_body: WireBody) -> std::result::Result<Self, Self::Error> {
         if !wire_body.supported_protocol_version() {
             warn!("protocol version {} is unknown", wire_body.protocol_version);
         }
@@ -1057,7 +1054,7 @@ impl TryFrom<WireBody> for Body {
                     }
                 } else {
                     trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
@@ -1075,13 +1072,13 @@ impl TryFrom<WireBody> for Body {
                         }
                     } else {
                         trace!("{params:#?}");
-                        return Err(Self::Error::Malformed(format!(
+                        return Err(Self::Error::failed_precondition(format!(
                             "params should match message type {message_type}"
                         )));
                     }
                 } else {
                     trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
@@ -1109,13 +1106,13 @@ impl TryFrom<WireBody> for Body {
                         }
                     } else {
                         trace!("{params:#?}");
-                        return Err(Self::Error::Malformed(format!(
+                        return Err(Self::Error::failed_precondition(format!(
                             "params should match message type {message_type}"
                         )));
                     }
                 } else {
                     trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
@@ -1131,13 +1128,13 @@ impl TryFrom<WireBody> for Body {
                         }
                     } else {
                         trace!("{params:#?}");
-                        return Err(Self::Error::Malformed(format!(
+                        return Err(Self::Error::failed_precondition(format!(
                             "params should match message type {message_type}"
                         )));
                     }
                 } else {
                     trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
@@ -1173,7 +1170,7 @@ impl TryFrom<WireBody> for Body {
                     }
                 } else {
                     trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
@@ -1184,7 +1181,7 @@ impl TryFrom<WireBody> for Body {
                     Self::PublishQueue { message_id, queue }
                 } else {
                     trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
@@ -1218,7 +1215,7 @@ impl TryFrom<WireBody> for Body {
                     }
                 } else {
                     trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "payload should match message type {message_type}"
                     )));
                 }
@@ -1233,7 +1230,7 @@ impl TryFrom<WireBody> for Body {
                     }
                 } else {
                     trace!("{:#?}", wire_body.payload);
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "payload should match message type {message_type}"
                     )));
                 }

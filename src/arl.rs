@@ -1,13 +1,5 @@
-use std::{fmt, io, ops::Deref, str::FromStr};
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("invalid ARL: {0}")]
-    Invalid(String),
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
+use crate::error::{Error, Result};
+use std::{fmt, ops::Deref, str::FromStr};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Arl(String);
@@ -19,7 +11,7 @@ impl Arl {
     ///
     /// Will return `Err` if:
     /// - `arl` contains invalid characters
-    pub fn new(arl: String) -> io::Result<Self> {
+    pub fn new(arl: String) -> Result<Self> {
         Ok(Self(arl))
     }
 }
@@ -57,7 +49,7 @@ impl FromStr for Arl {
                 || chr.is_ascii_whitespace()
                 || ['\"', ',', ';', '\\'].contains(&chr)
             {
-                return Err(Error::Invalid("invalid characters".to_string()));
+                return Err(Error::invalid_argument("invalid characters".to_string()));
             }
         }
 

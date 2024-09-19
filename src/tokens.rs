@@ -5,7 +5,8 @@ use std::{
 };
 
 use async_trait::async_trait;
-use thiserror::Error;
+
+use crate::error::Result;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UserToken {
@@ -14,24 +15,12 @@ pub struct UserToken {
     pub expires_at: SystemTime,
 }
 
-#[derive(Error, Debug)]
-pub enum UserTokenError {
-    #[error("user token requires refresh")]
-    Refresh,
-
-    #[error("permission denied for user token: {0}")]
-    PermissionDenied(String),
-
-    #[error("user token provider error: {0}")]
-    Provider(Box<dyn std::error::Error>),
-}
-
 // TODO : remove this trait and merge it into the gateway, because there are no
 // other implementations of this trait.
 
 #[async_trait]
 pub trait UserTokenProvider {
-    async fn user_token(&mut self) -> Result<UserToken, UserTokenError>;
+    async fn user_token(&mut self) -> Result<UserToken>;
     fn flush_user_token(&mut self);
 }
 

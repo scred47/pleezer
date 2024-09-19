@@ -1,19 +1,5 @@
-use thiserror::Error;
-use uuid::Uuid;
-
 use crate::arl::Arl;
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// Errors that can occur when creating a configuration.
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("invalid application data: {0}")]
-    AppData(String),
-
-    #[error("invalid OS data: {0}")]
-    OsData(String),
-}
+use uuid::Uuid;
 
 /// Methods that can be used to authenticate with Deezer.
 #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]

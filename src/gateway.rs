@@ -1,24 +1,23 @@
 use std::{str::FromStr, time::SystemTime};
 
-use http::header::{InvalidHeaderValue, MaxSizeReached};
 use reqwest::{
     self,
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE},
     Url,
 };
 use serde::Deserialize;
-use thiserror::Error;
 
 use crate::{
-    arl::{self, Arl},
+    arl::Arl,
     config::{Config, Credentials},
+    error::{Error, ErrorKind, Result},
     http::Client as HttpClient,
     protocol::{
         connect::{queue, AudioQuality},
         gateway::{self, Method, Queue, UserData},
     },
     // TODO : move into gateway
-    tokens::{UserToken, UserTokenError},
+    tokens::UserToken,
 };
 
 pub struct Gateway {
@@ -26,29 +25,6 @@ pub struct Gateway {
     user_data: Option<UserData>,
     client_id: usize,
 }
-
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("assertion failed: {0}")]
-    Assertion(String),
-
-    #[error("HTTP client error: {0}")]
-    HttpClient(#[from] reqwest::Error),
-
-    #[error("HTTP header error: {0}")]
-    HttpHeader(String),
-
-    #[error("login error: {0}")]
-    Login(String),
-
-    #[error("parsing JSON error: {0}")]
-    JsonParse(#[from] serde_json::Error),
-
-    #[error("parsing URL failed: {0}")]
-    UrlParse(#[from] url::ParseError),
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
 
 impl Gateway {
     /// The URL of the Deezer cookie origin.
@@ -166,24 +142,26 @@ impl Gateway {
                 if let Some(data) = response.first() {
                     self.set_user_data(data.clone());
                 } else {
-                    return Err(Error::Assertion("no user data received".to_string()));
+                    return Err(Error::not_found("no user data received".to_string()));
                 }
                 Ok(())
             }
-            Err(Error::HttpClient(e)) => {
-                // For an invalid or expired `arl`, the response has some
-                // fields as integer `0` which are normally typed as string,
-                // which causes JSON deserialization to fail.
-                if e.is_decode() {
-                    return Err(Error::Login("arl invalid or expired".to_string()));
+            Err(e) => {
+                if e.kind == ErrorKind::InvalidArgument {
+                    // For an invalid or expired `arl`, the response has some
+                    // fields as integer `0` which are normally typed as string,
+                    // which causes JSON deserialization to fail.
+                    return Err(Error::permission_denied(
+                        "arl invalid or expired".to_string(),
+                    ));
                 }
-                Err(e.into())
+
+                Err(e)
             }
-            Err(e) => Err(e),
         }
     }
 
-    /// todo
+    /// Performs a request to the Deezer API gateway.
     ///
     /// # Errors
     ///
@@ -227,18 +205,16 @@ impl Gateway {
         }
 
         let response = self.http_client.execute(request).await?;
-        let result = response.json::<gateway::Response<T>>().await;
+        let result = response.json::<gateway::Response<T>>().await?;
 
         let redacted = T::METHOD == gateway::get_arl::GetArl::METHOD;
-        if let Ok(ref body) = result {
-            if redacted {
-                trace!("{}: {{ ... }}", T::METHOD);
-            } else {
-                trace!("{}: {body:#?}", T::METHOD);
-            }
+        if redacted {
+            trace!("{}: {{ ... }}", T::METHOD);
+        } else {
+            trace!("{}: {result:#?}", T::METHOD);
         }
 
-        result.map_err(Into::into)
+        Ok(result)
     }
 
     #[must_use]
@@ -281,8 +257,7 @@ impl Gateway {
                 .tracks
                 .into_iter()
                 .map(|track| track.id.parse())
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(|_| Error::Assertion("track number must not be zero".to_string()))?,
+                .collect::<std::result::Result<Vec<_>, _>>()?,
         };
 
         let body = serde_json::to_string(&track_list)?;
@@ -306,13 +281,13 @@ impl Gateway {
                 response
                     .first()
                     .map(|result| result.0.clone())
-                    .ok_or_else(|| Error::Assertion("no arl received".to_string()))
+                    .ok_or_else(|| Error::not_found("no arl received".to_string()))
             })?;
 
-        arl.parse::<Arl>().map_err(Into::into)
+        arl.parse::<Arl>()
     }
 
-    pub async fn user_token(&mut self) -> std::result::Result<UserToken, UserTokenError> {
+    pub async fn user_token(&mut self) -> Result<UserToken> {
         if self.is_expired() {
             self.refresh().await?;
         }
@@ -320,12 +295,12 @@ impl Gateway {
         match &self.user_data {
             Some(data) => {
                 if !data.gatekeeps.remote_control {
-                    return Err(UserTokenError::PermissionDenied(
+                    return Err(Error::permission_denied(
                         "remote control is disabled for this account".to_string(),
                     ));
                 }
                 if data.user.options.too_many_devices {
-                    return Err(UserTokenError::PermissionDenied(
+                    return Err(Error::permission_denied(
                         "too many devices; remove one or more in your account settings".to_string(),
                     ));
                 }
@@ -337,7 +312,7 @@ impl Gateway {
                     expires_at,
                 })
             }
-            None => Err(UserTokenError::Provider("user data unavailable".into())),
+            None => Err(Error::unavailable("user data unavailable".to_string())),
         }
     }
 
@@ -353,7 +328,7 @@ impl Gateway {
         // Check email and password length to prevent out-of-memory conditions.
         const LENGTH_CHECK: std::ops::Range<usize> = 1..255;
         if !LENGTH_CHECK.contains(&email.len()) || !LENGTH_CHECK.contains(&password.len()) {
-            return Err(Error::Login(
+            return Err(Error::out_of_range(
                 "email and password must be between 1 and 255 characters".to_string(),
             ));
         }
@@ -385,33 +360,9 @@ impl Gateway {
         let access_token = json
             .get("access_token")
             .and_then(|token| token.as_str())
-            .ok_or_else(|| Error::Login("permission denied".to_string()))?;
+            .ok_or_else(|| Error::permission_denied("email or password incorrect".to_string()))?;
 
         // Finally use the access token to get an ARL.
-        self.get_arl(access_token).await.map_err(Into::into)
-    }
-}
-
-impl From<Error> for UserTokenError {
-    fn from(e: Error) -> Self {
-        Self::Provider(e.into())
-    }
-}
-
-impl From<MaxSizeReached> for Error {
-    fn from(e: MaxSizeReached) -> Self {
-        Self::HttpHeader(e.to_string())
-    }
-}
-
-impl From<InvalidHeaderValue> for Error {
-    fn from(e: InvalidHeaderValue) -> Self {
-        Self::HttpHeader(e.to_string())
-    }
-}
-
-impl From<arl::Error> for Error {
-    fn from(e: arl::Error) -> Self {
-        Self::Assertion(e.to_string())
+        self.get_arl(access_token).await
     }
 }

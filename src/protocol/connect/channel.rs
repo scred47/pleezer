@@ -6,6 +6,8 @@ use std::{
 
 use serde_with::{DeserializeFromStr, SerializeDisplay};
 
+use crate::error::Error;
+
 /// A `Channel` on a [Deezer Connect][Connect] websocket.
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
@@ -119,7 +121,7 @@ impl fmt::Display for Channel {
 }
 
 impl FromStr for Channel {
-    type Err = super::Error;
+    type Err = Error;
 
     /// Parses a [Deezer Connect][Connect] websocket wire string `s` to return
     /// a `Channel`.
@@ -130,21 +132,21 @@ impl FromStr for Channel {
     /// - `s` does not contain a known channel representation
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let mut parts = s.split(Self::SEPARATOR);
 
         let from = parts.next().ok_or_else(|| {
-            Self::Err::Malformed("channel string slice should hold `from` part".to_string())
+            Self::Err::invalid_argument("channel string slice should hold `from` part".to_string())
         })?;
         let from = from.parse::<UserId>()?;
 
         let to = parts.next().ok_or_else(|| {
-            Self::Err::Malformed("channel string slice should hold `to` part".to_string())
+            Self::Err::invalid_argument("channel string slice should hold `to` part".to_string())
         })?;
         let to = to.parse::<UserId>()?;
 
         let event = parts.next().ok_or_else(|| {
-            Self::Err::Malformed("channel string slice should hold `event` part".to_string())
+            Self::Err::invalid_argument("channel string slice should hold `event` part".to_string())
         })?;
         let mut event = event.to_string();
         if let Some(id) = parts.next() {
@@ -153,7 +155,7 @@ impl FromStr for Channel {
         let event = event.parse::<Event>()?;
 
         if parts.next().is_some() {
-            return Err(Self::Err::Unsupported(format!(
+            return Err(Self::Err::unimplemented(format!(
                 "channel string slice holds unknown trailing parts: `{s}`"
             )));
         }
@@ -176,7 +178,7 @@ impl fmt::Display for UserId {
 }
 
 impl FromStr for UserId {
-    type Err = super::Error;
+    type Err = Error;
 
     /// Parses a [Deezer Connect][Connect] websocket wire string `s` to return
     /// a variant of `UserId`.
@@ -204,14 +206,12 @@ impl FromStr for UserId {
     /// ```
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         if s == "-1" {
             return Ok(Self::Unspecified);
         }
 
-        let id = s
-            .parse::<NonZeroU64>()
-            .map_err(|e| Self::Err::Malformed(format!("user id: {e}")))?;
+        let id = s.parse::<NonZeroU64>()?;
         Ok(Self::Id(id))
     }
 }
@@ -240,7 +240,7 @@ impl fmt::Display for Event {
 }
 
 impl FromStr for Event {
-    type Err = super::Error;
+    type Err = Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
     /// return a variant of `Event`.
@@ -248,7 +248,7 @@ impl FromStr for Event {
     /// The string `s` is parsed as uppercase.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let (event, id) = s
             .split_once('_')
             .map_or((s, None), |split| (split.0, Some(split.1)));
@@ -264,12 +264,12 @@ impl FromStr for Event {
                     let id = id.parse::<UserId>()?;
                     Self::UserFeed(id)
                 } else {
-                    return Err(Self::Err::Malformed(format!(
+                    return Err(Self::Err::invalid_argument(format!(
                         "event `{event}` should have user id suffix"
                     )));
                 }
             }
-            _ => return Err(Self::Err::Unsupported(format!("event `{s}`"))),
+            _ => return Err(Self::Err::unimplemented(format!("event `{s}`"))),
         };
 
         Ok(variant)

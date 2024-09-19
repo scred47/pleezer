@@ -3,6 +3,7 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{stream, Channel, Contents};
+use crate::error::Error;
 
 /// A list of messages on a [Deezer Connect][Connect] websocket.
 ///
@@ -196,7 +197,7 @@ impl fmt::Display for Stanza {
 }
 
 impl TryFrom<Message> for WireMessage {
-    type Error = super::Error;
+    type Error = Error;
 
     /// Performs the conversion from [`Message`] into `WireMessage`.
     ///
@@ -207,7 +208,7 @@ impl TryFrom<Message> for WireMessage {
                 let contents_event = contents.event;
                 let channel_event = channel.event;
                 if contents_event != channel_event {
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "channel event {channel_event} should match contents event {contents_event}",
                     )));
                 }
@@ -219,7 +220,7 @@ impl TryFrom<Message> for WireMessage {
                 let contents_event = contents.event;
                 let channel_event = channel.event;
                 if contents_event != channel_event {
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "channel event {channel_event} should match contents event {contents_event}",
                     )));
                 }
@@ -245,7 +246,7 @@ impl TryFrom<Message> for WireMessage {
 }
 
 impl TryFrom<WireMessage> for Message {
-    type Error = super::Error;
+    type Error = Error;
 
     /// Performs the conversion from [`WireMessage`] into `Message`.
     ///
@@ -256,7 +257,7 @@ impl TryFrom<WireMessage> for Message {
                 let contents_event = contents.event;
                 let channel_event = channel.event;
                 if contents_event != channel_event {
-                    return Err(Self::Error::Malformed(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "channel event {channel_event} should match contents event {contents_event}",
                     )));
                 }
@@ -265,7 +266,7 @@ impl TryFrom<WireMessage> for Message {
                     Stanza::Send => Self::Send { channel, contents },
                     Stanza::Receive => Self::Receive { channel, contents },
                     _ => {
-                        return Err(Self::Error::Unsupported(format!(
+                        return Err(Self::Error::failed_precondition(format!(
                             "stanza {stanza} should match for message with contents"
                         )));
                     }
@@ -277,7 +278,7 @@ impl TryFrom<WireMessage> for Message {
                 Stanza::Send => Self::StreamSend { channel, contents },
                 Stanza::Receive => Self::StreamReceive { channel, contents },
                 _ => {
-                    return Err(Self::Error::Unsupported(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "stanza {stanza} should match for stream message with contents"
                     )));
                 }
@@ -287,7 +288,7 @@ impl TryFrom<WireMessage> for Message {
                 Stanza::Subscribe => Self::Subscribe { channel },
                 Stanza::Unsubscribe => Self::Unsubscribe { channel },
                 _ => {
-                    return Err(Self::Error::Unsupported(format!(
+                    return Err(Self::Error::failed_precondition(format!(
                         "stanza {stanza} should match for subscription message"
                     )));
                 }

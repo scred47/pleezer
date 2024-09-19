@@ -4,7 +4,6 @@ use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use log::Level;
 use lru_time_cache::LruCache;
 use semver;
-use thiserror::Error;
 use tokio_tungstenite::{
     tungstenite::{
         client::ClientRequestBuilder, protocol::frame::Frame, Message as WebsocketMessage,
@@ -15,50 +14,15 @@ use uuid::Uuid;
 
 use crate::{
     config::{Config, Credentials},
-    gateway::{self, Gateway},
+    error::{Error, ErrorKind, Result},
+    gateway::Gateway,
     player::{Player, Track},
     protocol::connect::{
         queue, stream, Body, Channel, Contents, DeviceId, Event, Headers, Message, Percentage,
         QueueItem, RepeatMode, Status, UserId,
     },
-    tokens::{UserToken, UserTokenError},
+    tokens::UserToken,
 };
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// Errors that can occur when interacting with Deezer Connect.
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("connection error: {0}")]
-    Connection(String),
-
-    #[error("gateway error: {0}")]
-    Gateway(String),
-
-    #[error("HTTP client error: {0}")]
-    HttpClient(#[from] reqwest::Error),
-
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("login error: {0}")]
-    Login(String),
-
-    #[error("player error: {0}")]
-    Player(String),
-
-    #[error("protocol error: {0}")]
-    Protocol(String),
-
-    #[error("error parsing app version: {0}")]
-    Semver(#[from] semver::Error),
-
-    #[error("user token error: {0}")]
-    UserToken(UserTokenError),
-
-    #[error("websocket error: {0}")]
-    WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
-}
 
 pub struct Client {
     device_id: DeviceId,
@@ -248,8 +212,7 @@ impl Client {
             "{}://live.deezer.com/ws/{}?version={}",
             self.scheme, user_token, self.version
         )
-        .parse::<http::Uri>()
-        .map_err(|e| Error::Connection(e.to_string()))?;
+        .parse::<http::Uri>()?;
         let mut request = ClientRequestBuilder::new(uri);
 
         // Decorate the websocket request with the same cookies as the gateway.
@@ -288,7 +251,7 @@ impl Client {
                 }
 
                 () = &mut expiry => {
-                    break Err(UserTokenError::Refresh.into());
+                    break Err(Error::deadline_exceeded("user token expired"));
                 }
 
                 () = &mut self.reporting_timer, if self.is_connected() && self.player.playing() => {
@@ -311,13 +274,14 @@ impl Client {
                             match self.handle_message(&message).await {
                                 ControlFlow::Continue(()) => continue,
 
-                                ControlFlow::Break(Error::UserToken(UserTokenError::Refresh)) => {
-                                    info!("stopping client: {}", UserTokenError::Refresh);
-                                    self.gateway.flush_user_token();
-                                    break Ok(());
-                                }
+                                ControlFlow::Break(e) => {
+                                    if e.kind == ErrorKind::DeadlineExceeded {
+                                        info!("stopping client: {}", e.to_string());
+                                        self.gateway.flush_user_token();
+                                        break Ok(());
+                                    }
 
-                                ControlFlow::Break(e) => break Err(Error::Protocol(format!("error handling message: {e}"))),
+                                    break Err(Error::internal(format!("error handling message: {e}")));                                }
                             }
                         }
                         Err(e) => error!("error receiving message: {e}"),
@@ -416,7 +380,7 @@ impl Client {
             return Ok(());
         }
 
-        Err(Error::Protocol(
+        Err(Error::failed_precondition(
             "disconnect should have an active connection".to_string(),
         ))
     }
@@ -441,11 +405,11 @@ impl Client {
 
     async fn handle_connect(&mut self, from: DeviceId, offer_id: &str) -> Result<()> {
         let controller = self.connection_offers.remove(offer_id).ok_or_else(|| {
-            Error::Protocol(format!("connection offer {offer_id} should be active"))
+            Error::failed_precondition(format!("connection offer {offer_id} should be active"))
         })?;
 
         if controller != from {
-            return Err(Error::Protocol(format!(
+            return Err(Error::failed_precondition(format!(
                 "connection offer for {controller} should be for {from}"
             )));
         }
@@ -509,7 +473,7 @@ impl Client {
         status: Status,
     ) -> Result<()> {
         if status != Status::OK {
-            return Err(Error::Protocol(format!(
+            return Err(Error::failed_precondition(format!(
                 "controller failed to process {command_id}"
             )));
         }
@@ -542,7 +506,7 @@ impl Client {
                 return Ok(());
             }
 
-            return Err(Error::Protocol(
+            return Err(Error::failed_precondition(
                 "should match controller and ready message".to_string(),
             ));
         }
@@ -560,7 +524,7 @@ impl Client {
             return Ok(());
         }
 
-        Err(Error::Protocol(
+        Err(Error::failed_precondition(
             "close should have an active connection".to_string(),
         ))
     }
@@ -585,7 +549,7 @@ impl Client {
             return Ok(());
         }
 
-        Err(Error::Protocol(
+        Err(Error::failed_precondition(
             "queue publication should have an active connection".to_string(),
         ))
     }
@@ -600,7 +564,7 @@ impl Client {
             return self.send_message(command).await;
         }
 
-        Err(Error::Protocol(
+        Err(Error::failed_precondition(
             "ping should have an active connection".to_string(),
         ))
     }
@@ -617,12 +581,12 @@ impl Client {
                 let publish_queue = self.message(controller.clone(), channel, contents);
                 self.send_message(publish_queue).await
             } else {
-                Err(Error::Protocol(
+                Err(Error::failed_precondition(
                     "queue refresh should have a published queue".to_string(),
                 ))
             }
         } else {
-            Err(Error::Protocol(
+            Err(Error::failed_precondition(
                 "queue refresh should have an active connection".to_string(),
             ))
         }
@@ -639,7 +603,7 @@ impl Client {
             return self.send_message(command).await;
         }
 
-        Err(Error::Protocol(
+        Err(Error::failed_precondition(
             "acknowledgement should have an active connection".to_string(),
         ))
     }
@@ -685,7 +649,7 @@ impl Client {
 
             Ok(())
         } else {
-            Err(Error::Protocol(
+            Err(Error::failed_precondition(
                 "skip should have an active connection".to_string(),
             ))
         }
@@ -712,7 +676,7 @@ impl Client {
             if item.queue_id == queue_id {
                 if let Some(ref local) = self.queue {
                     if local.id != queue_id {
-                        return Err(Error::Protocol(format!(
+                        return Err(Error::failed_precondition(format!(
                             "remote queue {queue_id} does not match local queue {}",
                             local.id
                         )));
@@ -723,16 +687,14 @@ impl Client {
                 }
                 self.player.set_item(item);
             } else {
-                return Err(Error::Protocol(format!(
+                return Err(Error::failed_precondition(format!(
                     "queue {queue_id} does not match queue item {item}"
                 )));
             }
         }
 
         if let Some(progress) = progress {
-            self.player
-                .set_progress(progress)
-                .map_err(|e| Error::Player(format!("unable to set progress: {e}")))?;
+            self.player.set_progress(progress)?;
         }
 
         if let Some(shuffle) = set_shuffle {
@@ -758,17 +720,13 @@ impl Client {
                     error!("unable to notify streaming: {e}");
                 }
             } else {
-                return Err(Error::Protocol(
+                return Err(Error::failed_precondition(
                     "start playing should have an active track".to_string(),
                 ));
             }
         }
 
-        self.report_playback_progress()
-            .await
-            .map_err(|e| Error::Player(format!("unable to report playback progress: {e}")))?;
-
-        Ok(())
+        self.report_playback_progress().await
     }
 
     async fn send_status(&mut self, command_id: &str, status: Status) -> Result<()> {
@@ -783,7 +741,7 @@ impl Client {
             return self.send_message(command).await;
         }
 
-        Err(Error::Protocol(
+        Err(Error::failed_precondition(
             "status should have an active connection".to_string(),
         ))
     }
@@ -814,12 +772,12 @@ impl Client {
 
                 Ok(())
             } else {
-                Err(Error::Protocol(
+                Err(Error::failed_precondition(
                     "playback progress should have active track".to_string(),
                 ))
             }
         } else {
-            Err(Error::Protocol(
+            Err(Error::failed_precondition(
                 "playback progress should have an active connection".to_string(),
             ))
         }
@@ -890,7 +848,7 @@ impl Client {
             }
 
             WebsocketMessage::Close(payload) => {
-                return ControlFlow::Break(Error::Connection(format!(
+                return ControlFlow::Break(Error::aborted(format!(
                     "connection closed by server: {payload:?}"
                 )))
             }
@@ -965,7 +923,7 @@ impl Client {
     async fn send_frame(&mut self, frame: WebsocketMessage) -> Result<()> {
         match &mut self.websocket_tx {
             Some(tx) => tx.send(frame).await.map_err(Into::into),
-            None => Err(Error::Connection(
+            None => Err(Error::unavailable(
                 "websocket stream unavailable".to_string(),
             )),
         }
@@ -1033,24 +991,6 @@ impl Client {
             from,
             to: user_id,
             event,
-        }
-    }
-}
-
-impl From<UserTokenError> for Error {
-    fn from(e: UserTokenError) -> Self {
-        match e {
-            UserTokenError::PermissionDenied(e) => Error::Login(e),
-            other => Error::UserToken(other),
-        }
-    }
-}
-
-impl From<gateway::Error> for Error {
-    fn from(e: gateway::Error) -> Self {
-        match e {
-            gateway::Error::Login(e) => Error::Login(e),
-            other => Error::Gateway(other.to_string()),
         }
     }
 }

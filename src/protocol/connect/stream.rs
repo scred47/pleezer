@@ -5,6 +5,7 @@ use serde_with::{serde_as, DeserializeFromStr, DisplayFromStr, SerializeDisplay}
 use uuid::Uuid;
 
 use super::channel::UserId;
+use crate::error::Error;
 
 /// The contents of a [`Message`] on a [`Stream`] [`Channel`] on a
 /// [Deezer Connect][Connect] websocket.
@@ -95,7 +96,7 @@ impl fmt::Display for Action {
 }
 
 impl FromStr for Action {
-    type Err = super::Error;
+    type Err = Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
     /// return a variant of `Action`.
@@ -103,10 +104,10 @@ impl FromStr for Action {
     /// The string `s` is parsed as uppercase.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let variant = match s {
             Self::PLAY => Self::Play,
-            _ => return Err(Self::Err::Unsupported(format!("stream action `{s}`"))),
+            _ => return Err(Self::Err::unimplemented(format!("stream action `{s}`"))),
         };
 
         Ok(variant)
@@ -126,7 +127,7 @@ impl fmt::Display for Event {
 }
 
 impl FromStr for Event {
-    type Err = super::Error;
+    type Err = Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
     /// return a variant of `Event`.
@@ -134,10 +135,10 @@ impl FromStr for Event {
     /// The string `s` is parsed as uppercase.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let variant = match s {
             Self::LIMITATION => Self::Limitation,
-            _ => return Err(Self::Err::Unsupported(format!("stream action `{s}`"))),
+            _ => return Err(Self::Err::unimplemented(format!("stream action `{s}`"))),
         };
 
         Ok(variant)

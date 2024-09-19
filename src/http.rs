@@ -1,6 +1,6 @@
 use std::{future::Future, num::NonZeroU32, sync::Arc, time::Duration};
 
-use futures_util::FutureExt;
+use futures_util::{FutureExt, TryFutureExt};
 use governor::{DefaultDirectRateLimiter, Quota};
 use reqwest::{
     self,
@@ -9,10 +9,7 @@ use reqwest::{
     Body, Method, Url,
 };
 
-use crate::config::Config;
-
-/// A `Result` alias where the error is a `reqwest::Error`.
-pub type Result<T> = std::result::Result<T, reqwest::Error>;
+use crate::{config::Config, error::Result};
 
 /// A `reqwest::Client` wrapper with rate limiting and cookie support.
 pub struct Client {
@@ -240,6 +237,6 @@ impl Client {
     ) -> impl Future<Output = Result<reqwest::Response>> + '_ {
         // No need to await with jitter because the level of concurrency is low.
         let throttle = self.rate_limiter.until_ready();
-        throttle.then(|()| self.inner.execute(request))
+        throttle.then(|()| self.inner.execute(request).map_err(Into::into))
     }
 }

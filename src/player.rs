@@ -1,20 +1,15 @@
 use std::{num::NonZeroU64, time::Duration};
 
-use thiserror::Error;
-
-use crate::protocol::{
-    connect::{
-        contents::{self, RepeatMode},
-        Percentage, QueueItem,
+use crate::{
+    error::{Error, Result},
+    protocol::{
+        connect::{
+            contents::{self, RepeatMode},
+            Percentage, QueueItem,
+        },
+        gateway::Queue,
     },
-    gateway::Queue,
 };
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-#[derive(Error, Debug)]
-#[error("{0}")]
-pub struct Error(String);
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct Track {
@@ -166,7 +161,9 @@ impl Player {
     /// - there is no active track
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
         if !(0.0..=1.0).contains(&progress.as_ratio()) {
-            return Err(Error(format!("progress cannot be set to {progress}")));
+            return Err(Error::invalid_argument(format!(
+                "progress cannot be set to {progress}"
+            )));
         }
 
         if let Some(ref mut track) = &mut self.track {
@@ -176,7 +173,7 @@ impl Player {
             track.progress = progress;
             Ok(())
         } else {
-            Err(Error(
+            Err(Error::failed_precondition(
                 "position cannot be set without an active track".to_string(),
             ))
         }
