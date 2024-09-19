@@ -16,7 +16,7 @@ pub struct Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// The kind of error that occurred, inspired by [gRPC status codes](https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto).
-#[allow(clippy::module_name_repetitions)]
+#[expect(clippy::module_name_repetitions)]
 #[derive(Clone, Copy, Debug, Eq, Error, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ErrorKind {
     /// HTTP Mapping: 499 Client Closed Request

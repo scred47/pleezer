@@ -608,7 +608,7 @@ impl Client {
         ))
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     async fn handle_skip(
         &mut self,
         message_id: &str,
@@ -660,7 +660,7 @@ impl Client {
     /// Will return `Err` if:
     /// - `progress` could not be set
     /// - playback progress could not be reported
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub async fn set_player_state(
         &mut self,
         queue_id: &str,

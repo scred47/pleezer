@@ -114,7 +114,7 @@ pub struct AudioQualitySettings {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 pub struct Gatekeeps {
     disable_device_limitation: bool,
     #[serde(rename = "metric.timetoplay")]

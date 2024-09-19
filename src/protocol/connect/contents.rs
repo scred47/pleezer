@@ -375,7 +375,7 @@ pub enum AudioQuality {
     /// 320 kbps MP3 (requires Premium subscription)
     High = 2,
 
-    #[allow(clippy::doc_markdown)]
+    #[expect(clippy::doc_markdown)]
     /// 1411 kbps FLAC (requires HiFi subscription)
     Lossless = 3,
 
@@ -844,7 +844,7 @@ impl WireBody {
 
 impl From<Body> for WireBody {
     /// Converts to a `WireBody` from a [`Body`](struct.Body.html).
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn from(body: Body) -> Self {
         let clock: HashMap<String, serde_json::Value> = HashMap::new();
 
@@ -1036,7 +1036,7 @@ impl TryFrom<WireBody> for Body {
     /// Performs the conversion from [`WireBody`] into `Body`.
     ///
     /// [`WireMessage`]: struct.WireMessage.html
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn try_from(wire_body: WireBody) -> std::result::Result<Self, Self::Error> {
         if !wire_body.supported_protocol_version() {
             warn!("protocol version {} is unknown", wire_body.protocol_version);

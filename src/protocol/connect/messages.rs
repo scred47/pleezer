@@ -121,9 +121,6 @@ impl<'de> Deserialize<'de> for Message {
 /// [`Message`]: struct.Message.html
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
-// Large size difference between variants is OK because the largest variant,
-// `WithContents`, is also the variant that is most frequent.
-#[allow(clippy::large_enum_variant)]
 enum WireMessage {
     /// A sequence to send or receive message [`Contents`] over a [`Channel`].
     /// On the wire this is a three-element [JSON] array composed of two

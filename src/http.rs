@@ -53,6 +53,11 @@ impl Client {
     /// let config = Config::default();
     /// let client = Client::new(&config, None).unwrap();
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rate limit interval is zero or the calls per interval
+    /// is zero.
     pub fn new<C>(config: &Config, cookie_jar: Option<C>) -> Result<Self>
     where
         C: CookieStore + 'static,
@@ -121,6 +126,10 @@ impl Client {
     ///
     /// This is useful for public endpoints that don't require authentication,
     /// such as the Deezer Content Delivery Network (CDN).
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the `reqwest::Client` cannot be built.
     ///
     /// # Example
     ///

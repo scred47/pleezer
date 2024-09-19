@@ -251,6 +251,14 @@ impl Gateway {
         })
     }
 
+    /// Converts a list of tracks from the Deezer API to a [`Queue`].
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - the list contains an invalid track ID
+    /// - the HTTP request fails
+    /// - the HTTP response cannot be parsed as [JSON]
     pub async fn list_to_queue(&mut self, list: queue::List) -> Result<Queue> {
         let track_list = gateway::list_data::Request {
             track_ids: list
@@ -267,6 +275,14 @@ impl Gateway {
         }
     }
 
+    /// Get the ARL (Authentication Request Link) from the Deezer API.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - the HTTP request fails
+    /// - the HTTP response cannot be parsed as [JSON]
+    /// - the ARL cannot be parsed
     pub async fn get_arl(&mut self, access_token: &str) -> Result<Arl> {
         let mut headers = HeaderMap::new();
         headers.try_insert(
@@ -287,6 +303,14 @@ impl Gateway {
         arl.parse::<Arl>()
     }
 
+    /// Get the user token that is used for remote control.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - the user data is not available
+    /// - the user data does not allow remote control
+    /// - the user data has too many devices
     pub async fn user_token(&mut self) -> Result<UserToken> {
         if self.is_expired() {
             self.refresh().await?;
@@ -324,6 +348,15 @@ impl Gateway {
         }
     }
 
+    /// Log in to the Deezer API to get an ARL (Authentication Request Link).
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - the email or password is incorrect
+    /// - the HTTP request fails
+    /// - the HTTP response cannot be parsed as [JSON]
+    /// - the ARL cannot be parsed
     pub async fn login(&mut self, email: &str, password: &str) -> Result<Arl> {
         // Check email and password length to prevent out-of-memory conditions.
         const LENGTH_CHECK: std::ops::Range<usize> = 1..255;
