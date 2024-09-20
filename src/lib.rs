@@ -14,3 +14,4 @@ pub mod player;
 pub mod protocol;
 pub mod remote;
 pub mod tokens;
+pub mod track;

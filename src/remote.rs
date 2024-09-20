@@ -16,12 +16,13 @@ use crate::{
     config::{Config, Credentials},
     error::{Error, ErrorKind, Result},
     gateway::Gateway,
-    player::{Player, Track},
+    player::Player,
     protocol::connect::{
         queue, stream, Body, Channel, Contents, DeviceId, Event, Headers, Message, Percentage,
         QueueItem, RepeatMode, Status, UserId,
     },
     tokens::UserToken,
+    track::Track,
 };
 
 pub struct Client {
@@ -760,7 +761,7 @@ impl Client {
                     quality: self.gateway.audio_quality().unwrap_or_default(),
                     duration: track.duration(),
                     buffered: track.buffered(),
-                    progress: track.progress(),
+                    progress: self.player.progress().unwrap_or_default(),
                     volume: self.player.volume(),
                     is_playing: self.player.playing(),
                     is_shuffle: self.player.shuffle(),

@@ -1,50 +1,14 @@
-use std::{num::NonZeroU64, time::Duration};
-
 use crate::{
     error::{Error, Result},
     protocol::{
         connect::{
             contents::{self, RepeatMode},
-            Percentage, QueueItem,
+            Percentage,
         },
         gateway::Queue,
     },
+    track::Track,
 };
-
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
-pub struct Track {
-    item: QueueItem,
-    duration: Duration,
-    buffered: Duration,
-    progress: Percentage,
-}
-
-impl Track {
-    #[must_use]
-    pub fn id(&self) -> NonZeroU64 {
-        self.item.track_id
-    }
-
-    #[must_use]
-    pub fn item(&self) -> &QueueItem {
-        &self.item
-    }
-
-    #[must_use]
-    pub fn duration(&self) -> Duration {
-        self.duration
-    }
-
-    #[must_use]
-    pub fn buffered(&self) -> Duration {
-        self.buffered
-    }
-
-    #[must_use]
-    pub fn progress(&self) -> Percentage {
-        self.progress
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct Player {
@@ -53,9 +17,6 @@ pub struct Player {
     playing: bool,
     repeat_mode: RepeatMode,
     shuffle: bool,
-
-    // TODO : replace with Rodio volume
-    volume: Percentage,
 }
 
 impl Player {
@@ -110,14 +71,7 @@ impl Player {
 
     pub fn set_item(&mut self, item: contents::QueueItem) {
         debug!("setting track to {}", item);
-
-        self.track = Some(Track {
-            item,
-            // TODO
-            duration: Duration::from_secs(100),
-            buffered: Duration::from_secs(100),
-            progress: Percentage::from_ratio(0.0),
-        });
+        self.track = Some(item.into());
     }
 
     #[must_use]
@@ -142,17 +96,19 @@ impl Player {
 
     #[must_use]
     pub fn volume(&self) -> Percentage {
-        self.volume
+        // TODO: get volume from Rodio
+        Percentage::default()
     }
 
     pub fn set_volume(&mut self, volume: Percentage) {
         debug!("setting volume to {volume}");
-        self.volume = volume;
+        // TODO: set volume in Rodio
     }
 
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
-        self.track.as_ref().map(Track::progress)
+        // TODO: get TrackPosition from Rodio
+        Some(Percentage::default())
     }
 
     /// # Errors
@@ -166,11 +122,11 @@ impl Player {
             )));
         }
 
-        if let Some(ref mut track) = &mut self.track {
+        if self.track.is_some() {
             debug!("setting track progress to {progress}");
+            // TODO
             // OK to multiply unchecked, because `progress` is clamped above.
             //track.position = track.duration.mul_f64(position);
-            track.progress = progress;
             Ok(())
         } else {
             Err(Error::failed_precondition(
