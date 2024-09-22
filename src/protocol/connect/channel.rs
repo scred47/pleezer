@@ -26,12 +26,12 @@ pub struct Channel {
     /// [`UserId`]: enum.UserId.html
     pub to: UserId,
 
-    /// The [Deezer Connect][Connect] [`Event`] variant.
+    /// The [Deezer Connect][Connect] [`Message`] identifier.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     /// [Deezer]: https://www.deezer.com/
-    /// [`Event`]: enum.Event.html
-    pub event: Event,
+    /// [`MessageType`]: enum.MessageType.html
+    pub ident: Ident,
 }
 
 /// A list of user representations on a [Deezer Connect][Connect] websocket.
@@ -46,19 +46,19 @@ pub enum UserId {
 
     /// An unspecified [Deezer] receiver or sender.
     ///
-    /// Used as `from` in [`Event:UserFeed`][UserFeed] this means: messages
-    /// from anyone.
+    /// Used as `from` in [`MessageType:UserFeed`][UserFeed] this means:
+    /// messages from anyone.
     ///
     /// [Deezer]: https://www.deezer.com/
-    /// [UserFeed]: enum.Event.html#variant.UserFeed
+    /// [UserFeed]: enum.MessageType.html#variant.UserFeed
     Unspecified,
 }
 
-/// A list of [Deezer Connect][Connect] websocket message events.
+/// A list of [Deezer Connect][Connect] websocket message types.
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 #[derive(Copy, Clone, Debug, Hash, SerializeDisplay, DeserializeFromStr, PartialEq, Eq)]
-pub enum Event {
+pub enum Ident {
     /// Playback control and status information.
     RemoteCommand,
 
@@ -85,20 +85,20 @@ impl Channel {
     pub(crate) const SEPARATOR: char = '_';
 }
 
-impl Event {
-    /// Wire value for [`Event::RemoteCommand`](#variant.RemoteCommand).
+impl Ident {
+    /// Wire value for [`MessageType::RemoteCommand`](#variant.RemoteCommand).
     const REMOTE_COMMAND: &'static str = "REMOTECOMMAND";
 
-    /// Wire value for [`Event::RemoteDiscover`](#variant.RemoteDiscover).
+    /// Wire value for [`MessageType::RemoteDiscover`](#variant.RemoteDiscover).
     const REMOTE_DISCOVER: &'static str = "REMOTEDISCOVER";
 
-    /// Wire value for [`Event::RemoteQueue`](#variant.RemoteQueue).
+    /// Wire value for [`MessageType::RemoteQueue`](#variant.RemoteQueue).
     const REMOTE_QUEUE: &'static str = "REMOTEQUEUE";
 
-    /// Write value for [`Event::Stream`](#variant.Stream).
+    /// Write value for [`MessageType::Stream`](#variant.Stream).
     const STREAM: &'static str = "STREAM";
 
-    /// Wire value for [`Event::UserFeed`](#variant.UserFeed).
+    /// Wire value for [`MessageType::UserFeed`](#variant.UserFeed).
     const USER_FEED: &'static str = "USERFEED";
 }
 
@@ -115,7 +115,7 @@ impl fmt::Display for Channel {
             Self::SEPARATOR,
             self.to,
             Self::SEPARATOR,
-            self.event
+            self.ident
         )
     }
 }
@@ -145,14 +145,14 @@ impl FromStr for Channel {
         })?;
         let to = to.parse::<UserId>()?;
 
-        let event = parts.next().ok_or_else(|| {
-            Self::Err::invalid_argument("channel string slice should hold `event` part".to_string())
+        let ident = parts.next().ok_or_else(|| {
+            Self::Err::invalid_argument("channel string slice should hold `ident` part".to_string())
         })?;
-        let mut event = event.to_string();
-        if let Some(id) = parts.next() {
-            write!(event, "{}{}", Self::SEPARATOR, id)?;
+        let mut ident = ident.to_string();
+        if let Some(user_id) = parts.next() {
+            write!(ident, "{}{}", Self::SEPARATOR, user_id)?;
         }
-        let event = event.parse::<Event>()?;
+        let ident = ident.parse::<Ident>()?;
 
         if parts.next().is_some() {
             return Err(Self::Err::unimplemented(format!(
@@ -160,7 +160,7 @@ impl FromStr for Channel {
             )));
         }
 
-        Ok(Self { from, to, event })
+        Ok(Self { from, to, ident })
     }
 }
 
@@ -223,8 +223,8 @@ impl From<NonZeroU64> for UserId {
     }
 }
 
-impl fmt::Display for Event {
-    /// Formats an `Event` as a wire string for use on a
+impl fmt::Display for Ident {
+    /// Formats an `Message` identifier as a wire string for use on a
     /// [Deezer Connect][Connect] websocket.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
@@ -239,37 +239,41 @@ impl fmt::Display for Event {
     }
 }
 
-impl FromStr for Event {
+impl FromStr for Ident {
     type Err = Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
-    /// return a variant of `Event`.
+    /// return a variant of `Message` identifier.
     ///
     /// The string `s` is parsed as uppercase.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let (event, id) = s
+        let (ident, user_id) = s
             .split_once('_')
             .map_or((s, None), |split| (split.0, Some(split.1)));
 
-        let event = event.to_uppercase();
-        let variant = match event.as_ref() {
+        let ident = ident.to_uppercase();
+        let variant = match ident.as_ref() {
             Self::REMOTE_COMMAND => Self::RemoteCommand,
             Self::REMOTE_DISCOVER => Self::RemoteDiscover,
             Self::REMOTE_QUEUE => Self::RemoteQueue,
             Self::STREAM => Self::Stream,
             Self::USER_FEED => {
-                if let Some(id) = id {
-                    let id = id.parse::<UserId>()?;
-                    Self::UserFeed(id)
+                if let Some(user_id) = user_id {
+                    let user_id = user_id.parse::<UserId>()?;
+                    Self::UserFeed(user_id)
                 } else {
                     return Err(Self::Err::invalid_argument(format!(
-                        "event `{event}` should have user id suffix"
+                        "message identifier `{ident}` should have user id suffix"
                     )));
                 }
             }
-            _ => return Err(Self::Err::unimplemented(format!("event `{s}`"))),
+            _ => {
+                return Err(Self::Err::unimplemented(format!(
+                    "message identifier `{s}`"
+                )))
+            }
         };
 
         Ok(variant)

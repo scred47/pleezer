@@ -13,12 +13,14 @@ use tokio_tungstenite::{
 use uuid::Uuid;
 
 use crate::{
+    arl::Arl,
     config::{Config, Credentials},
     error::{Error, ErrorKind, Result},
+    events::Event,
     gateway::Gateway,
     player::Player,
     protocol::connect::{
-        queue, stream, Body, Channel, Contents, DeviceId, Event, Headers, Message, Percentage,
+        queue, stream, Body, Channel, Contents, DeviceId, Headers, Ident, Message, Percentage,
         QueueItem, RepeatMode, Status, UserId,
     },
     tokens::UserToken,
@@ -39,7 +41,7 @@ pub struct Client {
     websocket_tx:
         Option<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WebsocketMessage>>,
 
-    subscriptions: HashSet<Event>,
+    subscriptions: HashSet<Ident>,
 
     connection_state: ConnectionState,
     watchdog_rx: Pin<Box<tokio::time::Sleep>>,
@@ -68,7 +70,10 @@ enum DiscoveryState {
 #[derive(Clone, Debug, PartialEq)]
 enum ConnectionState {
     Disconnected,
-    Connected { controller: DeviceId },
+    Connected {
+        controller: DeviceId,
+        session_id: Uuid,
+    },
 }
 
 #[must_use]
@@ -155,26 +160,21 @@ impl Client {
         })
     }
 
-    /// TODO
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if:
-    /// - the websocket could not be connected to
-    /// - sending or receiving messages failed
-    pub async fn start(&mut self) -> Result<()> {
-        if let Credentials::Login { email, password } = &self.credentials {
-            let arl = self.gateway.login(email, password).await?;
+    async fn login(&mut self, email: &str, password: &str) -> Result<Arl> {
+        let arl = self.gateway.login(email, password).await?;
 
-            let len = arl.len();
-            let min = usize::min(len, 8);
-            trace!("redacted arl {}... with {} characters", &arl[0..min], len);
-        }
+        let len = arl.len();
+        let min = usize::min(len, 8);
+        trace!("redacted arl {}... with {} characters", &arl[0..min], len);
 
+        Ok(arl)
+    }
+
+    async fn user_token(&mut self) -> Result<(UserToken, Duration)> {
         // Loop until a user token is supplied that expires after the
         // threshold. If rate limiting is necessary, then that should be done
         // by the token token_provider.
-        let (user_token, time_to_live) = loop {
+        loop {
             let token = self.gateway.user_token().await?;
 
             let time_to_live = token
@@ -196,12 +196,27 @@ impl Client {
                     duration.as_secs_f32().ceil(),
                 );
 
-                break (token, duration);
+                break Ok((token, duration));
             }
 
             // Flush user tokens that expire within the threshold.
             self.gateway.flush_user_token();
-        };
+        }
+    }
+
+    /// TODO
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - the websocket could not be connected to
+    /// - sending or receiving messages failed
+    pub async fn start(&mut self) -> Result<()> {
+        if let Credentials::Login { email, password } = &self.credentials.clone() {
+            let _arl = self.login(email, password).await?;
+        }
+
+        let (user_token, time_to_live) = self.user_token().await?;
 
         // Set timer for user token expiration. Wake a short while before
         // actual expiration. This prevents API request errors when the
@@ -231,8 +246,12 @@ impl Client {
 
         self.user_token = Some(user_token);
 
-        self.subscribe(Event::Stream).await?;
-        self.subscribe(Event::RemoteDiscover).await?;
+        self.subscribe(Ident::Stream).await?;
+        self.subscribe(Ident::RemoteDiscover).await?;
+
+        // Register playback event handler.
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+        self.player.register(event_tx);
 
         info!("ready for discovery");
 
@@ -288,6 +307,16 @@ impl Client {
                         Err(e) => error!("error receiving message: {e}"),
                     }
                 }
+
+                Some(event) = event_rx.recv() => {
+                    match event {
+                        Event::TrackChanged(track) => {
+                            if let Err(e) = self.report_playback(&track).await {
+                                error!("error streaming track: {e}");
+                            }
+                        }
+                    }
+                }
             }
         };
 
@@ -319,16 +348,16 @@ impl Client {
 
         // Cancel any remaining subscriptions not handled by `disconnect`.
         let subscriptions = self.subscriptions.clone();
-        for event in subscriptions {
-            if self.unsubscribe(event).await.is_ok() {
-                self.subscriptions.remove(&event);
+        for ident in subscriptions {
+            if self.unsubscribe(ident).await.is_ok() {
+                self.subscriptions.remove(&ident);
             }
         }
     }
 
     fn message(&self, destination: DeviceId, channel: Channel, body: Body) -> Message {
         let contents = Contents {
-            event: channel.event,
+            ident: channel.ident,
             headers: Headers {
                 from: self.device_id.clone(),
                 destination: Some(destination),
@@ -340,32 +369,36 @@ impl Client {
     }
 
     fn command(&self, destination: DeviceId, body: Body) -> Message {
-        let remote_command = self.channel(Event::RemoteCommand);
+        let remote_command = self.channel(Ident::RemoteCommand);
         self.message(destination, remote_command, body)
     }
 
     fn discover(&self, destination: DeviceId, body: Body) -> Message {
-        let remote_discover = self.channel(Event::RemoteDiscover);
+        let remote_discover = self.channel(Ident::RemoteDiscover);
         self.message(destination, remote_discover, body)
     }
 
-    fn report_stream(&self, track: &Track) -> Message {
-        let contents = stream::Contents {
-            action: stream::Action::Play,
-            event: stream::Event::Limitation,
-            value: stream::Value {
-                user: self.user_id(),
-                // TODO: keep uuid when song remains the same
-                // (e.g. is paused/played)
-                uuid: Uuid::new_v4(),
-                track_id: track.id(),
-            },
-        };
+    async fn report_playback(&mut self, track: &Track) -> Result<()> {
+        if let ConnectionState::Connected { session_id, .. } = &self.connection_state {
+            let message = Message::StreamSend {
+                channel: self.channel(Ident::Stream),
+                contents: stream::Contents {
+                    action: stream::Action::Play,
+                    ident: stream::Ident::Limitation,
+                    value: stream::Value {
+                        user: self.user_id(),
+                        uuid: *session_id,
+                        track_id: track.id(),
+                    },
+                },
+            };
 
-        Message::StreamSend {
-            channel: self.channel(Event::Stream),
-            contents,
+            return self.send_message(message).await;
         }
+
+        Err(Error::failed_precondition(
+            "playback reporting should have an active connection".to_string(),
+        ))
     }
 
     async fn disconnect(&mut self) -> Result<()> {
@@ -424,9 +457,9 @@ impl Client {
         }
 
         // Subscribe to both channels. If one fails, try to roll back.
-        self.subscribe(Event::RemoteQueue).await?;
-        if let Err(e) = self.subscribe(Event::RemoteCommand).await {
-            let _drop = self.unsubscribe(Event::RemoteQueue).await;
+        self.subscribe(Ident::RemoteQueue).await?;
+        if let Err(e) = self.subscribe(Ident::RemoteCommand).await {
+            let _drop = self.unsubscribe(Ident::RemoteQueue).await;
             return Err(e);
         }
 
@@ -501,7 +534,11 @@ impl Client {
                     self.discovery_state = DiscoveryState::Taken;
                 }
 
-                self.connection_state = ConnectionState::Connected { controller: from };
+                // The unique session ID is used when reporting playback.
+                self.connection_state = ConnectionState::Connected {
+                    controller: from,
+                    session_id: Uuid::new_v4(),
+                };
 
                 info!("connected to {controller}");
                 return Ok(());
@@ -518,8 +555,8 @@ impl Client {
 
     async fn handle_close(&mut self) -> Result<()> {
         if self.controller().is_some() {
-            self.unsubscribe(Event::RemoteQueue).await?;
-            self.unsubscribe(Event::RemoteCommand).await?;
+            self.unsubscribe(Ident::RemoteQueue).await?;
+            self.unsubscribe(Ident::RemoteCommand).await?;
 
             self.reset_states();
             return Ok(());
@@ -578,7 +615,7 @@ impl Client {
                     queue: queue.clone(),
                 };
 
-                let channel = self.channel(Event::RemoteQueue);
+                let channel = self.channel(Ident::RemoteQueue);
                 let publish_queue = self.message(controller.clone(), channel, contents);
                 self.send_message(publish_queue).await
             } else {
@@ -638,8 +675,8 @@ impl Client {
             )
             .await?;
 
-            // Status response to the first skip - received during the
-            // handshake - is "1" (Error).
+            // The status response to the first skip, that is received during
+            // the initial handshake, should be "1" (Error).
             let status = if self.is_connected() {
                 Status::OK
             } else {
@@ -712,19 +749,6 @@ impl Client {
 
         if let Some(should_play) = should_play {
             self.player.set_playing(should_play);
-
-            if let Some(track) = self.player.track() {
-                // TODO : send message when actually streaming
-                let streaming = self.report_stream(track);
-                if let Err(e) = self.send_message(streaming).await {
-                    // Non-fatal: print the error, but continue processing.
-                    error!("unable to notify streaming: {e}");
-                }
-            } else {
-                return Err(Error::failed_precondition(
-                    "start playing should have an active track".to_string(),
-                ));
-            }
         }
 
         self.report_playback_progress().await
@@ -946,27 +970,27 @@ impl Client {
         self.send_frame(frame).await
     }
 
-    async fn subscribe(&mut self, event: Event) -> Result<()> {
-        if !self.subscriptions.contains(&event) {
-            let channel = self.channel(event);
+    async fn subscribe(&mut self, ident: Ident) -> Result<()> {
+        if !self.subscriptions.contains(&ident) {
+            let channel = self.channel(ident);
 
             let subscribe = Message::Subscribe { channel };
             self.send_message(subscribe).await?;
 
-            self.subscriptions.insert(event);
+            self.subscriptions.insert(ident);
         }
 
         Ok(())
     }
 
-    async fn unsubscribe(&mut self, event: Event) -> Result<()> {
-        if self.subscriptions.contains(&event) {
-            let channel = self.channel(event);
+    async fn unsubscribe(&mut self, ident: Ident) -> Result<()> {
+        if self.subscriptions.contains(&ident) {
+            let channel = self.channel(ident);
 
             let unsubscribe = Message::Unsubscribe { channel };
             self.send_message(unsubscribe).await?;
 
-            self.subscriptions.remove(&event);
+            self.subscriptions.remove(&ident);
         }
 
         Ok(())
@@ -980,9 +1004,9 @@ impl Client {
     }
 
     #[must_use]
-    fn channel(&self, event: Event) -> Channel {
+    fn channel(&self, ident: Ident) -> Channel {
         let user_id = self.user_id();
-        let from = if let Event::UserFeed(_) = event {
+        let from = if let Ident::UserFeed(_) = ident {
             UserId::Unspecified
         } else {
             user_id
@@ -991,7 +1015,7 @@ impl Client {
         Channel {
             from,
             to: user_id,
-            event,
+            ident,
         }
     }
 }

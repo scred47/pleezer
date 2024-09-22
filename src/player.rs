@@ -1,5 +1,6 @@
 use crate::{
     error::{Error, Result},
+    events::Event,
     protocol::{
         connect::{
             contents::{self, RepeatMode},
@@ -10,19 +11,24 @@ use crate::{
     track::Track,
 };
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct Player {
     track: Option<Track>,
     queue: Option<Queue>,
     playing: bool,
     repeat_mode: RepeatMode,
     shuffle: bool,
+    event_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
 }
 
 impl Player {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn register(&mut self, event_tx: tokio::sync::mpsc::UnboundedSender<Event>) {
+        self.event_tx = Some(event_tx);
     }
 
     pub fn play(&mut self) {
@@ -71,7 +77,13 @@ impl Player {
 
     pub fn set_item(&mut self, item: contents::QueueItem) {
         debug!("setting track to {}", item);
-        self.track = Some(item.into());
+        let track = Track::from(item);
+        self.track = Some(track.clone());
+
+        // TODO - when actually playing, send TrackChanged event
+        if let Some(event_tx) = &self.event_tx {
+            let _ = event_tx.send(Event::TrackChanged(track));
+        }
     }
 
     #[must_use]

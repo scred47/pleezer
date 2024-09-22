@@ -7,7 +7,7 @@ pub mod messages;
 pub mod protos;
 pub mod stream;
 
-pub use channel::{Channel, Event, UserId};
+pub use channel::{Channel, Ident, UserId};
 pub use contents::{
     AudioQuality, Body, Contents, DeviceId, Headers, Percentage, QueueItem, RepeatMode, Status,
 };

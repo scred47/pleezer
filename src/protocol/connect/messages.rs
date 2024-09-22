@@ -63,16 +63,16 @@ impl fmt::Display for Message {
         // FIXME: padding is not respected.
         match self {
             Self::Send { channel, contents } => {
-                write!(f, "{:<14} -> {contents}", channel.event)
+                write!(f, "{:<14} -> {contents}", channel.ident)
             }
             Self::Receive { channel, contents } => {
-                write!(f, "{:<14} <- {contents}", channel.event)
+                write!(f, "{:<14} <- {contents}", channel.ident)
             }
             Self::StreamSend { channel, contents } => {
-                write!(f, "{:<14} -> {contents}", channel.event)
+                write!(f, "{:<14} -> {contents}", channel.ident)
             }
             Self::StreamReceive { channel, contents } => {
-                write!(f, "{:<14} <- {contents}", channel.event)
+                write!(f, "{:<14} <- {contents}", channel.ident)
             }
             Self::Subscribe { channel } => write!(f, "subscribing to {channel}"),
             Self::Unsubscribe { channel } => write!(f, "unsubscribing from {channel}"),
@@ -202,11 +202,11 @@ impl TryFrom<Message> for WireMessage {
     fn try_from(message: Message) -> Result<Self, Self::Error> {
         let wire_message = match message {
             Message::Receive { channel, contents } => {
-                let contents_event = contents.event;
-                let channel_event = channel.event;
-                if contents_event != channel_event {
+                let contents_ident = contents.ident;
+                let channel_ident = channel.ident;
+                if contents_ident != channel_ident {
                     return Err(Self::Error::failed_precondition(format!(
-                        "channel event {channel_event} should match contents event {contents_event}",
+                        "channel identifier {channel_ident} should match content identifier {contents_ident}",
                     )));
                 }
 
@@ -214,11 +214,11 @@ impl TryFrom<Message> for WireMessage {
             }
 
             Message::Send { channel, contents } => {
-                let contents_event = contents.event;
-                let channel_event = channel.event;
-                if contents_event != channel_event {
+                let contents_ident = contents.ident;
+                let channel_ident = channel.ident;
+                if contents_ident != channel_ident {
                     return Err(Self::Error::failed_precondition(format!(
-                        "channel event {channel_event} should match contents event {contents_event}",
+                        "channel identifier {channel_ident} should match content identifier {contents_ident}",
                     )));
                 }
 
@@ -251,11 +251,11 @@ impl TryFrom<WireMessage> for Message {
     fn try_from(wire_message: WireMessage) -> Result<Self, Self::Error> {
         let message = match wire_message {
             WireMessage::WithContents(stanza, channel, contents) => {
-                let contents_event = contents.event;
-                let channel_event = channel.event;
-                if contents_event != channel_event {
+                let contents_ident = contents.ident;
+                let channel_ident = channel.ident;
+                if contents_ident != channel_ident {
                     return Err(Self::Error::failed_precondition(format!(
-                        "channel event {channel_event} should match contents event {contents_event}",
+                        "channel identifier {channel_ident} should match content identifier {contents_ident}",
                     )));
                 }
 

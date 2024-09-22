@@ -26,14 +26,14 @@ pub struct Contents {
     #[serde(rename = "ACTION")]
     pub action: Action,
 
-    /// The [Deezer Connect][Connect] websocket [`Message`] [`Event`]
+    /// The [Deezer Connect][Connect] websocket [`Message`] [`Ident`]
     /// that these `Contents` are for.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`Action`]: enum.Event.html
+    /// [`Action`]: enum.Ident.html
     /// [`Message`]: ../messages/enum.Message.html
     #[serde(rename = "APP")]
-    pub event: Event,
+    pub ident: Ident,
 
     /// The value of these [Deezer Connect][Connect] websocket [`Message`]
     /// `Contents`.
@@ -65,7 +65,7 @@ pub enum Action {
 }
 
 #[derive(Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, Hash)]
-pub enum Event {
+pub enum Ident {
     Limitation,
 }
 
@@ -73,7 +73,7 @@ impl Action {
     const PLAY: &'static str = "PLAY";
 }
 
-impl Event {
+impl Ident {
     const LIMITATION: &'static str = "LIMITATION";
 }
 
@@ -114,8 +114,8 @@ impl FromStr for Action {
     }
 }
 
-impl fmt::Display for Event {
-    /// Formats an `Event` as a wire string for use on a
+impl fmt::Display for Ident {
+    /// Formats an `Ident` as a wire string for use on a
     /// [Deezer Connect][Connect] websocket.
     ///
     /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
@@ -126,11 +126,11 @@ impl fmt::Display for Event {
     }
 }
 
-impl FromStr for Event {
+impl FromStr for Ident {
     type Err = Error;
 
     /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
-    /// return a variant of `Event`.
+    /// return a variant of `Ident`.
     ///
     /// The string `s` is parsed as uppercase.
     ///

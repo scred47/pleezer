@@ -21,7 +21,7 @@ use serde_with::{
 };
 use uuid::Uuid;
 
-use super::channel::Event;
+use super::channel::Ident;
 use super::protos::queue;
 use crate::error::Error;
 
@@ -43,7 +43,7 @@ pub struct Contents {
     /// [`Event`]: ../channel/enum.Event.html
     /// [`Message`]: ../messages/enum.Message.html
     #[serde(rename = "APP")]
-    pub event: Event,
+    pub ident: Ident,
 
     /// The [Deezer Connect][Connect] websocket [`Message`] [`Headers`] that
     /// are attached to these `Contents`.

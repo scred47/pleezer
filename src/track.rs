@@ -2,7 +2,7 @@ use std::{num::NonZeroU64, time::Duration};
 
 use crate::protocol::connect::QueueItem;
 
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Track {
     item: QueueItem,
     duration: Duration,
