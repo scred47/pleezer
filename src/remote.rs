@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ops::ControlFlow, pin::Pin, time::Duration};
+use std::{collections::HashSet, num::NonZeroU64, ops::ControlFlow, pin::Pin, time::Duration};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use log::Level;
@@ -24,7 +24,6 @@ use crate::{
         QueueItem, RepeatMode, Status, UserId,
     },
     tokens::UserToken,
-    track::Track,
 };
 
 pub struct Client {
@@ -183,10 +182,14 @@ impl Client {
 
             if let Some(duration) = time_to_live {
                 debug!("user id: {}", token.user_id);
-                info!(
-                    "user casting quality: {}",
-                    self.gateway.audio_quality().unwrap_or_default(),
-                );
+
+                let audio_quality = self.gateway.audio_quality().unwrap_or_default();
+                info!("user casting quality: {audio_quality}");
+                self.player.audio_quality = audio_quality;
+
+                if let Some(license_token) = self.gateway.license_token() {
+                    self.player.license_token = license_token.to_string();
+                }
 
                 // This takes a few milliseconds and would normally
                 // truncate (round down). Return `ceil` is more human
@@ -308,10 +311,12 @@ impl Client {
                     }
                 }
 
+                _ = self.player.run() => {}
+
                 Some(event) = event_rx.recv() => {
                     match event {
                         Event::TrackChanged(track) => {
-                            if let Err(e) = self.report_playback(&track).await {
+                            if let Err(e) = self.report_playback(track).await {
                                 error!("error streaming track: {e}");
                             }
                         }
@@ -378,7 +383,7 @@ impl Client {
         self.message(destination, remote_discover, body)
     }
 
-    async fn report_playback(&mut self, track: &Track) -> Result<()> {
+    async fn report_playback(&mut self, track_id: NonZeroU64) -> Result<()> {
         if let ConnectionState::Connected { session_id, .. } = &self.connection_state {
             let message = Message::StreamSend {
                 channel: self.channel(Ident::Stream),
@@ -388,7 +393,7 @@ impl Client {
                     value: stream::Value {
                         user: self.user_id(),
                         uuid: *session_id,
-                        track_id: track.id(),
+                        track_id,
                     },
                 },
             };
@@ -577,12 +582,17 @@ impl Client {
     }
 
     async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
+        // TODO : does it really matter whether there's an active connection?
+        // think about removing the Result return type.
         if self.controller().is_some() {
-            let queue = self.gateway.list_to_queue(list.clone()).await.unwrap();
-            trace!("{queue:#?}");
+            // TODO : kick off into separate thread and await with timeout
+            let queue = self.gateway.list_to_queue(&list).await?;
 
+            // TODO : check list type for podcasts, radio, etc.
+
+            debug!("setting queue to {}", list.id);
             self.queue = Some(list);
-            self.player.set_queue(queue);
+            self.player.set_queue(queue).await;
 
             return Ok(());
         }
@@ -710,6 +720,7 @@ impl Client {
         set_volume: Option<Percentage>,
     ) -> Result<()> {
         // Set the element (track) before setting progress & playback.
+        // The queue containing this track should have been set before.
         if let Some(item) = item {
             if item.queue_id == queue_id {
                 if let Some(ref local) = self.queue {
@@ -723,7 +734,7 @@ impl Client {
                     // Weird but non-fatal - just play a single track then
                     warn!("setting track without a local queue");
                 }
-                self.player.set_item(item);
+                self.player.set_item(&item);
             } else {
                 return Err(Error::failed_precondition(format!(
                     "queue {queue_id} does not match queue item {item}"
@@ -776,16 +787,30 @@ impl Client {
         // stuck in a reporting state.
         self.reset_reporting_timer();
 
+        // TODO : replace `if let Some(x) = y` with `let x = y.ok_or(z)?`
         if let Some(controller) = self.controller() {
-            if let Some(track) = &self.player.track() {
+            if let Some(track) = self.player.track() {
+                let queue = self
+                    .queue
+                    .as_ref()
+                    .ok_or(Error::internal("no active queue"))?;
+
+                let item = QueueItem {
+                    queue_id: queue.id.to_string(),
+                    track_id: track.id(),
+                    position: self
+                        .player
+                        .position()
+                        .ok_or(Error::internal("no active position"))?,
+                };
+
                 let progress = Body::PlaybackProgress {
                     message_id: Uuid::new_v4().into(),
-                    track: track.item().clone(),
-                    // TODO: use actual track quality
-                    quality: self.gateway.audio_quality().unwrap_or_default(),
+                    track: item,
+                    quality: track.quality(),
                     duration: track.duration(),
                     buffered: track.buffered(),
-                    progress: self.player.progress().unwrap_or_default(),
+                    progress: self.player.progress(),
                     volume: self.player.volume(),
                     is_playing: self.player.playing(),
                     is_shuffle: self.player.shuffle(),

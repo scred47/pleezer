@@ -22,6 +22,9 @@ use crate::{
 
 pub struct Gateway {
     http_client: HttpClient,
+    // TODO : we probably don't need to retain all user data, all the time
+    //       keep what we need here in the gateway, and send the rest off into
+    //       a token object
     user_data: Option<UserData>,
     client_id: usize,
 }
@@ -92,10 +95,6 @@ impl Gateway {
         }
 
         cookie_jar
-    }
-
-    pub fn http_client(&self) -> reqwest::Client {
-        self.http_client.inner.clone()
     }
 
     /// TODO
@@ -218,6 +217,13 @@ impl Gateway {
     }
 
     #[must_use]
+    pub fn license_token(&self) -> Option<&str> {
+        self.user_data
+            .as_ref()
+            .map(|data| data.user.options.license_token.as_str())
+    }
+
+    #[must_use]
     pub fn is_expired(&self) -> bool {
         if let Some(data) = &self.user_data {
             return data.user.options.expiration_timestamp >= data.user.options.timestamp;
@@ -259,11 +265,11 @@ impl Gateway {
     /// - the list contains an invalid track ID
     /// - the HTTP request fails
     /// - the HTTP response cannot be parsed as [JSON]
-    pub async fn list_to_queue(&mut self, list: queue::List) -> Result<Queue> {
+    pub async fn list_to_queue(&mut self, list: &queue::List) -> Result<Queue> {
         let track_list = gateway::list_data::Request {
             track_ids: list
                 .tracks
-                .into_iter()
+                .iter()
                 .map(|track| track.id.parse())
                 .collect::<std::result::Result<Vec<_>, _>>()?,
         };

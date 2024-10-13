@@ -13,8 +13,8 @@ use crate::{config::Config, error::Result};
 
 /// A `reqwest::Client` wrapper with rate limiting and cookie support.
 pub struct Client {
-    /// The inner `reqwest::Client` instance.
-    pub inner: reqwest::Client,
+    /// The inner `reqwest::Client` instance without rate limiting.
+    pub unlimited: reqwest::Client,
 
     /// A rate limiter to prevent Denial of Service attacks.
     rate_limiter: DefaultDirectRateLimiter,
@@ -92,7 +92,7 @@ impl Client {
             );
 
         Ok(Self {
-            inner: http_client.build()?,
+            unlimited: http_client.build()?,
             rate_limiter: governor::RateLimiter::direct(quota),
             cookie_jar: cookie_jar.map(|jar| jar as _), // coerce compiler to infer type
         })
@@ -220,7 +220,7 @@ impl Client {
         self.request(Method::GET, url, body)
     }
 
-    /// Executes the given `Request` asynchronously.
+    /// Executes the given `Request` asynchronously with rate limiting.
     ///
     /// # Examples
     ///
@@ -246,6 +246,6 @@ impl Client {
     ) -> impl Future<Output = Result<reqwest::Response>> + '_ {
         // No need to await with jitter because the level of concurrency is low.
         let throttle = self.rate_limiter.until_ready();
-        throttle.then(|()| self.inner.execute(request).map_err(Into::into))
+        throttle.then(|()| self.unlimited.execute(request).map_err(Into::into))
     }
 }

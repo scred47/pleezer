@@ -1,8 +1,8 @@
-use crate::track::Track;
+use std::num::NonZeroU64;
 
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug)]
 pub enum Event {
-    TrackChanged(Track),
+    TrackChanged(NonZeroU64),
     // TODO - proposals:
     // QueueChanged(Queue),
     // PlayingChanged(bool),

@@ -441,3 +441,9 @@ impl From<std::num::ParseIntError> for Error {
         Self::invalid_argument(e.to_string())
     }
 }
+
+impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for Error {
+    fn from(e: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>) -> Self {
+        Self::internal(e.to_string())
+    }
+}

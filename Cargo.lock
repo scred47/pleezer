@@ -1107,6 +1107,7 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "sysinfo",
+ "tempfile",
  "thiserror",
  "tokio",
  "tokio-tungstenite",

@@ -6,6 +6,7 @@ use serde_with::{formats::Flexible, serde_as, DisplayFromStr, TimestampSeconds};
 use super::Method;
 
 // TODO: implement defaults, options
+// TODO: check private fields
 
 impl Method for UserData {
     const METHOD: &'static str = "deezer.getUserData";
@@ -55,7 +56,7 @@ pub struct User {
 #[serde_as]
 #[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct Options {
-    license_token: String,
+    pub license_token: String,
     audio_quality_default_preset: String,
     pub too_many_devices: bool,
     #[serde_as(as = "TimestampSeconds<i64, Flexible>")]

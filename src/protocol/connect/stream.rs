@@ -15,7 +15,7 @@ use crate::error::Error;
 /// [`Stream`]: ../channel/enum.Channel.html#variant.Stream
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 #[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Contents {
     /// The [Deezer Connect][Connect] websocket [`Message`] [`Action`]
     /// that these `Contents` are for.

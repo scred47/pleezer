@@ -242,7 +242,7 @@ async fn run(args: Args) -> Result<()> {
         }
     };
 
-    let player = Player::new();
+    let player = Player::new(&config)?;
     let mut client = remote::Client::new(&config, player, true)?;
 
     // Restart after sleeping some duration to prevent accidental denial of
@@ -292,7 +292,7 @@ async fn run(args: Args) -> Result<()> {
             }
 
             // Keep the timer running until the client is ready to restart.
-            () = &mut restart_timer, if !restart_timer.is_elapsed() => {}
+            _ = &mut restart_timer, if !restart_timer.is_elapsed() => {}
         }
     }
 }

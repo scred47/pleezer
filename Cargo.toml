@@ -53,6 +53,7 @@ serde_with = { version = "3.8", default-features = false, features = [
     "std",
 ] }
 sysinfo = { version = "0.31", default-features = false, features = ["system"] }
+tempfile = "3"
 thiserror = "1.0"
 tokio = { version = "1", features = [
     "macros",
