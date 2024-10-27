@@ -260,16 +260,14 @@ impl Player {
                                             target_track.start_download(&self.client, medium).await
                                         {
                                             error!(
-                                                "skipping track {}, failed to start download: {e}",
-                                                target_track.id()
+                                                "skipping track {target_track}, failed to start download: {e}",
                                             );
                                             self.skip_one();
                                         }
                                     }
                                     Err(err) => {
                                         error!(
-                                            "skipping track {}, failed to get medium: {err}",
-                                            target_track.id()
+                                            "skipping track {target_track}, failed to get medium: {err}",
                                         );
                                         self.skip_one();
                                     }
