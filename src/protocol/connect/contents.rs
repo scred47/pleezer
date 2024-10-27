@@ -416,17 +416,31 @@ pub struct Percentage(f64);
 
 impl Percentage {
     #[must_use]
-    pub fn from_ratio(ratio: f64) -> Self {
+    pub fn from_ratio_f32(ratio: f32) -> Self {
+        Self(ratio as f64)
+    }
+
+    #[must_use]
+    pub fn from_ratio_f64(ratio: f64) -> Self {
         Self(ratio)
     }
 
     #[must_use]
-    pub fn as_ratio(&self) -> f64 {
+    pub fn as_ratio_f32(&self) -> f32 {
+        self.0 as f32
+    }
+
+    #[must_use]
+    pub fn as_ratio_f64(&self) -> f64 {
         self.0
     }
 
     #[must_use]
-    pub fn as_percent(&self) -> f64 {
+    pub fn as_percent_f32(&self) -> f32 {
+        self.0 as f32 * 100.0
+    }
+    #[must_use]
+    pub fn as_percent_f64(&self) -> f64 {
         self.0 * 100.0
     }
 }
@@ -434,7 +448,7 @@ impl Percentage {
 impl fmt::Display for Percentage {
     /// Formats an `Percentage` for display with a `%` sign.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:.2}%", self.as_percent())
+        write!(f, "{:.2}%", self.as_percent_f32())
     }
 }
 

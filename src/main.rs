@@ -43,6 +43,13 @@ struct Args {
     #[arg(short, long, value_hint = ValueHint::Hostname)]
     name: Option<String>,
 
+    /// The output device
+    ///
+    /// Use "?" to list available devices. If omitted, the system's default
+    /// output device is used.
+    #[arg(short, long, default_value_t = String::from(""))]
+    device: String,
+
     /// Prevent session interruptions
     ///
     /// Prevent other clients from taking over the connection after pleezer has
@@ -137,6 +144,20 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
 /// This function returns `Err` when an error occurs. This could be due to the
 /// user interrupting the application or an unrecoverable network error.
 async fn run(args: Args) -> Result<()> {
+    if args.device == "?" {
+        // List available devices and exit.
+        let devices = Player::enumerate_devices();
+        if devices.is_empty() {
+            return Err(Error::not_found("no audio output devices found"));
+        }
+
+        info!("available audio output devices:");
+        for device in devices {
+            info!("- {device}");
+        }
+        return Ok(());
+    }
+
     // Seed the random number generator.
     let mut small_rng = SmallRng::from_entropy();
 
@@ -242,7 +263,7 @@ async fn run(args: Args) -> Result<()> {
         }
     };
 
-    let player = Player::new(&config)?;
+    let player = Player::new(&config, &args.device)?;
     let mut client = remote::Client::new(&config, player, true)?;
 
     // Restart after sleeping some duration to prevent accidental denial of

@@ -24,6 +24,7 @@ use crate::{
         QueueItem, RepeatMode, Status, UserId,
     },
     tokens::UserToken,
+    track::Track,
 };
 
 pub struct Client {
@@ -277,7 +278,7 @@ impl Client {
                     break Err(Error::deadline_exceeded("user token expired"));
                 }
 
-                () = &mut self.reporting_timer, if self.is_connected() && self.player.playing() => {
+                () = &mut self.reporting_timer, if self.is_connected() && self.player.is_playing() => {
                     if let Err(e) = self.report_playback_progress().await {
                         error!("error reporting playback progress: {e}");
                     }
@@ -311,7 +312,7 @@ impl Client {
                     }
                 }
 
-                _ = self.player.run() => {}
+                Err(e) = self.player.run() => break Err(e),
 
                 Some(event) = event_rx.recv() => {
                     match event {
@@ -583,16 +584,16 @@ impl Client {
 
     async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
         // TODO : does it really matter whether there's an active connection?
-        // think about removing the Result return type.
         if self.controller().is_some() {
             // TODO : kick off into separate thread and await with timeout
             let queue = self.gateway.list_to_queue(&list).await?;
+            let tracks = queue.into_iter().map(Track::from).collect();
 
             // TODO : check list type for podcasts, radio, etc.
 
             debug!("setting queue to {}", list.id);
             self.queue = Some(list);
-            self.player.set_queue(queue).await;
+            self.player.set_tracks(tracks).await;
 
             return Ok(());
         }
@@ -734,7 +735,7 @@ impl Client {
                     // Weird but non-fatal - just play a single track then
                     warn!("setting track without a local queue");
                 }
-                self.player.set_item(&item);
+                self.player.set_position(item.position)?;
             } else {
                 return Err(Error::failed_precondition(format!(
                     "queue {queue_id} does not match queue item {item}"
@@ -812,7 +813,7 @@ impl Client {
                     buffered: track.buffered(),
                     progress: self.player.progress(),
                     volume: self.player.volume(),
-                    is_playing: self.player.playing(),
+                    is_playing: self.player.is_playing(),
                     is_shuffle: self.player.shuffle(),
                     repeat_mode: self.player.repeat_mode(),
                 };

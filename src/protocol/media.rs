@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{fmt, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -25,19 +25,20 @@ pub struct Media {
     pub cipher_formats: Vec<CipherFormat>,
 }
 
-#[derive(
-    Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 pub enum Type {
-    #[default]
     FULL,
     PREVIEW,
 }
 
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 #[serde_as]
-#[derive(
-    Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 pub struct CipherFormat {
     #[serde_with(as = "DisplayFromStr")]
     pub cipher: Cipher,
@@ -45,28 +46,21 @@ pub struct CipherFormat {
     pub format: Format,
 }
 
-#[derive(
-    Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 #[expect(non_camel_case_types)]
 pub enum Cipher {
-    #[default]
     BF_CBC_STRIPE,
     NONE,
 }
 
+impl fmt::Display for Cipher {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 #[derive(
-    Copy,
-    Clone,
-    Default,
-    Eq,
-    PartialEq,
-    Ord,
-    PartialOrd,
-    Deserialize_repr,
-    Serialize_repr,
-    Debug,
-    Hash,
+    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize_repr, Serialize_repr, Debug, Hash,
 )]
 #[expect(non_camel_case_types)]
 #[repr(i64)]
@@ -74,10 +68,15 @@ pub enum Format {
     EXTERNAL = -1,
     FLAC = 9,
     MP3_64 = 10,
-    #[default]
     MP3_128 = 1,
     MP3_320 = 3,
     MP3_MISC = 0,
+}
+
+impl fmt::Display for Format {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 impl From<Format> for AudioQuality {
@@ -113,7 +112,7 @@ pub struct Medium {
 }
 
 #[serde_as]
-#[derive(Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
 pub struct CipherType {
     #[serde(rename = "type")]
     #[serde_with(as = "DisplayFromStr")]

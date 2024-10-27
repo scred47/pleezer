@@ -290,33 +290,18 @@ impl fmt::Display for Error {
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        use std::io::ErrorKind as IoErrorKind;
-
+        use std::io::ErrorKind::*;
         match err.kind() {
-            IoErrorKind::NotFound => Self::not_found(err),
-
-            IoErrorKind::PermissionDenied => Self::permission_denied(err),
-
-            IoErrorKind::AddrInUse | IoErrorKind::AlreadyExists => Self::already_exists(err),
-
-            IoErrorKind::AddrNotAvailable
-            | IoErrorKind::ConnectionRefused
-            | IoErrorKind::NotConnected => Self::unavailable(err),
-
-            IoErrorKind::BrokenPipe
-            | IoErrorKind::ConnectionReset
-            | IoErrorKind::ConnectionAborted => Self::aborted(err),
-
-            IoErrorKind::Interrupted | IoErrorKind::WouldBlock => Self::cancelled(err),
-
-            IoErrorKind::UnexpectedEof => Self::data_loss(err),
-
-            IoErrorKind::TimedOut => Self::deadline_exceeded(err),
-
-            IoErrorKind::InvalidInput | IoErrorKind::InvalidData => Self::invalid_argument(err),
-
-            IoErrorKind::WriteZero => Self::resource_exhausted(err),
-
+            NotFound => Self::not_found(err),
+            PermissionDenied => Self::permission_denied(err),
+            AddrInUse | AlreadyExists => Self::already_exists(err),
+            AddrNotAvailable | ConnectionRefused | NotConnected => Self::unavailable(err),
+            BrokenPipe | ConnectionReset | ConnectionAborted => Self::aborted(err),
+            Interrupted | WouldBlock => Self::cancelled(err),
+            UnexpectedEof => Self::data_loss(err),
+            TimedOut => Self::deadline_exceeded(err),
+            InvalidInput | InvalidData => Self::invalid_argument(err),
+            WriteZero => Self::resource_exhausted(err),
             _ => Self::unknown(err),
         }
     }
@@ -364,26 +349,20 @@ impl From<semver::Error> for Error {
 
 impl From<tokio_tungstenite::tungstenite::Error> for Error {
     fn from(err: tokio_tungstenite::tungstenite::Error) -> Self {
-        use tokio_tungstenite::tungstenite::Error as TungsteniteError;
+        use tokio_tungstenite::tungstenite::Error::*;
         match err {
-            TungsteniteError::ConnectionClosed => Self::cancelled(err),
-
-            TungsteniteError::AlreadyClosed => Self::unavailable(err),
-
-            TungsteniteError::Io(_) => Self::data_loss(err),
-
-            TungsteniteError::Http(_) | TungsteniteError::Tls(_) => Self::unknown(err),
-
-            TungsteniteError::Capacity(_) => Self::out_of_range(err),
-
-            TungsteniteError::HttpFormat(_)
-            | TungsteniteError::Protocol(_)
-            | TungsteniteError::Url(_)
-            | TungsteniteError::Utf8 => Self::invalid_argument(err),
-
-            TungsteniteError::WriteBufferFull(_) => Self::resource_exhausted(err),
-
-            TungsteniteError::AttackAttempt => Self::permission_denied(err),
+            ConnectionClosed => Self::cancelled(err),
+            AlreadyClosed => Self::unavailable(err),
+            Io(err) => Self::data_loss(err),
+            Http(_) => Self::unknown(err),
+            Tls(err) => Self::unknown(err),
+            Capacity(err) => Self::out_of_range(err),
+            HttpFormat(err) => Self::unknown(err),
+            Protocol(err) => Self::unknown(err),
+            Url(err) => Self::unknown(err),
+            Utf8 => Self::invalid_argument(err),
+            WriteBufferFull(err) => Self::resource_exhausted(err.to_string()),
+            AttackAttempt => Self::permission_denied(err),
         }
     }
 }
@@ -445,5 +424,78 @@ impl From<std::num::ParseIntError> for Error {
 impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for Error {
     fn from(e: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>) -> Self {
         Self::internal(e.to_string())
+    }
+}
+
+impl<S> From<stream_download::StreamInitializationError<S>> for Error
+where
+    S: stream_download::source::SourceStream,
+{
+    fn from(e: stream_download::StreamInitializationError<S>) -> Self {
+        Self::internal(e.to_string())
+    }
+}
+
+impl<C> From<stream_download::http::HttpStreamError<C>> for Error
+where
+    C: stream_download::http::Client,
+{
+    fn from(e: stream_download::http::HttpStreamError<C>) -> Self {
+        use stream_download::http::HttpStreamError::*;
+        match e {
+            FetchFailure(e) => Self::data_loss(e.to_string()),
+            ResponseFailure(e) => Self::unavailable(e.to_string()),
+        }
+    }
+}
+
+impl From<rodio::StreamError> for Error {
+    fn from(e: rodio::StreamError) -> Self {
+        use rodio::StreamError::*;
+        match e {
+            PlayStreamError(e) => Self::unavailable(e),
+            DefaultStreamConfigError(e) => Self::unavailable(e),
+            BuildStreamError(e) => Self::unavailable(e),
+            SupportedStreamConfigsError(e) => Self::not_found(e),
+            NoDevice => Self::not_found(e),
+        }
+    }
+}
+
+impl From<rodio::DevicesError> for Error {
+    fn from(e: rodio::DevicesError) -> Self {
+        Self::unknown(e.to_string())
+    }
+}
+
+impl From<cpal::SupportedStreamConfigsError> for Error {
+    fn from(e: cpal::SupportedStreamConfigsError) -> Self {
+        use cpal::SupportedStreamConfigsError::*;
+        match e {
+            DeviceNotAvailable => Self::unavailable(e),
+            InvalidArgument => Self::invalid_argument(e),
+            BackendSpecific { err } => Self::unknown(err),
+        }
+    }
+}
+
+impl From<rodio::PlayError> for Error {
+    fn from(e: rodio::PlayError) -> Self {
+        use rodio::PlayError::*;
+        match e {
+            DecoderError(e) => Self::data_loss(e),
+            NoDevice => Self::not_found(e),
+        }
+    }
+}
+
+impl From<rodio::source::SeekError> for Error {
+    fn from(e: rodio::source::SeekError) -> Self {
+        use rodio::source::SeekError::*;
+        match e {
+            NotSupported { underlying_source } => Self::unimplemented(underlying_source),
+            SymphoniaDecoder(e) => Self::data_loss(e),
+            _ => Self::unknown(e.to_string()),
+        }
     }
 }

@@ -28,17 +28,20 @@
 
 - **Audio Quality**: Stream audio in basic, standard, HQ, and lossless formats based on your Deezer subscription level.
 - **Gapless Playback**: Enjoy uninterrupted transitions between tracks.
-- **Playback Controls**: Includes options for repeat, shuffle, radio, Flow, mixes, and playback of user-uploaded MP3 files to Deezer.
+- **Playback Controls**: Includes options for repeat, shuffle, Flow, and mixes.
 - **Playback Reporting**: Provides accurate playback data for artist monetization.
 - **Authentication**: Allows login using email/password or ARL (Authentication Reference Link).
 - **Normalization**: Ensures consistent volume levels across all tracks.
 
 ### Planned Features
 
-- **Queue List Synchronization**: Sync your playback queue across multiple devices for a seamless listening experience.
-- **Proxy Support**: Enable the use of **pleezer** in environments with restricted internet access.
-- **Device Registration**: Register unique devices and adhere to Deezer’s device limit policy.
 - **Radio and Podcasts**: Support for Deezer’s radio and podcast features.
+- **User-uploaded MP3 Files**: Support playback of MP3 files uploaded by users to Deezer.
+- **Device Registration**: Register unique devices and adhere to Deezer’s device limit policy.
+- **Proxy Support**: Enable the use of **pleezer** in environments with restricted internet access.
+listening experience.
+- **ASIO Support**: Stream audio to ASIO-compatible devices for low-latency audio.
+- **JACK Audio Support**: Stream audio to JACK Audio Connection Kit for advanced audio routing.
 
 ## Installation
 
@@ -100,11 +103,32 @@ Your music will start playing on the selected device.
     pleezer --name "My Deezer Player"
     ```
 
-- `-d` or `--device`: Select the output device. Use `?` to list available devices. If omitted, the default system device is used. Examples:
+- `-d` or `--device`: Select the output device. Use `?` to list available devices. If omitted, the system default output device is used. Examples:
     ```bash
-    pleezer -d "?"  # List available devices
-    pleezer -d "Specific Output Device"  # Use a specific device
+    # List available devices
+    pleezer -d "?"
+
+    # Use a specific device, formatted as:
+    # "[<host>][:<device>][:<sample rate>][:<sample format>]" (case-insensitive)
+    #
+    # All fields are optional:
+    # - If you don't specify a host, it will use the system default host.
+    # - If you don't specify a device, it will use the host default device.
+    # - If you don't specify a sample rate, it will use the device default sample rate.
+    # - If you don't specify a sample format, it will use the device default sample format.
+    pleezer -d "CoreAudio"
+    pleezer -d "CoreAudio:Yggdrasil+"
+    pleezer -d "CoreAudio:Yggdrasil+:44100"
+    pleezer -d "CoreAudio:Yggdrasil+:44100:f32"
+
+    # Some more advanced examples, showing you can omit fields as long as you include the colons:
+    pleezer -d ":yggdrasil+"    # The Yggdrasil+ device (case-insensitive)
+    pleezer -d "::44100"        # The first device to support 44100 Hz
     ```
+
+    Deezer streams audio at 44100 Hz exclusively. Sampling rates other than
+    44100 Hz are not recommended and provided for compatibility only.
+    Resampling is done using linear interpolation.
 
 - `--no-interruptions`: Prevent other clients from taking over the connection after **pleezer** has connected. By default, interruptions are allowed. Example:
     ```bash

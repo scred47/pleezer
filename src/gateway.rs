@@ -1,5 +1,6 @@
 use std::{str::FromStr, time::SystemTime};
 
+use md5::{Digest, Md5};
 use reqwest::{
     self,
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE},
@@ -373,8 +374,8 @@ impl Gateway {
         }
 
         // Hash the passwords.
-        let password = md5::compute(password);
-        let hash = md5::compute(format!(
+        let password = Md5::digest(password);
+        let hash = Md5::digest(format!(
             "{}{email}{password:x}{}",
             Self::OAUTH_CLIENT_ID,
             Self::OAUTH_SALT,

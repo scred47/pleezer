@@ -7,6 +7,7 @@ extern crate log;
 
 pub mod arl;
 pub mod config;
+pub mod decrypt;
 pub mod error;
 pub mod events;
 pub mod gateway;
