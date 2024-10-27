@@ -193,7 +193,7 @@ pub enum Body {
         quality: AudioQuality,
         duration: Duration,
         buffered: Duration,
-        progress: Percentage,
+        progress: Option<Percentage>,
         volume: Percentage,
         is_playing: bool,
         is_shuffle: bool,
@@ -657,7 +657,7 @@ pub enum Payload {
         duration: Duration,
         #[serde_as(as = "DurationSeconds<u64>")]
         buffered: Duration,
-        progress: Percentage,
+        progress: Option<Percentage>,
         volume: Percentage,
         quality: AudioQuality,
         is_playing: bool,

@@ -385,9 +385,9 @@ impl Player {
     }
 
     #[must_use]
-    pub fn progress(&self) -> Percentage {
+    pub fn progress(&self) -> Option<Percentage> {
         let progress = self.sink.get_pos();
-        self.track().map_or(Percentage::default(), |track| {
+        self.track().map(|track| {
             let ratio = track.duration().div_duration_f32(progress);
             Percentage::from_ratio_f32(ratio)
         })
