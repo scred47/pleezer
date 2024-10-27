@@ -1,8 +1,8 @@
 use std::{fmt, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
-use serde_repr::{Deserialize_repr, Serialize_repr};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{formats::Flexible, serde_as, DisplayFromStr, TimestampSeconds};
+
 use url::Url;
 
 use super::connect::AudioQuality;
@@ -19,7 +19,6 @@ pub struct Request {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Serialize, Debug, Hash)]
 pub struct Media {
     #[serde(rename = "type")]
-    #[serde_with(as = "DisplayFromStr")]
     pub typ: Type,
     #[serde(rename = "formats")]
     pub cipher_formats: Vec<CipherFormat>,
@@ -37,12 +36,9 @@ impl fmt::Display for Type {
     }
 }
 
-#[serde_as]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 pub struct CipherFormat {
-    #[serde_with(as = "DisplayFromStr")]
     pub cipher: Cipher,
-    #[serde_with(as = "DisplayFromStr")]
     pub format: Format,
 }
 
@@ -59,9 +55,7 @@ impl fmt::Display for Cipher {
     }
 }
 
-#[derive(
-    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize_repr, Serialize_repr, Debug, Hash,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 #[expect(non_camel_case_types)]
 #[repr(i64)]
 pub enum Format {
@@ -91,36 +85,40 @@ impl From<Format> for AudioQuality {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 pub struct Response {
+    pub data: Vec<Data>,
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
+pub struct Data {
     pub media: Vec<Medium>,
 }
 
 #[serde_as]
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 pub struct Medium {
-    #[serde_with(as = "DisplayFromStr")]
     pub media_type: Type,
-    pub cipher_type: CipherType,
-    #[serde_with(as = "DisplayFromStr")]
+    pub cipher: CipherType,
     pub format: Format,
     pub sources: Vec<Source>,
     #[serde(rename = "nbf")]
+    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
     pub not_before: SystemTime,
     #[serde(rename = "exp")]
+    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
     pub expiry: SystemTime,
 }
 
 #[serde_as]
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 pub struct CipherType {
     #[serde(rename = "type")]
-    #[serde_with(as = "DisplayFromStr")]
     pub typ: Cipher,
 }
 
 #[serde_as]
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 pub struct Source {
     #[serde_as(as = "DisplayFromStr")]
     pub url: Url,

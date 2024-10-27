@@ -224,14 +224,17 @@ impl Track {
             }],
         };
 
+        trace!("{}: {request:#?}", Self::MEDIA_GET_URL);
+
         let get_url = Self::MEDIA_GET_URL.parse::<reqwest::Url>()?;
         let response = client.unlimited.post(get_url).json(&request).send().await?;
         let result = response.json::<media::Response>().await?;
 
         // The official client also seems to always use the first media object.
         let result = result
-            .media
+            .data
             .first()
+            .and_then(|data| data.media.first())
             .cloned()
             .ok_or(Error::not_found(format!(
                 "no media found for track {}",
@@ -331,7 +334,7 @@ impl Track {
 
         // Set actual audio quality and cipher type.
         self.quality = medium.format.into();
-        self.cipher = medium.cipher_type.typ;
+        self.cipher = medium.cipher.typ;
 
         // Calculate the prefetch size based on the audio quality. This assumes
         // that the track is encoded with a constant bitrate, which is not
