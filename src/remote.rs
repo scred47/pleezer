@@ -661,7 +661,7 @@ impl Client {
     async fn handle_skip(
         &mut self,
         message_id: &str,
-        queue_id: &str,
+        queue_id: Option<&str>,
         item: Option<QueueItem>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
@@ -712,7 +712,7 @@ impl Client {
     #[expect(clippy::too_many_arguments)]
     pub async fn set_player_state(
         &mut self,
-        queue_id: &str,
+        queue_id: Option<&str>,
         item: Option<QueueItem>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
@@ -723,23 +723,25 @@ impl Client {
         // Set the element (track) before setting progress & playback.
         // The queue containing this track should have been set before.
         if let Some(item) = item {
-            if item.queue_id == queue_id {
-                if let Some(ref local) = self.queue {
-                    if local.id != queue_id {
-                        return Err(Error::failed_precondition(format!(
-                            "remote queue {queue_id} does not match local queue {}",
-                            local.id
-                        )));
+            if let Some(queue_id) = queue_id {
+                if item.queue_id == queue_id {
+                    if let Some(ref local) = self.queue {
+                        if local.id != queue_id {
+                            return Err(Error::failed_precondition(format!(
+                                "remote queue {queue_id} does not match local queue {}",
+                                local.id
+                            )));
+                        }
+                    } else {
+                        // Weird but non-fatal - just play a single track then
+                        warn!("setting track without a local queue");
                     }
+                    self.player.set_position(item.position)?;
                 } else {
-                    // Weird but non-fatal - just play a single track then
-                    warn!("setting track without a local queue");
+                    return Err(Error::failed_precondition(format!(
+                        "queue {queue_id} does not match queue item {item}"
+                    )));
                 }
-                self.player.set_position(item.position)?;
-            } else {
-                return Err(Error::failed_precondition(format!(
-                    "queue {queue_id} does not match queue item {item}"
-                )));
             }
         }
 
@@ -944,7 +946,7 @@ impl Client {
             } => {
                 self.handle_skip(
                     &message_id,
-                    &queue_id,
+                    queue_id.as_deref(),
                     track,
                     progress,
                     should_play,

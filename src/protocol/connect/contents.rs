@@ -219,7 +219,7 @@ pub enum Body {
 
     Skip {
         message_id: String,
-        queue_id: String,
+        queue_id: Option<String>,
         track: Option<QueueItem>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
@@ -683,7 +683,7 @@ pub enum Payload {
 
     #[serde(rename_all = "camelCase")]
     Skip {
-        queue_id: String,
+        queue_id: Option<String>,
         element_id: Option<QueueItem>,
         progress: Option<Percentage>,
         should_play: Option<bool>,
