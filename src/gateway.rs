@@ -209,7 +209,7 @@ impl Gateway {
 
         let redacted = T::METHOD == gateway::get_arl::GetArl::METHOD;
         if redacted {
-            trace!("{}: {{ ... }}", T::METHOD);
+            trace!("{} (redacted): {{ ... }}", T::METHOD);
         } else {
             trace!("{}: {result:#?}", T::METHOD);
         }

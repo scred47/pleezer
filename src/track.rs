@@ -224,8 +224,6 @@ impl Track {
             }],
         };
 
-        trace!("{}: {request:#?}", Self::MEDIA_GET_URL);
-
         let get_url = Self::MEDIA_GET_URL.parse::<reqwest::Url>()?;
         let response = client.unlimited.post(get_url).json(&request).send().await?;
         let result = response.json::<media::Response>().await?;
@@ -236,9 +234,9 @@ impl Track {
             .first()
             .and_then(|data| data.media.first())
             .cloned()
-            .ok_or(Error::not_found(
-                format!("no media found for track {self}",),
-            ))?;
+            .ok_or_else(|| Error::not_found(format!("no media found for track {self}")))?;
+
+        trace!("{} (redacted): {{ ... }}", Self::MEDIA_GET_URL);
 
         let available_quality = AudioQuality::from(result.format);
 

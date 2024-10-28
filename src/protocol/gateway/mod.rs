@@ -1,8 +1,3 @@
-use std::collections::HashMap;
-
-use serde::Deserialize;
-use serde_with::serde_as;
-
 pub mod get_arl;
 pub mod list_data;
 pub mod user_data;
@@ -10,6 +5,11 @@ pub mod user_data;
 pub use get_arl::GetArl;
 pub use list_data::{ListData, Queue};
 pub use user_data::UserData;
+
+use std::collections::HashMap;
+
+use serde::Deserialize;
+use serde_with::serde_as;
 
 pub trait Method {
     const METHOD: &'static str;
