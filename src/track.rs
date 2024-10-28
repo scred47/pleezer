@@ -346,7 +346,7 @@ impl Track {
 
             if !self.duration.is_zero() {
                 let size = Self::PREFETCH_LENGTH.as_secs()
-                    * file_size.saturating_sub(self.duration.as_secs());
+                    * file_size.saturating_div(self.duration.as_secs());
                 trace!("calculated prefetch size for track {}: {size}", self.id);
                 prefetch_size = Some(size);
             }
