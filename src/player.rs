@@ -178,6 +178,7 @@ impl Player {
         Ok((sink, stream))
     }
 
+    #[must_use]
     pub fn enumerate_devices() -> Vec<String> {
         let hosts = cpal::available_hosts();
         let mut result = Vec::new();
@@ -239,47 +240,54 @@ impl Player {
         self.position = self.position.map(|position| position + 1);
     }
 
+    /// Run the player.
+    ///
+    /// This function will monitor the position in the playlist and start downloading
+    /// the track if it is pending. It will then play the track and skip to the next
+    /// track when the current track is finished.
+    ///
+    /// # Errors
+    ///
+    /// This function may return an error if the player fails to start downloading
+    /// the track, or if the player fails to play the track.
     pub async fn run(&mut self) -> Result<()> {
         loop {
             if self.position != self.track_in_sink {
-                match self.position {
-                    Some(position) => {
-                        if let Some(target_track) = self.tracks.get_mut(position) {
-                            // Start downloading the track if it is pending.
-                            if target_track.is_pending() {
-                                match target_track
-                                    .get_medium(
-                                        &self.client,
-                                        self.audio_quality,
-                                        self.license_token.clone(),
-                                    )
-                                    .await
-                                {
-                                    Ok(medium) => {
-                                        if let Err(e) =
-                                            target_track.start_download(&self.client, medium).await
-                                        {
-                                            error!(
-                                                "skipping track {target_track}, failed to start download: {e}",
-                                            );
-                                            self.skip_one();
-                                        }
-                                    }
-                                    Err(err) => {
+                if let Some(position) = self.position {
+                    if let Some(target_track) = self.tracks.get_mut(position) {
+                        // Start downloading the track if it is pending.
+                        if target_track.is_pending() {
+                            match target_track
+                                .get_medium(
+                                    &self.client,
+                                    self.audio_quality,
+                                    self.license_token.clone(),
+                                )
+                                .await
+                            {
+                                Ok(medium) => {
+                                    if let Err(e) =
+                                        target_track.start_download(&self.client, medium).await
+                                    {
                                         error!(
-                                            "skipping track {target_track}, failed to get medium: {err}",
+                                            "skipping track {target_track}, failed to start download: {e}",
                                         );
                                         self.skip_one();
                                     }
                                 }
+                                Err(err) => {
+                                    error!(
+                                        "skipping track {target_track}, failed to get medium: {err}",
+                                    );
+                                    self.skip_one();
+                                }
                             }
                         }
                     }
-                    None => {
-                        // Clear the sink if the queue has become empty.
-                        self.sink.clear();
-                        self.track_in_sink = self.position;
-                    }
+                } else {
+                    // Clear the sink if the queue has become empty.
+                    self.sink.clear();
+                    self.track_in_sink = self.position;
                 }
             }
 
@@ -331,11 +339,16 @@ impl Player {
         self.tracks.get(self.position?)
     }
 
-    pub async fn set_tracks(&mut self, tracks: Vec<Track>) {
+    pub fn set_tracks(&mut self, tracks: Vec<Track>) {
         self.position = None;
         self.tracks = tracks;
     }
 
+    /// Sets the playlist position.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the position is out of range.
     pub fn set_position(&mut self, position: usize) -> Result<()> {
         let len = self.tracks.len();
         if position >= len {
@@ -379,7 +392,7 @@ impl Player {
     pub fn set_volume(&mut self, volume: Percentage) {
         debug!("setting volume to {volume}");
         let ratio = volume.as_ratio_f32();
-        self.sink.set_volume(ratio)
+        self.sink.set_volume(ratio);
     }
 
     #[must_use]

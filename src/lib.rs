@@ -8,7 +8,6 @@ extern crate log;
 pub mod arl;
 pub mod config;
 pub mod decrypt;
-pub mod error;
 pub mod events;
 pub mod gateway;
 pub mod http;
@@ -17,3 +16,6 @@ pub mod protocol;
 pub mod remote;
 pub mod tokens;
 pub mod track;
+
+#[allow(clippy::enum_glob_use)]
+pub mod error;

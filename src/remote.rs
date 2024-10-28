@@ -593,7 +593,7 @@ impl Client {
 
             debug!("setting queue to {}", list.id);
             self.queue = Some(list);
-            self.player.set_tracks(tracks).await;
+            self.player.set_tracks(tracks);
 
             return Ok(());
         }

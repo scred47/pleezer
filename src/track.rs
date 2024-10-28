@@ -112,6 +112,11 @@ impl Track {
         self.cipher != Cipher::NONE
     }
 
+    /// Returns the current download state of the track.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the lock is poisoned.
     #[must_use]
     pub fn state(&self) -> State {
         *self.state.lock().unwrap()
@@ -265,11 +270,10 @@ impl Track {
     /// Panics if a lock is poisoned, which would be from the main thread
     /// panicking.
     pub async fn start_download(&mut self, client: &http::Client, medium: Medium) -> Result<()> {
-        let mut state = self.state.lock().unwrap();
-        if *state != State::Pending {
+        let state = self.state();
+        if state != State::Pending {
             return Err(Error::invalid_argument(format!(
-                "cannot download track {self} that is {:?}",
-                *state
+                "cannot download track {self} that is {state:?}",
             )));
         }
 
@@ -278,14 +282,13 @@ impl Track {
         // and continue with the next one if the first one fails to start.
         let mut stream = None;
         let now = SystemTime::now();
+
+        #[expect(clippy::iter_next_slice)]
         while let Some(source) = medium.sources.iter().next() {
             // URLs can theoretically be non-HTTP, and we only support HTTP(S) URLs.
-            let host_str = match source.url.host_str() {
-                Some(str) => str,
-                None => {
-                    warn!("skipping source with invalid host for track {self}");
-                    continue;
-                }
+            let Some(host_str) = source.url.host_str() else {
+                warn!("skipping source with invalid host for track {self}");
+                continue;
             };
 
             // Check if the track is in a timeframe where it can be downloaded.
@@ -394,7 +397,7 @@ impl Track {
         )
         .await?;
 
-        *state = State::Downloading;
+        *self.state.lock().unwrap() = State::Downloading;
         self.data = Some(download);
 
         Ok(())

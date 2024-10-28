@@ -96,6 +96,7 @@ impl Decrypt {
 
     /// Calculate the decryption key for a track ID and salt. The salt is the
     /// Deezer decryption key, from which the track-specific key is calculated.
+    #[must_use]
     pub fn key_for_track_id(track_id: NonZeroU64, salt: &Key) -> Key {
         let track_hash = Md5::digest(track_id.to_string());
         let mut key = [0; KEY_LENGTH];

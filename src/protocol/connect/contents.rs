@@ -417,7 +417,7 @@ pub struct Percentage(f64);
 impl Percentage {
     #[must_use]
     pub fn from_ratio_f32(ratio: f32) -> Self {
-        Self(ratio as f64)
+        Self(ratio.into())
     }
 
     #[must_use]
@@ -426,6 +426,7 @@ impl Percentage {
     }
 
     #[must_use]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn as_ratio_f32(&self) -> f32 {
         self.0 as f32
     }
@@ -436,9 +437,11 @@ impl Percentage {
     }
 
     #[must_use]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn as_percent_f32(&self) -> f32 {
         self.0 as f32 * 100.0
     }
+
     #[must_use]
     pub fn as_percent_f64(&self) -> f64 {
         self.0 * 100.0
