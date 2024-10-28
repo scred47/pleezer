@@ -242,10 +242,10 @@ impl Track {
 
         let available_quality = AudioQuality::from(result.format);
 
-        if self.quality != available_quality {
-            info!(
+        if quality != available_quality {
+            warn!(
                 "requested track {self} in {} audio quality, but got {}",
-                self.quality, available_quality
+                quality, available_quality
             );
         }
 
