@@ -33,7 +33,7 @@ pub struct ListData {
     pub gain: f32,
     pub track_token: String,
     #[serde(rename = "TRACK_TOKEN_EXPIRE")]
-    #[serde_as(as = "TimestampSeconds<String, Flexible>")]
+    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
     pub expiry: SystemTime,
 }
 
