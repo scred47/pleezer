@@ -200,7 +200,7 @@ impl Track {
     ) -> Result<Medium> {
         if self.expiry <= SystemTime::now() {
             return Err(Error::unavailable(format!(
-                "track no longer available since {}",
+                "track {self} no longer available since {}",
                 OffsetDateTime::from(self.expiry)
             )));
         }
@@ -211,7 +211,7 @@ impl Track {
             AudioQuality::High => Self::CIPHER_FORMATS_MP3_320.to_vec(),
             AudioQuality::Lossless => Self::CIPHER_FORMATS_FLAC.to_vec(),
             AudioQuality::Unknown => {
-                return Err(Error::unknown("unknown audio quality"));
+                return Err(Error::unknown("unknown audio quality for track {self}"));
             }
         };
 
@@ -236,16 +236,16 @@ impl Track {
             .first()
             .and_then(|data| data.media.first())
             .cloned()
-            .ok_or(Error::not_found(format!(
-                "no media found for track {}",
-                self.id
-            )))?;
+            .ok_or(Error::not_found(
+                format!("no media found for track {self}",),
+            ))?;
 
         let available_quality = AudioQuality::from(result.format);
+
         if self.quality != available_quality {
             info!(
-                "requested audio quality {} for track {}, but got {}",
-                self.quality, self.id, available_quality
+                "requested track {self} in {} audio quality, but got {}",
+                self.quality, available_quality
             );
         }
 
@@ -270,7 +270,7 @@ impl Track {
         let mut state = self.state.lock().unwrap();
         if *state != State::Pending {
             return Err(Error::invalid_argument(format!(
-                "cannot download track that is {:?}",
+                "cannot download track {self} that is {:?}",
                 *state
             )));
         }
@@ -285,7 +285,7 @@ impl Track {
             let host_str = match source.url.host_str() {
                 Some(str) => str,
                 None => {
-                    warn!("skipping source with invalid host for track {}", self.id);
+                    warn!("skipping source with invalid host for track {self}");
                     continue;
                 }
             };
@@ -296,16 +296,14 @@ impl Track {
             // no longer available.
             if medium.not_before > now {
                 warn!(
-                    "track {} is not available for download until {} from {host_str}",
-                    self.id,
+                    "track {self} is not available for download until {} from {host_str}",
                     OffsetDateTime::from(medium.not_before)
                 );
                 continue;
             }
             if medium.expiry <= now {
                 warn!(
-                    "track {} is no longer available for download since {} from {host_str}",
-                    self.id,
+                    "track {self} is no longer available for download since {} from {host_str}",
                     OffsetDateTime::from(medium.expiry)
                 );
                 continue;
@@ -314,22 +312,19 @@ impl Track {
             // Perform the request and stream the response.
             match HttpStream::new(client.unlimited.clone(), source.url.clone()).await {
                 Ok(http_stream) => {
-                    debug!("starting download of track {} from {host_str}", self.id);
+                    debug!("starting download of track {self} from {host_str}");
                     stream = Some(http_stream);
                     break;
                 }
                 Err(err) => {
-                    warn!(
-                        "failed to start download of track {} from {host_str}: {err}",
-                        self.id,
-                    );
+                    warn!("failed to start download of track {self} from {host_str}: {err}",);
                     continue;
                 }
             };
         }
 
         let stream = stream.ok_or_else(|| {
-            Error::unavailable(format!("no valid sources found for track {}", self.id))
+            Error::unavailable(format!("no valid sources found for track {self}"))
         })?;
 
         // Set actual audio quality and cipher type.
@@ -341,29 +336,29 @@ impl Track {
         // necessarily true. However, it is a good approximation.
         let mut prefetch_size = None;
         if let Some(file_size) = stream.content_length() {
-            debug!("downloading {file_size} bytes for track {}", self.id);
+            debug!("downloading {file_size} bytes for track {self}");
             self.file_size = Some(file_size);
 
             if !self.duration.is_zero() {
                 let size = Self::PREFETCH_LENGTH.as_secs()
                     * file_size.saturating_div(self.duration.as_secs());
-                trace!("calculated prefetch size for track {}: {size}", self.id);
+                trace!("prefetch size for track {self}: {size} bytes");
                 prefetch_size = Some(size);
             }
         } else {
-            debug!("downloading track {} with unknown file size", self.id);
+            debug!("downloading track {self} with unknown file size");
         };
         let prefetch_size = prefetch_size.unwrap_or(Self::PREFETCH_DEFAULT as u64);
 
         // A progress callback that logs the download progress.
-        let track_id = self.id;
+        let track_str = self.to_string();
         let duration = self.duration;
         let buffered = Arc::clone(&self.buffered);
         let track_state = Arc::clone(&self.state);
         let callback = move |stream: &HttpStream<_>, stream_state: StreamState| {
             match stream_state.phase {
                 StreamPhase::Complete => {
-                    debug!("download of track {track_id} completed");
+                    debug!("download of track {track_str} completed");
 
                     // Prevent rounding errors and set the buffered duration
                     // equal to the total duration. It's OK to unwrap here: if
@@ -380,8 +375,6 @@ impl Track {
                             // TODO : use `Percentage` type
                             #[expect(clippy::cast_precision_loss)]
                             let progress = stream_state.current_position as f64 / file_size as f64;
-
-                            trace!("download of {track_id} progress: {:.2}%", progress * 100.0);
 
                             // OK to unwrap: see rationale above.
                             *buffered.lock().unwrap() = duration.mul_f64(progress);
@@ -444,7 +437,7 @@ impl Read for Track {
         } else {
             Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("track {} is not downloaded yet", self.id),
+                format!("track {self} is not downloaded yet"),
             ))
         }
     }
@@ -457,7 +450,7 @@ impl Seek for Track {
         } else {
             Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("track {} is not downloaded yet", self.id),
+                format!("track {self} is not downloaded yet"),
             ))
         }
     }
