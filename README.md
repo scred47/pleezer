@@ -222,7 +222,7 @@ Before building **pleezer**, make sure your system is set up with a build enviro
   - On Debian/Ubuntu:
     ```bash
     sudo apt-get update
-    sudo apt-get install build-essential libasound2-dev pkg-config
+    sudo apt-get install build-essential libasound2-dev pkgconf
     ```
   - On Fedora:
     ```bash
