@@ -23,9 +23,10 @@ use crate::{
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum State {
+pub enum DownloadState {
     #[default]
     Pending,
+    Starting,
     Downloading,
     Complete,
 }
@@ -41,7 +42,7 @@ pub struct Track {
     expiry: SystemTime,
     quality: AudioQuality,
     duration: Duration,
-    state: Arc<Mutex<State>>,
+    state: Arc<Mutex<DownloadState>>,
     buffered: Arc<Mutex<Duration>>,
     data: Option<StreamDownload<TempStorageProvider>>,
     file_size: Option<u64>,
@@ -118,23 +119,28 @@ impl Track {
     ///
     /// Panics if the lock is poisoned.
     #[must_use]
-    pub fn state(&self) -> State {
+    pub fn state(&self) -> DownloadState {
         *self.state.lock().unwrap()
     }
 
     #[must_use]
     pub fn is_pending(&self) -> bool {
-        self.state() == State::Pending
+        self.state() == DownloadState::Pending
     }
 
     #[must_use]
-    pub fn is_complete(&self) -> bool {
-        self.state() == State::Complete
+    pub fn is_starting(&self) -> bool {
+        self.state() == DownloadState::Starting
     }
 
     #[must_use]
     pub fn is_downloading(&self) -> bool {
-        self.state() == State::Downloading
+        self.state() == DownloadState::Downloading
+    }
+
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.state() == DownloadState::Complete
     }
 
     const BF_CBC_STRIPE_MP3_64: CipherFormat = CipherFormat {
@@ -270,12 +276,10 @@ impl Track {
     /// Panics if a lock is poisoned, which would be from the main thread
     /// panicking.
     pub async fn start_download(&mut self, client: &http::Client, medium: Medium) -> Result<()> {
-        let state = self.state();
-        if state != State::Pending {
-            return Err(Error::invalid_argument(format!(
-                "cannot download track {self} that is {state:?}",
-            )));
-        }
+        // Don't hold the lock because some await points are coming up.
+        // Instead, set the state to `Starting` to prevent multiple downloads
+        // from starting at the same time before the state is set to `Downloading`.
+        *self.state.lock().unwrap() = DownloadState::Starting;
 
         // Deezer usually returns multiple sources for a track. The official
         // client seems to always use the first one. We start with the first
@@ -366,7 +370,7 @@ impl Track {
                     // the mutex is poisoned, then the main thread panicked and
                     // we should propagate the error.
                     *buffered.lock().unwrap() = duration;
-                    *track_state.lock().unwrap() = State::Complete;
+                    *track_state.lock().unwrap() = DownloadState::Complete;
                 }
                 _ => {
                     if let Some(file_size) = stream.content_length() {
@@ -397,7 +401,7 @@ impl Track {
         )
         .await?;
 
-        *self.state.lock().unwrap() = State::Downloading;
+        *self.state.lock().unwrap() = DownloadState::Downloading;
         self.data = Some(download);
 
         Ok(())
@@ -423,7 +427,7 @@ impl From<gateway::ListData> for Track {
             expiry: item.expiry,
             quality: AudioQuality::Standard,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),
-            state: Arc::new(Mutex::new(State::Pending)),
+            state: Arc::new(Mutex::new(DownloadState::Pending)),
             data: None,
             file_size: None,
             cipher: Cipher::BF_CBC_STRIPE,
