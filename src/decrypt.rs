@@ -6,6 +6,7 @@ use std::{
 use blowfish::{cipher::BlockDecryptMut, cipher::KeyIvInit, Blowfish};
 use cbc::cipher::block_padding::NoPadding;
 use md5::{Digest, Md5};
+use stream_download::storage::temp::TempStorageReader;
 
 use crate::{
     error::{Error, Result},
@@ -36,12 +37,17 @@ use crate::{
 ///
 /// Tracks without encryption are not supported by this module simply have their
 /// `Read` and `Seek` implementations passed through.
-#[derive(Debug)]
 pub struct Decrypt {
-    /// The track to decrypt.
-    track: Track,
+    /// The file to decrypt.
+    reader: TempStorageReader,
 
-    /// The Blowfish key to use for decryption.
+    /// The size of the file.
+    file_size: Option<u64>,
+
+    /// The encryption cipher.
+    cipher: Cipher,
+
+    /// The decryption key.
     key: Key,
 
     /// The buffer to store the current block of decrypted data. Each block is
@@ -71,6 +77,9 @@ impl Decrypt {
     /// encrypts every third block.
     const CBC_STRIPE_COUNT: usize = 3;
 
+    /// The supported encryption ciphers.
+    const SUPPORTED_CIPHERS: [Cipher; 2] = [Cipher::NONE, Cipher::BF_CBC_STRIPE];
+
     /// Create a new decryptor for the given track and salt. The salt is the
     /// fixed Deezer decryption key, from which the track-specific key is
     /// calculated.
@@ -78,16 +87,21 @@ impl Decrypt {
     /// # Errors
     ///
     /// Will return `Err` if the track uses an unsupported encryption algorithm.
-    pub fn new(track: Track, salt: &Key) -> Result<Self> {
-        if !matches!(track.cipher(), Cipher::NONE | Cipher::BF_CBC_STRIPE) {
+    pub fn new(track: &Track, salt: &Key) -> Result<Self> {
+        if !Self::SUPPORTED_CIPHERS.contains(&track.cipher()) {
             return Err(Error::unimplemented("unsupported encryption algorithm"));
         }
+
+        let mut reader = track.try_reader()?;
+        reader.rewind()?;
 
         // Calculate decryption key.
         let key = Self::key_for_track_id(track.id(), salt);
 
         Ok(Self {
-            track,
+            reader,
+            file_size: track.file_size(),
+            cipher: track.cipher(),
             key,
             buffer: Cursor::new(Vec::new()),
             block: None,
@@ -98,7 +112,9 @@ impl Decrypt {
     /// Deezer decryption key, from which the track-specific key is calculated.
     #[must_use]
     pub fn key_for_track_id(track_id: NonZeroU64, salt: &Key) -> Key {
-        let track_hash = Md5::digest(track_id.to_string());
+        let track_hash = format!("{:x}", Md5::digest(track_id.to_string()));
+        let track_hash = track_hash.as_bytes();
+
         let mut key = [0; KEY_LENGTH];
         for i in 0..KEY_LENGTH {
             key[i] = track_hash[i] ^ track_hash[i + KEY_LENGTH] ^ salt[i];
@@ -118,8 +134,8 @@ impl Seek for Decrypt {
     /// encrypted, this is a simple pass-through to the underlying track.
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         // If the track is not encrypted, we can seek directly.
-        if !self.track.is_encrypted() {
-            return self.track.seek(pos);
+        if self.cipher == Cipher::NONE {
+            return self.reader.seek(pos);
         }
 
         // Calculate the target position in the encrypted file.
@@ -127,20 +143,25 @@ impl Seek for Decrypt {
             SeekFrom::Start(pos) => pos,
 
             SeekFrom::End(pos) => {
-                let file_size = self.track.file_size().ok_or(io::Error::new(
+                let file_size = self.file_size.ok_or(io::Error::new(
                     io::ErrorKind::Unsupported,
                     "cannot seek from the end of a stream with unknown size",
                 ))?;
 
-                file_size.checked_add_signed(pos).ok_or(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "invalid seek to a negative or overflowing position",
-                ))?
+                let f = (file_size as i64)
+                    .checked_sub(pos + 1)
+                    .ok_or(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "invalid seek to a negative or overflowing position",
+                    ))?;
+
+                // TODO
+                f as u64
             }
 
             SeekFrom::Current(pos) => {
                 let current = self
-                    .track
+                    .reader
                     .stream_position()?
                     .wrapping_add(self.buffer.position());
 
@@ -151,16 +172,14 @@ impl Seek for Decrypt {
             }
         };
 
-        if self
-            .track
-            .file_size()
-            .is_some_and(|file_size| target >= file_size)
-        {
+        if self.file_size.is_some_and(|file_size| target >= file_size) {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 "seek to a position beyond the end of the file",
             ));
         }
+
+        debug!(" 1 {pos:?} ({:?})", self.file_size);
 
         // The encrypted file is striped into blocks of STRIPE_SIZE bytes,
         // alternating between encrypted and non-encrypted blocks. Calculate
@@ -184,14 +203,20 @@ impl Seek for Decrypt {
         if !self.block.is_some_and(|current| current == block) {
             self.block = Some(block);
 
+            debug!(" 2 {pos:?} ({:?})", self.file_size);
+
             // Seek to the start of the block in the encrypted file.
-            self.track
+            self.reader
                 .seek(SeekFrom::Start(block * Self::CBC_BLOCK_SIZE as u64))?;
+
+            debug!(" 3 seeked to pos {})", block * Self::CBC_BLOCK_SIZE as u64);
 
             // TODO : when this is the first block of two unencrypted blocks,
             // read ahead 2 * CBC_BLOCK_SIZE.
             let mut buffer = [0; Self::CBC_BLOCK_SIZE];
-            let length = self.track.read(&mut buffer)?;
+            let length = self.reader.read(&mut buffer)?;
+
+            debug!(" 4 {} {length}", Self::CBC_BLOCK_SIZE);
 
             // Decrypt the block if it is encrypted. Every third block is
             // encrypted, and only if the block is of a full stripe size.
@@ -211,11 +236,15 @@ impl Seek for Decrypt {
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
             }
 
+            debug!(" 5 {pos:?} ({:?})", self.file_size);
+
             // Truncate the buffer to the actual length of the block.
             let mut buffer = buffer.to_vec();
             buffer.truncate(length);
 
             self.buffer = Cursor::new(buffer);
+
+            debug!(" 6 {})", self.bytes_on_buffer());
         }
 
         // Set the offset position within the current block, and return the
@@ -230,8 +259,8 @@ impl Read for Decrypt {
     /// this is a simple pass-through to the underlying track.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // If the track is not encrypted, we can read directly.
-        if !self.track.is_encrypted() {
-            return self.track.read(buf);
+        if self.cipher == Cipher::NONE {
+            return self.reader.read(buf);
         }
 
         let mut bytes_on_buffer = self.bytes_on_buffer();

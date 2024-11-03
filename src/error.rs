@@ -499,3 +499,17 @@ impl From<rodio::source::SeekError> for Error {
         }
     }
 }
+
+impl From<rodio::decoder::DecoderError> for Error {
+    fn from(e: rodio::decoder::DecoderError) -> Self {
+        use rodio::decoder::DecoderError::*;
+        match e {
+            UnrecognizedFormat => Self::unknown("format not recognized"),
+            IoError(e) => Self::data_loss(e),
+            DecodeError(e) => Self::data_loss(e),
+            LimitError(e) => Self::resource_exhausted(e),
+            ResetRequired => Self::internal(e),
+            NoStreams => Self::not_found("no streams found"),
+        }
+    }
+}

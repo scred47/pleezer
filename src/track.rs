@@ -1,13 +1,18 @@
 use std::{
     fmt,
-    io::{self, Read, Seek, SeekFrom},
     num::NonZeroU64,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
 };
 
 use stream_download::{
-    self, http::HttpStream, source::SourceStream, storage::temp::TempStorageProvider,
+    self,
+    http::HttpStream,
+    source::SourceStream,
+    storage::{
+        temp::{TempStorageProvider, TempStorageReader},
+        StorageProvider,
+    },
     StreamDownload, StreamPhase, StreamState,
 };
 use time::OffsetDateTime;
@@ -44,6 +49,7 @@ pub struct Track {
     duration: Duration,
     state: Arc<Mutex<DownloadState>>,
     buffered: Arc<Mutex<Duration>>,
+    storage: Option<TempStorageProvider>,
     data: Option<StreamDownload<TempStorageProvider>>,
     file_size: Option<u64>,
     cipher: Cipher,
@@ -262,8 +268,7 @@ impl Track {
     }
 
     /// Start downloading the track with the given `client` and from the given
-    /// `medium`. The download will be started in the background and enable
-    /// the `Read` and `Seek` implementations.
+    /// `medium`. The download will be started in the background.
     ///
     /// # Errors
     ///
@@ -389,12 +394,17 @@ impl Track {
             }
         };
 
+        // Create a temporary storage provider, clone it for the download, and
+        // store it in the track object for later access.
+        let storage = TempStorageProvider::default();
+        self.storage = Some(storage.clone());
+
         // Start the download and store the download object. The `await` here
         // will *not* block until the download is complete, but only until the
         // download is started. The download will continue in the background.
         let download = StreamDownload::from_stream(
             stream,
-            TempStorageProvider::default(),
+            storage,
             stream_download::Settings::default()
                 .on_progress(callback)
                 .prefetch_bytes(prefetch_size),
@@ -413,6 +423,27 @@ impl Track {
     pub fn file_size(&self) -> Option<u64> {
         self.file_size
     }
+
+    /// Clones a reader for the track data.
+    ///
+    /// This will return a reader that can be used to read the track data. The
+    /// reader can be used to move within a player.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the download has not been started yet.
+    #[must_use]
+    pub fn try_reader(&self) -> Result<TempStorageReader> {
+        self.storage
+            .clone()
+            .ok_or_else(|| Error::unavailable("track {self} download not started"))
+            .and_then(|storage| {
+                storage
+                    .into_reader_writer(self.file_size)
+                    .map_err(Into::into)
+            })
+            .map(|(reader, _writer)| reader)
+    }
 }
 
 impl From<gateway::ListData> for Track {
@@ -428,6 +459,7 @@ impl From<gateway::ListData> for Track {
             quality: AudioQuality::Standard,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),
             state: Arc::new(Mutex::new(DownloadState::Pending)),
+            storage: None,
             data: None,
             file_size: None,
             cipher: Cipher::BF_CBC_STRIPE,
@@ -435,31 +467,31 @@ impl From<gateway::ListData> for Track {
     }
 }
 
-impl Read for Track {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if let Some(data) = &mut self.data {
-            data.read(buf)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("track {self} is not downloaded yet"),
-            ))
-        }
-    }
-}
+// impl Read for Track {
+//     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+//         if let Some(data) = &mut self.data {
+//             data.read(buf)
+//         } else {
+//             Err(io::Error::new(
+//                 io::ErrorKind::NotFound,
+//                 format!("track {self} is not downloaded yet"),
+//             ))
+//         }
+//     }
+// }
 
-impl Seek for Track {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        if let Some(data) = &mut self.data {
-            data.seek(pos)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("track {self} is not downloaded yet"),
-            ))
-        }
-    }
-}
+// impl Seek for Track {
+//     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+//         if let Some(data) = &mut self.data {
+//             data.seek(pos)
+//         } else {
+//             Err(io::Error::new(
+//                 io::ErrorKind::NotFound,
+//                 format!("track {self} is not downloaded yet"),
+//             ))
+//         }
+//     }
+// }
 
 impl fmt::Display for Track {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -4,6 +4,7 @@ use cpal::traits::{DeviceTrait, HostTrait};
 
 use crate::{
     config::Config,
+    decrypt::Decrypt,
     error::{Error, Result},
     events::Event,
     http,
@@ -252,9 +253,17 @@ impl Player {
     /// the track, or if the player fails to play the track.
     pub async fn run(&mut self) -> Result<()> {
         loop {
+            // TODO : change into track id
             if self.position != self.track_in_sink {
+                // TODO if self.position.and_then()...
                 if let Some(position) = self.position {
                     if let Some(target_track) = self.tracks.get_mut(position) {
+                        if target_track.is_complete() {
+                            let decryptor = Decrypt::new(&target_track, b"0123456789123456")?;
+                            let decoder = rodio::Decoder::new(decryptor)?;
+                            self.sink.append(decoder);
+                        }
+
                         // Start downloading the track if it is pending.
                         if target_track.is_pending() {
                             match target_track
@@ -266,13 +275,14 @@ impl Player {
                                 .await
                             {
                                 Ok(medium) => {
+                                    // TODO : if Ok, add to the sink
                                     if let Err(e) =
                                         target_track.start_download(&self.client, medium).await
                                     {
                                         error!(
                                             "skipping track {target_track}, failed to start download: {e}",
                                         );
-                                        self.skip_one();
+                                        //self.skip_one();
                                     }
                                 }
                                 Err(err) => {
