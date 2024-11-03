@@ -33,5 +33,5 @@ jobs:
       - name: Check code formatting
         run: cargo fmt --all -- --check
 
-      - name: Run Clippy linter
+      - name: Check Clippy lints
         run: cargo clippy --all-targets -- -D warnings

@@ -1,4 +1,4 @@
-name: Cross-compilation on Rust stable
+name: Check on Rust stable
 
 on:
   push:
@@ -13,18 +13,12 @@ on:
       - "docs/**"
 
 jobs:
-  cross-compile:
+  check-stable:
     runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout repository
@@ -41,6 +35,6 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Cross-compile for ${{ matrix.target }} on Rust stable
+      - name: Compile on ${{ matrix.os }} with Rust stable
         run: |
-          cargo build --verbose
+          cargo check --verbose

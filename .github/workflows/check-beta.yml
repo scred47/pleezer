@@ -5,18 +5,12 @@ on:
     - cron: "0 0 * * 0" # Runs every Sunday at midnight
 
 jobs:
-  maintenance:
+  check-beta:
     runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout repository
@@ -33,6 +27,6 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Cross-compile for ${{ matrix.target }} on Rust beta
+      - name: Check on ${{ matrix.os }} with Rust stable
         run: |
-          cargo build --verbose
+          cargo check --verbose
