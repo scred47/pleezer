@@ -1,9 +1,8 @@
-name: Check on Rust beta and dependency health
+name: Check on Rust beta
 
 on:
   schedule:
     - cron: "0 0 * * 0" # Runs every Sunday at midnight
-  workflow_dispatch:
 
 jobs:
   maintenance:
@@ -29,12 +28,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y libasound2-dev
 
       - name: Install Rust beta
-        run: rustup toolchain install beta
+        run: rustup toolchain install beta --profile minimal
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
       - name: Cross-compile for ${{ matrix.target }} on Rust beta
         run: |
-          rustup target add ${{ matrix.target }}
-          cargo build --verbose --target ${{ matrix.target }}
+          cargo build --verbose

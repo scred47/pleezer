@@ -43,5 +43,4 @@ jobs:
 
       - name: Cross-compile for ${{ matrix.target }} on Rust stable
         run: |
-          rustup target add ${{ matrix.target }}
-          cargo build --verbose --target ${{ matrix.target }}
+          cargo build --verbose
