@@ -195,7 +195,7 @@ impl Error {
         }
     }
 
-    /// Create a not implemented error with the specified error.
+    /// Create an out of range error with the specified error.
     pub fn out_of_range<E>(error: E) -> Self
     where
         E: Into<Box<dyn std::error::Error + Send + Sync>>,

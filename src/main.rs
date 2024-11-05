@@ -187,6 +187,13 @@ async fn run(args: Args) -> Result<()> {
             }
         };
 
+        let bf_secret = match secrets.get("bf_secret").and_then(|value| value.as_str()) {
+            Some(bf_secret) => bf_secret.parse()?,
+            None => {
+                todo!("bf_secret not found in secrets file");
+            }
+        };
+
         let app_name = env!("CARGO_PKG_NAME").to_owned();
         let app_version = env!("CARGO_PKG_VERSION").to_owned();
         let app_lang = "en".to_owned();
@@ -260,11 +267,12 @@ async fn run(args: Args) -> Result<()> {
             user_agent,
 
             credentials,
+            bf_secret,
         }
     };
 
     let player = Player::new(&config, &args.device)?;
-    let mut client = remote::Client::new(&config, player, true)?;
+    let mut client = remote::Client::new(&config, player)?;
 
     // Restart after sleeping some duration to prevent accidental denial of
     // service attacks on the Deezer infrastructure. Initially set the timer to

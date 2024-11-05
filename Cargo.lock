@@ -1681,6 +1681,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "toml",
  "url",
  "uuid",

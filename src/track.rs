@@ -1,20 +1,15 @@
 use std::{
-    fmt,
+    fmt, fs,
     num::NonZeroU64,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
 };
 
 use stream_download::{
-    self,
-    http::HttpStream,
-    source::SourceStream,
-    storage::{
-        temp::{TempStorageProvider, TempStorageReader},
-        StorageProvider,
-    },
+    self, http::HttpStream, source::SourceStream, storage::temp::TempStorageProvider,
     StreamDownload, StreamPhase, StreamState,
 };
+use tempfile::{NamedTempFile, TempPath};
 use time::OffsetDateTime;
 
 use crate::{
@@ -49,7 +44,7 @@ pub struct Track {
     duration: Duration,
     state: Arc<Mutex<DownloadState>>,
     buffered: Arc<Mutex<Duration>>,
-    storage: Option<TempStorageProvider>,
+    file: Option<NamedTempFile>,
     data: Option<StreamDownload<TempStorageProvider>>,
     file_size: Option<u64>,
     cipher: Cipher,
@@ -365,7 +360,9 @@ impl Track {
         let duration = self.duration;
         let buffered = Arc::clone(&self.buffered);
         let track_state = Arc::clone(&self.state);
-        let callback = move |stream: &HttpStream<_>, stream_state: StreamState| {
+        let callback = move |stream: &HttpStream<_>,
+                             stream_state: StreamState,
+                             _: &tokio_util::sync::CancellationToken| {
             match stream_state.phase {
                 StreamPhase::Complete => {
                     debug!("download of track {track_str} completed");
@@ -394,22 +391,34 @@ impl Track {
             }
         };
 
-        // Create a temporary storage provider, clone it for the download, and
-        // store it in the track object for later access.
-        let storage = TempStorageProvider::default();
-        self.storage = Some(storage.clone());
+        // Create a temporary file to store the downloaded data and reopen it
+        // to pass it to the download object.
+        let temp_file = NamedTempFile::new()?;
+        let file = temp_file.reopen()?;
+        let path = temp_file.path().to_owned();
 
         // Start the download and store the download object. The `await` here
         // will *not* block until the download is complete, but only until the
         // download is started. The download will continue in the background.
         let download = StreamDownload::from_stream(
             stream,
-            storage,
+            TempStorageProvider::with_tempfile_builder(move || {
+                Ok(NamedTempFile::from_parts(
+                    // temp_file.reopen()?,
+                    file.try_clone()?,
+                    TempPath::from_path(&path),
+                ))
+            }),
             stream_download::Settings::default()
                 .on_progress(callback)
                 .prefetch_bytes(prefetch_size),
         )
         .await?;
+
+        // Store the temporary file. This is necessary to keep the file open
+        // (the file is deleted when the last handle is closed) and to be able
+        // to reopen it for reading later.
+        self.file = Some(temp_file);
 
         *self.state.lock().unwrap() = DownloadState::Downloading;
         self.data = Some(download);
@@ -424,25 +433,16 @@ impl Track {
         self.file_size
     }
 
-    /// Clones a reader for the track data.
-    ///
-    /// This will return a reader that can be used to read the track data. The
-    /// reader can be used to move within a player.
+    /// Reopen an independent file handle to the downloaded track.
     ///
     /// # Errors
     ///
     /// Returns an error if the download has not been started yet.
-    #[must_use]
-    pub fn try_reader(&self) -> Result<TempStorageReader> {
-        self.storage
-            .clone()
+    pub fn try_file(&self) -> Result<fs::File> {
+        self.file
+            .as_ref()
             .ok_or_else(|| Error::unavailable("track {self} download not started"))
-            .and_then(|storage| {
-                storage
-                    .into_reader_writer(self.file_size)
-                    .map_err(Into::into)
-            })
-            .map(|(reader, _writer)| reader)
+            .and_then(|file| file.reopen().map_err(Into::into))
     }
 }
 
@@ -459,39 +459,13 @@ impl From<gateway::ListData> for Track {
             quality: AudioQuality::Standard,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),
             state: Arc::new(Mutex::new(DownloadState::Pending)),
-            storage: None,
+            file: None,
             data: None,
             file_size: None,
             cipher: Cipher::BF_CBC_STRIPE,
         }
     }
 }
-
-// impl Read for Track {
-//     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-//         if let Some(data) = &mut self.data {
-//             data.read(buf)
-//         } else {
-//             Err(io::Error::new(
-//                 io::ErrorKind::NotFound,
-//                 format!("track {self} is not downloaded yet"),
-//             ))
-//         }
-//     }
-// }
-
-// impl Seek for Track {
-//     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-//         if let Some(data) = &mut self.data {
-//             data.seek(pos)
-//         } else {
-//             Err(io::Error::new(
-//                 io::ErrorKind::NotFound,
-//                 format!("track {self} is not downloaded yet"),
-//             ))
-//         }
-//     }
-// }
 
 impl fmt::Display for Track {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

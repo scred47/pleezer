@@ -36,7 +36,6 @@ pub struct Client {
     // TODO : merge with gateway
     user_token: Option<UserToken>,
 
-    scheme: String,
     version: String,
     websocket_tx:
         Option<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WebsocketMessage>>,
@@ -97,7 +96,7 @@ impl Client {
     /// - the `app_version` in `config` is not in [`SemVer`] format
     ///
     /// [SemVer]: https://semver.org/
-    pub fn new(config: &Config, player: Player, secure: bool) -> Result<Self> {
+    pub fn new(config: &Config, player: Player) -> Result<Self> {
         // Construct version in the form of `Mmmppp` where:
         // - `M` is the major version
         // - `mm` is the minor version
@@ -116,9 +115,6 @@ impl Client {
             format!("{patch}")
         };
         debug!("remote version: {version}");
-
-        let scheme = if secure { "wss" } else { "ws" };
-        debug!("remote scheme: {scheme}");
 
         // Controllers send discovery requests every two seconds.
         let time_to_live = Duration::from_secs(5);
@@ -139,7 +135,6 @@ impl Client {
             gateway: Gateway::new(config)?,
             user_token: None,
 
-            scheme: scheme.to_owned(),
             version,
             websocket_tx: None,
 
@@ -229,8 +224,8 @@ impl Client {
         tokio::pin!(expiry);
 
         let uri = format!(
-            "{}://live.deezer.com/ws/{}?version={}",
-            self.scheme, user_token, self.version
+            "wss://live.deezer.com/ws/{}?version={}",
+            user_token, self.version
         )
         .parse::<http::Uri>()?;
         let mut request = ClientRequestBuilder::new(uri);

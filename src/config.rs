@@ -1,5 +1,6 @@
-use crate::arl::Arl;
 use uuid::Uuid;
+
+use crate::{arl::Arl, decrypt::Key};
 
 /// Methods that can be used to authenticate with Deezer.
 #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -68,4 +69,7 @@ pub struct Config {
 
     /// The credentials used to authenticate with Deezer.
     pub credentials: Credentials,
+
+    /// Secret for computing the track decryption key.
+    pub bf_secret: Key,
 }

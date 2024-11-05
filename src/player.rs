@@ -4,7 +4,7 @@ use cpal::traits::{DeviceTrait, HostTrait};
 
 use crate::{
     config::Config,
-    decrypt::Decrypt,
+    decrypt::{Decrypt, Key},
     error::{Error, Result},
     events::Event,
     http,
@@ -22,6 +22,9 @@ pub struct Player {
 
     /// The license token to use for downloading tracks.
     pub license_token: String,
+
+    /// The decryption key to use for decrypting tracks.
+    pub bf_secret: Key,
 
     /// The list of tracks to play, a.k.a. the playlist.
     tracks: Vec<Track>,
@@ -69,6 +72,7 @@ impl Player {
             audio_quality: AudioQuality::default(),
             client: http::Client::without_cookies(config)?,
             license_token: String::new(),
+            bf_secret: config.bf_secret,
             repeat_mode: RepeatMode::default(),
             shuffle: false,
             event_tx: None,
@@ -259,9 +263,10 @@ impl Player {
                 if let Some(position) = self.position {
                     if let Some(target_track) = self.tracks.get_mut(position) {
                         if target_track.is_complete() {
-                            let decryptor = Decrypt::new(&target_track, b"0123456789123456")?;
-                            let decoder = rodio::Decoder::new(decryptor)?;
+                            let decryptor = Decrypt::new(target_track, &self.bf_secret)?;
+                            let decoder = rodio::Decoder::new_flac(decryptor)?;
                             self.sink.append(decoder);
+                            self.track_in_sink = self.position;
                         }
 
                         // Start downloading the track if it is pending.
@@ -335,6 +340,7 @@ impl Player {
 
             if let Some(track) = self.track() {
                 // TODO - notify when moving to next track
+                // TODO : send stream_play on every pause/play?
                 if let Some(event_tx) = &self.event_tx {
                     if let Err(e) = event_tx.send(Event::TrackChanged(track.id())) {
                         error!("failed to send track changed event: {e}");
