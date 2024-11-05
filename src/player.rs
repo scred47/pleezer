@@ -327,7 +327,7 @@ impl Player {
 
     #[must_use]
     pub fn is_playing(&self) -> bool {
-        !self.sink.is_paused()
+        !(self.sink.is_paused() || self.sink.empty())
     }
 
     pub fn set_playing(&mut self, should_play: bool) {
@@ -415,7 +415,7 @@ impl Player {
     pub fn progress(&self) -> Option<Percentage> {
         let progress = self.sink.get_pos();
         self.track().map(|track| {
-            let ratio = track.duration().div_duration_f32(progress);
+            let ratio = progress.div_duration_f32(track.duration());
             Percentage::from_ratio_f32(ratio)
         })
     }
