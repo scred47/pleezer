@@ -53,6 +53,9 @@ pub struct Player {
     /// The source queue with the audio data.
     sources: Option<Arc<rodio::queue::SourcesQueueInput<SampleFormat>>>,
 
+    /// The point in time of the sink when the current track started playing.
+    playing_since: Duration,
+
     /// The signal to receive when the current track has finished playing.
     current_rx: Option<std::sync::mpsc::Receiver<()>>,
 
@@ -85,6 +88,7 @@ impl Player {
             event_tx: None,
             _stream: stream,
             sources: None,
+            playing_since: Duration::ZERO,
             current_rx: None,
             preload_rx: None,
             sink,
@@ -320,6 +324,9 @@ impl Player {
                 Some(current_rx) => {
                     // Check if the current track has finished playing.
                     if current_rx.try_recv().is_ok() {
+                        // Save the point in time when the track finished playing.
+                        self.playing_since = self.playing_since.saturating_add(self.sink.get_pos());
+
                         // Move the preloaded track, if any, to the current track.
                         self.current_rx = self.preload_rx.take();
                         self.go_next();
@@ -454,6 +461,7 @@ impl Player {
     pub fn clear(&mut self) {
         self.sink.clear();
         self.sources = None;
+        self.playing_since = Duration::ZERO;
         self.current_rx = None;
         self.preload_rx = None;
     }
@@ -492,7 +500,10 @@ impl Player {
 
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
-        let progress = self.sink.get_pos();
+        // The progress is the difference between the current position of the sink, which is the
+        // total duration played, and the time the current track started playing.
+        let progress = self.sink.get_pos().saturating_sub(self.playing_since);
+
         self.track().map(|track| {
             let ratio = progress.div_duration_f32(track.duration());
             Percentage::from_ratio_f32(ratio)
@@ -510,18 +521,27 @@ impl Player {
             )));
         }
 
-        if self.track().is_some() {
-            debug!("setting track progress to {progress}");
-            // OK to multiply unchecked, because `progress` is clamped above.
-            let progress = self.track().map_or(Duration::ZERO, |track| {
-                track.duration().mul_f32(progress.as_ratio_f32())
-            });
-            self.sink.try_seek(progress).map_err(Into::into)
-        } else {
-            Err(Error::failed_precondition(
+        if self.track().is_none() {
+            return Err(Error::failed_precondition(
                 "position cannot be set without an active track".to_string(),
-            ))
+            ));
         }
+
+        debug!("setting track progress to {progress}");
+        // OK to multiply unchecked, because `progress` is clamped above.
+        let progress = self.track().map_or(Duration::ZERO, |track| {
+            track.duration().mul_f32(progress.as_ratio_f32())
+        });
+        self.sink.try_seek(progress)?;
+
+        // Allow the sink to catch up with the new position, so the next call to `get_pos` will
+        // return the correct value. 5 ms is what Rodio uses as periodic access.
+        std::thread::sleep(Duration::from_millis(5));
+
+        // Reset the playing time to zero, as the sink will now reset it also.
+        self.playing_since = Duration::ZERO;
+
+        Ok(())
     }
 
     #[must_use]
