@@ -157,8 +157,11 @@ impl Decrypt {
     /// Calculates number of bytes in the buffer that have not been read yet.
     #[must_use]
     fn bytes_on_buffer(&self) -> u64 {
-        // TODO : prevent panic
-        self.buffer.get_ref().len() as u64 - self.buffer.position()
+        let len = self.buffer.get_ref().len() as u64;
+
+        // The buffer position can be beyond the buffer length if a position
+        // beyond the buffer length is seeked to.
+        len.saturating_sub(self.buffer.position())
     }
 }
 
