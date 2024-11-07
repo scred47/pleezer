@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 
 #[derive(Clone, Debug)]
 pub enum Event {
-    TrackChanged(NonZeroU64),
+    Play(NonZeroU64),
     // TODO - proposals:
     // QueueChanged(Queue),
     // PlayingChanged(bool),

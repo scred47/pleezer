@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
 
@@ -12,8 +12,11 @@ use crate::{
         contents::{AudioQuality, RepeatMode},
         Percentage,
     },
-    track::Track,
+    track::{State, Track},
 };
+
+/// The sample format used by the player, as determined by the decoder.
+type SampleFormat = <rodio::decoder::Decoder<std::fs::File> as Iterator>::Item;
 
 pub struct Player {
     /// The *preferred* audio quality. The actual quality may be lower if the
@@ -26,15 +29,11 @@ pub struct Player {
     /// The decryption key to use for decrypting tracks.
     pub bf_secret: Key,
 
-    /// The list of tracks to play, a.k.a. the playlist.
-    tracks: Vec<Track>,
+    /// The track queue, a.k.a. the playlist.
+    queue: Vec<Track>,
 
-    /// The current position in the playlist.
+    /// The current position in the queue.
     position: Option<usize>,
-
-    /// The track that is currently playing. When this is different from the
-    /// track at `position`, the player is transitioning to another track.
-    track_in_sink: Option<usize>,
 
     /// The HTTP client to use for downloading tracks.
     client: http::Client,
@@ -51,8 +50,17 @@ pub struct Player {
     /// The audio output sink.
     sink: rodio::Sink,
 
-    /// The audio output stream. Although not used directly, this field is
-    /// necessary to retain to keep the sink alive.
+    /// The source queue with the audio data.
+    sources: Option<Arc<rodio::queue::SourcesQueueInput<SampleFormat>>>,
+
+    /// The signal to receive when the current track has finished playing.
+    current_rx: Option<std::sync::mpsc::Receiver<()>>,
+
+    /// The signal to receive when the preloaded track will finish playing.
+    preload_rx: Option<std::sync::mpsc::Receiver<()>>,
+
+    /// The audio output stream. Although not used directly, this field must be retained to keep
+    /// the sink alive.
     _stream: rodio::OutputStream,
 }
 
@@ -66,9 +74,8 @@ impl Player {
         let (sink, stream) = Self::open_sink(device)?;
 
         Ok(Self {
-            tracks: Vec::new(),
+            queue: Vec::new(),
             position: None,
-            track_in_sink: None,
             audio_quality: AudioQuality::default(),
             client: http::Client::without_cookies(config)?,
             license_token: String::new(),
@@ -77,6 +84,9 @@ impl Player {
             shuffle: false,
             event_tx: None,
             _stream: stream,
+            sources: None,
+            current_rx: None,
+            preload_rx: None,
             sink,
         })
     }
@@ -179,7 +189,6 @@ impl Player {
         };
 
         let sink = rodio::Sink::try_new(&handle)?;
-
         Ok((sink, stream))
     }
 
@@ -240,9 +249,59 @@ impl Player {
         result
     }
 
-    fn skip_one(&mut self) {
+    fn go_next(&mut self) {
         // TODO : wrap if repeat, or stop
-        self.position = self.position.map(|position| position + 1);
+        self.position = self.position.map(|position| position.saturating_add(1));
+        self.notify_play();
+    }
+
+    async fn load_track(
+        &mut self,
+        position: usize,
+    ) -> Result<Option<std::sync::mpsc::Receiver<()>>> {
+        if let Some(track) = self.queue.get_mut(position) {
+            match track.state() {
+                State::Pending => {
+                    // Start downloading the track.
+                    let medium = track
+                        .get_medium(&self.client, self.audio_quality, self.license_token.clone())
+                        .await?;
+                    track
+                        .start_download(&self.client, medium)
+                        .await
+                        .map(|()| None)
+                }
+                State::Buffered | State::Complete => {
+                    // Append the track to the sink.
+                    // TODO : don't bail out on error
+                    let decryptor = Decrypt::new(track, &self.bf_secret)?;
+                    let decoder = match track.quality() {
+                        AudioQuality::Lossless => rodio::Decoder::new_flac(decryptor),
+                        _ => rodio::Decoder::new_mp3(decryptor),
+                    }?;
+
+                    let rx = if let Some(sources) = self.sources.as_mut() {
+                        sources.append_with_signal(decoder)
+                    } else {
+                        let (sources, output) = rodio::queue::queue(false);
+                        let rx = sources.append_with_signal(decoder);
+                        self.sink.append(output);
+                        self.sources = Some(sources);
+                        rx
+                    };
+
+                    Ok(Some(rx))
+                }
+                State::Starting => {
+                    // Wait for the track to buffer.
+                    Ok(None)
+                }
+            }
+        } else {
+            Err(Error::out_of_range(format!(
+                "queue has no track at position {position}"
+            )))
+        }
     }
 
     /// Run the player.
@@ -257,57 +316,70 @@ impl Player {
     /// the track, or if the player fails to play the track.
     pub async fn run(&mut self) -> Result<()> {
         loop {
-            // TODO : change into track id
-            if self.position != self.track_in_sink {
-                // TODO if self.position.and_then()...
-                if let Some(position) = self.position {
-                    if let Some(target_track) = self.tracks.get_mut(position) {
-                        if target_track.is_complete() {
-                            let decryptor = Decrypt::new(target_track, &self.bf_secret)?;
-                            let decoder = rodio::Decoder::new_flac(decryptor)?;
-                            self.sink.append(decoder);
-                            self.track_in_sink = self.position;
-                        }
+            match self.current_rx.as_mut() {
+                Some(current_rx) => {
+                    // Check if the current track has finished playing.
+                    if current_rx.try_recv().is_ok() {
+                        // Move the preloaded track, if any, to the current track.
+                        self.current_rx = self.preload_rx.take();
+                        self.go_next();
+                    }
 
-                        // Start downloading the track if it is pending.
-                        if target_track.is_pending() {
-                            match target_track
-                                .get_medium(
-                                    &self.client,
-                                    self.audio_quality,
-                                    self.license_token.clone(),
-                                )
-                                .await
-                            {
-                                Ok(medium) => {
-                                    // TODO : if Ok, add to the sink
-                                    if let Err(e) =
-                                        target_track.start_download(&self.client, medium).await
-                                    {
-                                        error!(
-                                            "skipping track {target_track}, failed to start download: {e}",
-                                        );
-                                        //self.skip_one();
+                    // Preload the next track if the current track is done downloading.
+                    if self.preload_rx.is_none()
+                        && self
+                            .track()
+                            .is_some_and(|track| track.state() == State::Complete)
+                    {
+                        if let Some(next_position) =
+                            self.position.map(|position| position.saturating_add(1))
+                        {
+                            if self.queue.len() > next_position {
+                                match self.load_track(next_position).await {
+                                    Ok(rx) => {
+                                        self.preload_rx = rx;
                                     }
-                                }
-                                Err(err) => {
-                                    error!(
-                                        "skipping track {target_track}, failed to get medium: {err}",
-                                    );
-                                    self.skip_one();
+                                    Err(e) => {
+                                        error!("failed to preload track: {e}");
+                                    }
                                 }
                             }
                         }
                     }
-                } else {
-                    // Clear the sink if the queue has become empty.
-                    self.sink.clear();
-                    self.track_in_sink = self.position;
+                }
+
+                None => {
+                    if let Some(position) = self.position {
+                        match self.load_track(position).await {
+                            Ok(rx) => {
+                                if let Some(rx) = rx {
+                                    self.current_rx = Some(rx);
+                                    if self.is_playing() {
+                                        self.notify_play();
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!("failed to load track: {e}");
+                                self.go_next();
+                            }
+                        };
+                    }
                 }
             }
 
             // Yield to the runtime to allow other tasks to run.
             tokio::task::yield_now().await;
+        }
+    }
+
+    fn notify_play(&self) {
+        if let Some(track) = self.track() {
+            if let Some(event_tx) = &self.event_tx {
+                if let Err(e) = event_tx.send(Event::Play(track.id())) {
+                    error!("failed to send track changed event: {e}");
+                }
+            }
         }
     }
 
@@ -318,46 +390,40 @@ impl Player {
     pub fn play(&mut self) {
         debug!("starting playback");
         self.sink.play();
+
+        // Playback reporting happens every time a track starts playing or is unpaused.
+        self.notify_play();
     }
 
-    pub fn stop(&mut self) {
-        debug!("stopping playback");
+    pub fn pause(&mut self) {
+        debug!("pausing playback");
         self.sink.pause();
     }
 
     #[must_use]
     pub fn is_playing(&self) -> bool {
-        !(self.sink.is_paused() || self.sink.empty())
+        !self.sink.is_paused() && !self.sink.empty()
     }
 
     pub fn set_playing(&mut self, should_play: bool) {
         if self.is_playing() {
             if !should_play {
-                self.stop();
+                self.pause();
             }
         } else if should_play {
             self.play();
-
-            if let Some(track) = self.track() {
-                // TODO - notify when moving to next track
-                // TODO : send stream_play on every pause/play?
-                if let Some(event_tx) = &self.event_tx {
-                    if let Err(e) = event_tx.send(Event::TrackChanged(track.id())) {
-                        error!("failed to send track changed event: {e}");
-                    }
-                }
-            }
         }
     }
 
     #[must_use]
     pub fn track(&self) -> Option<&Track> {
-        self.tracks.get(self.position?)
+        self.queue.get(self.position?)
     }
 
-    pub fn set_tracks(&mut self, tracks: Vec<Track>) {
+    pub fn set_queue(&mut self, tracks: Vec<Track>) {
+        self.clear();
         self.position = None;
-        self.tracks = tracks;
+        self.queue = tracks;
     }
 
     /// Sets the playlist position.
@@ -366,7 +432,11 @@ impl Player {
     ///
     /// Returns an error if the position is out of range.
     pub fn set_position(&mut self, position: usize) -> Result<()> {
-        let len = self.tracks.len();
+        if self.position.is_some_and(|current| position == current) {
+            return Ok(());
+        }
+
+        let len = self.queue.len();
         if position >= len {
             return Err(Error::out_of_range(format!(
                 "invalid position {position} for queue with {len} items",
@@ -374,9 +444,18 @@ impl Player {
         }
 
         debug!("setting playlist position to {position}");
+
+        self.clear();
         self.position = Some(position);
 
         Ok(())
+    }
+
+    pub fn clear(&mut self) {
+        self.sink.clear();
+        self.sources = None;
+        self.current_rx = None;
+        self.preload_rx = None;
     }
 
     #[must_use]

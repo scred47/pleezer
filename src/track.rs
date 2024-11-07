@@ -23,11 +23,11 @@ use crate::{
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum DownloadState {
+pub enum State {
     #[default]
     Pending,
     Starting,
-    Downloading,
+    Buffered,
     Complete,
 }
 
@@ -42,7 +42,7 @@ pub struct Track {
     expiry: SystemTime,
     quality: AudioQuality,
     duration: Duration,
-    state: Arc<Mutex<DownloadState>>,
+    state: Arc<Mutex<State>>,
     buffered: Arc<Mutex<Duration>>,
     file: Option<NamedTempFile>,
     data: Option<StreamDownload<TempStorageProvider>>,
@@ -52,7 +52,7 @@ pub struct Track {
 
 impl Track {
     /// Amount of seconds to audio to buffer before the track can be read from.
-    const PREFETCH_LENGTH: Duration = Duration::from_secs(3);
+    const PREFETCH_LENGTH: Duration = Duration::from_secs(10);
 
     /// The default amount of bytes to prefetch before the track can be read
     /// from. This is used when the track does not provide a `Content-Length`
@@ -120,28 +120,28 @@ impl Track {
     ///
     /// Panics if the lock is poisoned.
     #[must_use]
-    pub fn state(&self) -> DownloadState {
+    pub fn state(&self) -> State {
         *self.state.lock().unwrap()
     }
 
     #[must_use]
     pub fn is_pending(&self) -> bool {
-        self.state() == DownloadState::Pending
+        self.state() == State::Pending
     }
 
     #[must_use]
     pub fn is_starting(&self) -> bool {
-        self.state() == DownloadState::Starting
+        self.state() == State::Starting
     }
 
     #[must_use]
-    pub fn is_downloading(&self) -> bool {
-        self.state() == DownloadState::Downloading
+    pub fn is_buffered(&self) -> bool {
+        self.state() == State::Buffered
     }
 
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.state() == DownloadState::Complete
+        self.state() == State::Complete
     }
 
     const BF_CBC_STRIPE_MP3_64: CipherFormat = CipherFormat {
@@ -279,7 +279,7 @@ impl Track {
         // Don't hold the lock because some await points are coming up.
         // Instead, set the state to `Starting` to prevent multiple downloads
         // from starting at the same time before the state is set to `Downloading`.
-        *self.state.lock().unwrap() = DownloadState::Starting;
+        *self.state.lock().unwrap() = State::Starting;
 
         // Deezer usually returns multiple sources for a track. The official
         // client seems to always use the first one. We start with the first
@@ -363,29 +363,33 @@ impl Track {
         let callback = move |stream: &HttpStream<_>,
                              stream_state: StreamState,
                              _: &tokio_util::sync::CancellationToken| {
-            match stream_state.phase {
-                StreamPhase::Complete => {
-                    debug!("download of track {track_str} completed");
+            if stream_state.phase == StreamPhase::Complete {
+                debug!("download of track {track_str} completed");
 
-                    // Prevent rounding errors and set the buffered duration
-                    // equal to the total duration. It's OK to unwrap here: if
-                    // the mutex is poisoned, then the main thread panicked and
-                    // we should propagate the error.
-                    *buffered.lock().unwrap() = duration;
-                    *track_state.lock().unwrap() = DownloadState::Complete;
+                // Prevent rounding errors and set the buffered duration
+                // equal to the total duration. It's OK to unwrap here: if
+                // the mutex is poisoned, then the main thread panicked and
+                // we should propagate the error.
+                *buffered.lock().unwrap() = duration;
+                *track_state.lock().unwrap() = State::Complete;
+            } else {
+                // When moving from `StreamPhase::Prefetching` to `StreamPhase::Downloading`,
+                // set the track state to `Buffered` to indicate that the track has enough
+                // data buffered to start playing.
+                if let StreamPhase::Downloading { .. } = stream_state.phase {
+                    *track_state.lock().unwrap() = State::Buffered;
                 }
-                _ => {
-                    if let Some(file_size) = stream.content_length() {
-                        if file_size > 0 {
-                            // `f64` not for precision, but to be able to fit
-                            // as big as possible file sizes.
-                            // TODO : use `Percentage` type
-                            #[expect(clippy::cast_precision_loss)]
-                            let progress = stream_state.current_position as f64 / file_size as f64;
 
-                            // OK to unwrap: see rationale above.
-                            *buffered.lock().unwrap() = duration.mul_f64(progress);
-                        }
+                if let Some(file_size) = stream.content_length() {
+                    if file_size > 0 {
+                        // `f64` not for precision, but to be able to fit
+                        // as big as possible file sizes.
+                        // TODO : use `Percentage` type
+                        #[expect(clippy::cast_precision_loss)]
+                        let progress = stream_state.current_position as f64 / file_size as f64;
+
+                        // OK to unwrap: see rationale above.
+                        *buffered.lock().unwrap() = duration.mul_f64(progress);
                     }
                 }
             }
@@ -419,8 +423,6 @@ impl Track {
         // (the file is deleted when the last handle is closed) and to be able
         // to reopen it for reading later.
         self.file = Some(temp_file);
-
-        *self.state.lock().unwrap() = DownloadState::Downloading;
         self.data = Some(download);
 
         Ok(())
@@ -458,7 +460,7 @@ impl From<gateway::ListData> for Track {
             expiry: item.expiry,
             quality: AudioQuality::Standard,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),
-            state: Arc::new(Mutex::new(DownloadState::Pending)),
+            state: Arc::new(Mutex::new(State::Pending)),
             file: None,
             data: None,
             file_size: None,

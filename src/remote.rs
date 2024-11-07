@@ -311,7 +311,12 @@ impl Client {
 
                 Some(event) = event_rx.recv() => {
                     match event {
-                        Event::TrackChanged(track) => {
+                        Event::Play(track) => {
+                            // Report playback progress without waiting for the next
+                            // reporting interval, so the UI refreshes immediately.
+                            let _ = self.report_playback_progress().await;
+
+                            // Report the playback stream.
                             if let Err(e) = self.report_playback(track).await {
                                 error!("error streaming track: {e}");
                             }
@@ -588,7 +593,7 @@ impl Client {
 
             debug!("setting queue to {}", list.id);
             self.queue = Some(list);
-            self.player.set_tracks(tracks);
+            self.player.set_queue(tracks);
 
             return Ok(());
         }
@@ -957,7 +962,7 @@ impl Client {
             } => self.handle_status(from, &command_id, status).await,
 
             Body::Stop { .. } => {
-                self.player.stop();
+                self.player.pause();
                 Ok(())
             }
 
