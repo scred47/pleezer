@@ -747,6 +747,7 @@ impl fmt::Display for Payload {
         let mut buffer: Vec<u8> = vec![];
 
         if let Payload::PublishQueue(queue) = self {
+            trace!("YEAH YEAH YEAH!");
             match queue.write_to_bytes() {
                 Ok(protobuf) => {
                     let mut deflater = DeflateEncoder::new(&protobuf[..], Compression::fast());
