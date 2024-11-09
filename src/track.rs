@@ -118,7 +118,7 @@ impl Track {
     ///
     /// # Panics
     ///
-    /// Panics if the lock is poisoned.
+    /// Panics if the download state lock is poisoned.
     #[must_use]
     pub fn state(&self) -> State {
         *self.state.lock().unwrap()
@@ -197,8 +197,11 @@ impl Track {
 
     /// Get a HTTP media source for the track.
     ///
-    /// The `license_token` is a token that is required to access this track
-    /// with the requested quality.
+    /// # Parameters
+    ///
+    /// - `client`: The HTTP client to use for the request.
+    /// - `quality`: The audio quality that is preferred.
+    /// - `license_token`: The license token to obtain the track with the given quality.
     ///
     /// # Errors
     ///
@@ -262,29 +265,17 @@ impl Track {
         Ok(result)
     }
 
-    /// Start downloading the track with the given `client` and from the given
-    /// `medium`. The download will be started in the background.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the no sources are found for the track, if the URL
-    /// has no host name, if the track is not available for download, or if the
-    /// download link expired.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a lock is poisoned, which would be from the main thread
-    /// panicking.
-    pub async fn start_download(&mut self, client: &http::Client, medium: Medium) -> Result<()> {
-        // Don't hold the lock because some await points are coming up.
-        // Instead, set the state to `Starting` to prevent multiple downloads
-        // from starting at the same time before the state is set to `Downloading`.
-        *self.state.lock().unwrap() = State::Starting;
-
+    async fn open_stream(
+        &self,
+        client: &http::Client,
+        medium: &Medium,
+    ) -> Result<HttpStream<reqwest::Client>> {
         // Deezer usually returns multiple sources for a track. The official
         // client seems to always use the first one. We start with the first
         // and continue with the next one if the first one fails to start.
-        let mut stream = None;
+        let mut stream = Err(Error::unavailable(format!(
+            "no valid sources found for track {self}"
+        )));
         let now = SystemTime::now();
 
         #[expect(clippy::iter_next_slice)]
@@ -318,7 +309,7 @@ impl Track {
             match HttpStream::new(client.unlimited.clone(), source.url.clone()).await {
                 Ok(http_stream) => {
                     debug!("starting download of track {self} from {host_str}");
-                    stream = Some(http_stream);
+                    stream = Ok(http_stream);
                     break;
                 }
                 Err(err) => {
@@ -328,9 +319,27 @@ impl Track {
             };
         }
 
-        let stream = stream.ok_or_else(|| {
-            Error::unavailable(format!("no valid sources found for track {self}"))
-        })?;
+        stream
+    }
+
+    /// Start downloading the track with the given `client` and from the given
+    /// `medium`. The download will be started in the background.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the no sources are found for the track, if the URL
+    /// has no host name, if the track is not available for download, or if the
+    /// download link expired.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the download state lock is poisoned.
+    pub async fn start_download(&mut self, client: &http::Client, medium: &Medium) -> Result<()> {
+        // Don't hold the lock because some await points are coming up.
+        // Instead, set the state to `Starting` to prevent multiple downloads
+        // from starting at the same time before the state is set to `Downloading`.
+        *self.state.lock().unwrap() = State::Starting;
+        let stream = self.open_stream(client, medium).await?;
 
         // Set actual audio quality and cipher type.
         self.quality = medium.format.into();
@@ -362,22 +371,29 @@ impl Track {
         let track_state = Arc::clone(&self.state);
         let callback = move |stream: &HttpStream<_>,
                              stream_state: StreamState,
-                             _: &tokio_util::sync::CancellationToken| {
+                             token: &tokio_util::sync::CancellationToken| {
+            let mut track_state = track_state.lock().unwrap();
+
+            // If the track was reset to `Pending`, cancel the download.
+            if *track_state == State::Pending {
+                token.cancel();
+            }
+
             if stream_state.phase == StreamPhase::Complete {
-                debug!("download of track {track_str} completed");
+                debug!("completed download of track {track_str}");
 
                 // Prevent rounding errors and set the buffered duration
                 // equal to the total duration. It's OK to unwrap here: if
                 // the mutex is poisoned, then the main thread panicked and
                 // we should propagate the error.
                 *buffered.lock().unwrap() = duration;
-                *track_state.lock().unwrap() = State::Complete;
+                *track_state = State::Complete;
             } else {
                 // When moving from `StreamPhase::Prefetching` to `StreamPhase::Downloading`,
                 // set the track state to `Buffered` to indicate that the track has enough
                 // data buffered to start playing.
                 if let StreamPhase::Downloading { .. } = stream_state.phase {
-                    *track_state.lock().unwrap() = State::Buffered;
+                    *track_state = State::Buffered;
                 }
 
                 if let Some(file_size) = stream.content_length() {
@@ -426,6 +442,22 @@ impl Track {
         self.data = Some(download);
 
         Ok(())
+    }
+
+    /// Cancel the download of the track. Has no effect if the download is
+    /// already complete or has not been started yet.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the download state lock is poisoned.
+    pub fn cancel_download(&mut self) {
+        if self.state() != State::Complete {
+            debug!("cancelling download of track {self}");
+            if let Some(data) = self.data.as_mut() {
+                data.cancel_download();
+            }
+            *self.state.lock().unwrap() = State::Pending;
+        }
     }
 
     /// Returns the file size of the track, if known after the download has

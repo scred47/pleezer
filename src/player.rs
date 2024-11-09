@@ -285,7 +285,7 @@ impl Player {
                         .get_medium(&self.client, self.audio_quality, self.license_token.clone())
                         .await?;
                     track
-                        .start_download(&self.client, medium)
+                        .start_download(&self.client, &medium)
                         .await
                         .map(|()| None)
                 }
@@ -454,6 +454,19 @@ impl Player {
         }
 
         debug!("setting playlist position to {position}");
+
+        // While skipping to another track, cancel the download of the current track if it is
+        // still pending. Also cancel the download of the next track, unless it is the track that
+        // we are skipping to.
+        if let Some(track) = self.queue.get_mut(self.position) {
+            track.cancel_download();
+        }
+        let next_position = self.position.saturating_add(1);
+        if position != next_position {
+            if let Some(next_track) = self.queue.get_mut(next_position) {
+                next_track.cancel_download();
+            }
+        }
 
         self.clear();
         self.position = position;
