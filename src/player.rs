@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
+use rodio::Source;
 
 use crate::{
     config::Config,
@@ -21,13 +22,13 @@ type SampleFormat = <rodio::decoder::Decoder<std::fs::File> as Iterator>::Item;
 pub struct Player {
     /// The *preferred* audio quality. The actual quality may be lower if the
     /// track is not available in the preferred quality.
-    pub audio_quality: AudioQuality,
+    audio_quality: AudioQuality,
 
     /// The license token to use for downloading tracks.
-    pub license_token: String,
+    license_token: String,
 
     /// The decryption key to use for decrypting tracks.
-    pub bf_secret: Key,
+    bf_secret: Key,
 
     /// The track queue, a.k.a. the playlist.
     queue: Vec<Track>,
@@ -43,6 +44,12 @@ pub struct Player {
 
     /// Whether the playlist should be shuffled.
     shuffle: bool,
+
+    /// Whether to normalize the audio.
+    normalization: bool,
+
+    /// The target volume to normalize to in dB.
+    gain_target_db: f32,
 
     /// The channel to send playback events to.
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
@@ -67,6 +74,9 @@ pub struct Player {
     _stream: rodio::OutputStream,
 }
 
+/// The default target volume to normalize to in dB LUFS.
+pub const DEFAULT_GAIN_TARGET_DB: f32 = -15.0;
+
 impl Player {
     /// Creates a new `Player` with the given `Config`.
     ///
@@ -87,6 +97,8 @@ impl Player {
             bf_secret: config.bf_secret,
             repeat_mode: RepeatMode::default(),
             shuffle: false,
+            normalization: false,
+            gain_target_db: DEFAULT_GAIN_TARGET_DB,
             event_tx: None,
             playing_since: Duration::ZERO,
             current_rx: None,
@@ -298,7 +310,21 @@ impl Player {
                         _ => rodio::Decoder::new_mp3(decryptor),
                     }?;
 
-                    let rx = self.sources.append_with_signal(decoder);
+                    let rx = if self.normalization {
+                        let difference = self.gain_target_db - track.gain();
+                        let ratio = f32::powf(10.0, difference / 20.0);
+
+                        debug!(
+                            "normalizing track {track} ({} dB) by {ratio:.2}",
+                            track.gain()
+                        );
+
+                        let normalized = decoder.amplify(ratio);
+                        self.sources.append_with_signal(normalized)
+                    } else {
+                        self.sources.append_with_signal(decoder)
+                    };
+
                     Ok(Some(rx))
                 }
                 State::Starting => {
@@ -571,5 +597,41 @@ impl Player {
     #[must_use]
     pub fn position(&self) -> usize {
         self.position
+    }
+
+    pub fn set_license_token(&mut self, license_token: impl Into<String>) {
+        self.license_token = license_token.into();
+    }
+
+    pub fn set_normalization(&mut self, normalization: bool) {
+        self.normalization = normalization;
+    }
+
+    pub fn set_gain_target_db(&mut self, gain_target_db: f32) {
+        self.gain_target_db = gain_target_db;
+    }
+
+    pub fn set_audio_quality(&mut self, quality: AudioQuality) {
+        self.audio_quality = quality;
+    }
+
+    #[must_use]
+    pub fn normalization(&self) -> bool {
+        self.normalization
+    }
+
+    #[must_use]
+    pub fn license_token(&self) -> &str {
+        &self.license_token
+    }
+
+    #[must_use]
+    pub fn audio_quality(&self) -> AudioQuality {
+        self.audio_quality
+    }
+
+    #[must_use]
+    pub fn gain_target_db(&self) -> f32 {
+        self.gain_target_db
     }
 }

@@ -18,7 +18,7 @@ use crate::{
     error::{Error, ErrorKind, Result},
     events::Event,
     gateway::Gateway,
-    player::Player,
+    player::{Player, DEFAULT_GAIN_TARGET_DB},
     protocol::connect::{
         queue, stream, Body, Channel, Contents, DeviceId, Headers, Ident, Message, Percentage,
         QueueItem, RepeatMode, Status, UserId,
@@ -181,10 +181,16 @@ impl Client {
 
                 let audio_quality = self.gateway.audio_quality().unwrap_or_default();
                 info!("user casting quality: {audio_quality}");
-                self.player.audio_quality = audio_quality;
+                self.player.set_audio_quality(audio_quality);
+
+                let normalization = self.gateway.normalization().unwrap_or_default();
+                let gain_target_db = self.gateway.target_gain().unwrap_or(DEFAULT_GAIN_TARGET_DB);
+                info!("volume normalization to {gain_target_db:.1} dB: {normalization}");
+                self.player.set_gain_target_db(gain_target_db);
+                self.player.set_normalization(normalization);
 
                 if let Some(license_token) = self.gateway.license_token() {
-                    self.player.license_token = license_token.to_string();
+                    self.player.set_license_token(license_token);
                 }
 
                 // This takes a few milliseconds and would normally

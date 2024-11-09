@@ -36,7 +36,7 @@ pub struct UserData {
     #[serde(rename = "URL_MEDIA")]
     media_url: String,
     #[serde(rename = "GAIN")]
-    gain: Gain,
+    pub gain: Gain,
 }
 
 #[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
@@ -48,7 +48,7 @@ pub struct User {
     #[serde(rename = "AUDIO_SETTINGS")]
     pub audio_settings: AudioSettings,
     #[serde(rename = "SETTING")]
-    settings: Settings,
+    pub settings: Settings,
 }
 
 // TODO: find out how to register our own device.
@@ -87,7 +87,7 @@ pub struct AudioPreset {
 
 #[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct Settings {
-    site: SiteSettings,
+    pub site: SiteSettings,
     adjust: AdjustSettings,
     audio_quality_settings: AudioQualitySettings,
 }
@@ -97,7 +97,7 @@ pub struct SiteSettings {
     player_hq: bool,
     player_audio_quality: String,
     player_repeat: i64, // TODO: use repeat enum
-    player_normalize: bool,
+    pub player_normalize: bool,
     cast_audio_quality: String,
 }
 
@@ -138,5 +138,5 @@ pub struct Gatekeeps {
 pub struct Gain {
     #[serde(rename = "TARGET")]
     #[serde_as(as = "DisplayFromStr")]
-    target: f32,
+    pub target: f32,
 }

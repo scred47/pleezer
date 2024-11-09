@@ -258,6 +258,17 @@ impl Gateway {
         })
     }
 
+    /// Whether the user has enabled normalization.
+    pub fn normalization(&self) -> Option<bool> {
+        self.user_data
+            .as_ref()
+            .map(|data| data.user.settings.site.player_normalize)
+    }
+
+    pub fn target_gain(&self) -> Option<f32> {
+        self.user_data.as_ref().map(|data| data.gain.target)
+    }
+
     /// Converts a list of tracks from the Deezer API to a [`Queue`].
     ///
     /// # Errors
