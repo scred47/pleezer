@@ -101,8 +101,11 @@ fn init_logger(config: &Args) {
             _ => LevelFilter::Trace,
         };
 
-        // Filter log messages of external crates.
+        // Filter log messages of pleezer.
         logger.filter_module(module_path!(), level);
+
+        // Filter log messages of external crates.
+        logger.filter_module("symphonia_core", LevelFilter::Warn);
     }
 
     logger.init();
