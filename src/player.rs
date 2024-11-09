@@ -560,10 +560,6 @@ impl Player {
                 let progress = track.duration().mul_f32(progress);
                 self.sink.try_seek(progress)?;
 
-                // Allow the sink to catch up with the new position, so the next call to `get_pos`
-                // will return the correct value. 5 ms is what Rodio uses as periodic access.
-                std::thread::sleep(Duration::from_millis(5));
-
                 // Reset the playing time to zero, as the sink will now reset it also.
                 self.playing_since = Duration::ZERO;
             }
