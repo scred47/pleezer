@@ -533,31 +533,28 @@ impl Player {
     /// Will return `Err` if:
     /// - there is no active track
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
-        if !(0.0..=1.0).contains(&progress.as_ratio_f32()) {
-            return Err(Error::invalid_argument(format!(
-                "progress cannot be set to {progress}"
-            )));
+        if let Some(track) = self.track() {
+            debug!("setting track progress to {progress}");
+            let progress = progress.as_ratio_f32();
+
+            // The proper way of checking for floating point equality.
+            if (progress - 1.0).abs() <= f32::EPSILON {
+                // Setting the progress to 1.0 is equivalent to skipping to the next track.
+                // This prevents `UnexpectedEof` when seeking to the end of the track.
+                self.clear();
+                self.go_next();
+            } else {
+                let progress = track.duration().mul_f32(progress);
+                self.sink.try_seek(progress)?;
+
+                // Allow the sink to catch up with the new position, so the next call to `get_pos`
+                // will return the correct value. 5 ms is what Rodio uses as periodic access.
+                std::thread::sleep(Duration::from_millis(5));
+
+                // Reset the playing time to zero, as the sink will now reset it also.
+                self.playing_since = Duration::ZERO;
+            }
         }
-
-        if self.track().is_none() {
-            return Err(Error::failed_precondition(
-                "position cannot be set without an active track".to_string(),
-            ));
-        }
-
-        debug!("setting track progress to {progress}");
-        // OK to multiply unchecked, because `progress` is clamped above.
-        let progress = self.track().map_or(Duration::ZERO, |track| {
-            track.duration().mul_f32(progress.as_ratio_f32())
-        });
-        self.sink.try_seek(progress)?;
-
-        // Allow the sink to catch up with the new position, so the next call to `get_pos` will
-        // return the correct value. 5 ms is what Rodio uses as periodic access.
-        std::thread::sleep(Duration::from_millis(5));
-
-        // Reset the playing time to zero, as the sink will now reset it also.
-        self.playing_since = Duration::ZERO;
 
         Ok(())
     }
