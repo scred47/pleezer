@@ -51,7 +51,7 @@ pub struct Player {
     sink: rodio::Sink,
 
     /// The source queue with the audio data.
-    sources: Option<Arc<rodio::queue::SourcesQueueInput<SampleFormat>>>,
+    sources: Arc<rodio::queue::SourcesQueueInput<SampleFormat>>,
 
     /// The point in time of the sink when the current track started playing.
     playing_since: Duration,
@@ -75,6 +75,8 @@ impl Player {
     /// Will return `Err` if no HTTP client can be built from the `Config`.
     pub fn new(config: &Config, device: &str) -> Result<Self> {
         let (sink, stream) = Self::open_sink(device)?;
+        let (sources, output) = rodio::queue::queue(true);
+        sink.append(output);
 
         Ok(Self {
             queue: Vec::new(),
@@ -86,12 +88,12 @@ impl Player {
             repeat_mode: RepeatMode::default(),
             shuffle: false,
             event_tx: None,
-            _stream: stream,
-            sources: None,
             playing_since: Duration::ZERO,
             current_rx: None,
             preload_rx: None,
+            _stream: stream,
             sink,
+            sources,
         })
     }
 
@@ -254,9 +256,23 @@ impl Player {
     }
 
     fn go_next(&mut self) {
-        // TODO : wrap if repeat, or stop
-        self.position = self.position.map(|position| position.saturating_add(1));
-        self.notify_play();
+        let repeat_mode = self.repeat_mode();
+        if repeat_mode != RepeatMode::One {
+            if let Some(position) = self.position.as_mut() {
+                let next = position.checked_add(1);
+                if next.is_some_and(|next| next < self.queue.len()) {
+                    // Move to the next track.
+                    self.position = next;
+                    self.notify_play();
+                } else {
+                    // Reached the end of the queue.
+                    if repeat_mode != RepeatMode::All {
+                        self.pause();
+                    };
+                    self.position = Some(0);
+                }
+            }
+        }
     }
 
     async fn load_track(
@@ -284,16 +300,7 @@ impl Player {
                         _ => rodio::Decoder::new_mp3(decryptor),
                     }?;
 
-                    let rx = if let Some(sources) = self.sources.as_mut() {
-                        sources.append_with_signal(decoder)
-                    } else {
-                        let (sources, output) = rodio::queue::queue(false);
-                        let rx = sources.append_with_signal(decoder);
-                        self.sink.append(output);
-                        self.sources = Some(sources);
-                        rx
-                    };
-
+                    let rx = self.sources.append_with_signal(decoder);
                     Ok(Some(rx))
                 }
                 State::Starting => {
@@ -332,11 +339,12 @@ impl Player {
                         self.go_next();
                     }
 
-                    // Preload the next track if the current track is done downloading.
+                    // Preload the next track if all of the following conditions are met:
+                    // - the repeat mode is not "Repeat One"
+                    // - the current track is done downloading
                     if self.preload_rx.is_none()
-                        && self
-                            .track()
-                            .is_some_and(|track| track.state() == State::Complete)
+                        && self.repeat_mode() != RepeatMode::One
+                        && self.track().is_some_and(Track::is_complete)
                     {
                         if let Some(next_position) =
                             self.position.map(|position| position.saturating_add(1))
@@ -361,9 +369,7 @@ impl Player {
                             Ok(rx) => {
                                 if let Some(rx) = rx {
                                     self.current_rx = Some(rx);
-                                    if self.is_playing() {
-                                        self.notify_play();
-                                    }
+                                    self.notify_play();
                                 }
                             }
                             Err(e) => {
@@ -381,10 +387,12 @@ impl Player {
     }
 
     fn notify_play(&self) {
-        if let Some(track) = self.track() {
-            if let Some(event_tx) = &self.event_tx {
-                if let Err(e) = event_tx.send(Event::Play(track.id())) {
-                    error!("failed to send track changed event: {e}");
+        if self.is_playing() {
+            if let Some(track) = self.track() {
+                if let Some(event_tx) = &self.event_tx {
+                    if let Err(e) = event_tx.send(Event::Play(track.id())) {
+                        error!("failed to send track changed event: {e}");
+                    }
                 }
             }
         }
@@ -459,8 +467,13 @@ impl Player {
     }
 
     pub fn clear(&mut self) {
-        self.sink.clear();
-        self.sources = None;
+        // Don't just clear the sink, because that would stop the playback. The following code
+        // works around that by creating a new, empty queue of sources and skipping to it.
+        let (sources, output) = rodio::queue::queue(true);
+        self.sink.append(output);
+        self.sink.skip_one();
+        self.sources = sources;
+
         self.playing_since = Duration::ZERO;
         self.current_rx = None;
         self.preload_rx = None;
@@ -484,6 +497,12 @@ impl Player {
     pub fn set_repeat_mode(&mut self, repeat_mode: RepeatMode) {
         debug!("setting repeat mode to {repeat_mode}");
         self.repeat_mode = repeat_mode;
+
+        if repeat_mode == RepeatMode::One {
+            // This only clears the preloaded track.
+            self.sources.clear();
+            self.preload_rx = None;
+        }
     }
 
     #[must_use]
