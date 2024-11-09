@@ -801,10 +801,7 @@ impl Client {
                 let item = QueueItem {
                     queue_id: queue.id.to_string(),
                     track_id: track.id(),
-                    position: self
-                        .player
-                        .position()
-                        .ok_or(Error::internal("no active position"))?,
+                    position: self.player.position(),
                 };
 
                 let progress = Body::PlaybackProgress {

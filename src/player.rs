@@ -33,7 +33,7 @@ pub struct Player {
     queue: Vec<Track>,
 
     /// The current position in the queue.
-    position: Option<usize>,
+    position: usize,
 
     /// The HTTP client to use for downloading tracks.
     client: http::Client,
@@ -80,7 +80,7 @@ impl Player {
 
         Ok(Self {
             queue: Vec::new(),
-            position: None,
+            position: 0,
             audio_quality: AudioQuality::default(),
             client: http::Client::without_cookies(config)?,
             license_token: String::new(),
@@ -258,19 +258,17 @@ impl Player {
     fn go_next(&mut self) {
         let repeat_mode = self.repeat_mode();
         if repeat_mode != RepeatMode::One {
-            if let Some(position) = self.position.as_mut() {
-                let next = position.checked_add(1);
-                if next.is_some_and(|next| next < self.queue.len()) {
-                    // Move to the next track.
-                    self.position = next;
-                    self.notify_play();
-                } else {
-                    // Reached the end of the queue.
-                    if repeat_mode != RepeatMode::All {
-                        self.pause();
-                    };
-                    self.position = Some(0);
-                }
+            let next = self.position.saturating_add(1);
+            if next < self.queue.len() {
+                // Move to the next track.
+                self.position = next;
+                self.notify_play();
+            } else {
+                // Reached the end of the queue: rewind to the beginning.
+                if repeat_mode != RepeatMode::All {
+                    self.pause();
+                };
+                self.position = 0;
             }
         }
     }
@@ -346,17 +344,14 @@ impl Player {
                         && self.repeat_mode() != RepeatMode::One
                         && self.track().is_some_and(Track::is_complete)
                     {
-                        if let Some(next_position) =
-                            self.position.map(|position| position.saturating_add(1))
-                        {
-                            if self.queue.len() > next_position {
-                                match self.load_track(next_position).await {
-                                    Ok(rx) => {
-                                        self.preload_rx = rx;
-                                    }
-                                    Err(e) => {
-                                        error!("failed to preload track: {e}");
-                                    }
+                        let next_position = self.position.saturating_add(1);
+                        if self.queue.len() > next_position {
+                            match self.load_track(next_position).await {
+                                Ok(rx) => {
+                                    self.preload_rx = rx;
+                                }
+                                Err(e) => {
+                                    error!("failed to preload track: {e}");
                                 }
                             }
                         }
@@ -364,8 +359,8 @@ impl Player {
                 }
 
                 None => {
-                    if let Some(position) = self.position {
-                        match self.load_track(position).await {
+                    if self.track().is_some() {
+                        match self.load_track(self.position).await {
                             Ok(rx) => {
                                 if let Some(rx) = rx {
                                     self.current_rx = Some(rx);
@@ -432,12 +427,12 @@ impl Player {
 
     #[must_use]
     pub fn track(&self) -> Option<&Track> {
-        self.queue.get(self.position?)
+        self.queue.get(self.position)
     }
 
     pub fn set_queue(&mut self, tracks: Vec<Track>) {
         self.clear();
-        self.position = None;
+        self.position = 0;
         self.queue = tracks;
     }
 
@@ -447,7 +442,7 @@ impl Player {
     ///
     /// Returns an error if the position is out of range.
     pub fn set_position(&mut self, position: usize) -> Result<()> {
-        if self.position.is_some_and(|current| position == current) {
+        if self.position == position {
             return Ok(());
         }
 
@@ -461,7 +456,7 @@ impl Player {
         debug!("setting playlist position to {position}");
 
         self.clear();
-        self.position = Some(position);
+        self.position = position;
 
         Ok(())
     }
@@ -512,6 +507,10 @@ impl Player {
     }
 
     pub fn set_volume(&mut self, volume: Percentage) {
+        if volume == self.volume() {
+            return;
+        }
+
         debug!("setting volume to {volume}");
         let ratio = volume.as_ratio_f32();
         self.sink.set_volume(ratio);
@@ -564,7 +563,7 @@ impl Player {
     }
 
     #[must_use]
-    pub fn position(&self) -> Option<usize> {
+    pub fn position(&self) -> usize {
         self.position
     }
 }
