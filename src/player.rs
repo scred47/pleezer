@@ -41,6 +41,9 @@ pub struct Player {
     /// The current position in the queue.
     position: usize,
 
+    /// The position in the current track to seek to after it has been loaded.
+    deferred_seek: Option<Duration>,
+
     /// The HTTP client to use for downloading tracks.
     client: http::Client,
 
@@ -111,6 +114,7 @@ impl Player {
             gain_target_db: DEFAULT_GAIN_TARGET_DB,
             event_tx: None,
             playing_since: Duration::ZERO,
+            deferred_seek: None,
             current_rx: None,
             preload_rx: None,
             _stream: stream,
@@ -315,10 +319,16 @@ impl Player {
                     // Append the track to the sink.
                     // TODO : don't bail out on error
                     let decryptor = Decrypt::new(track, &self.bf_secret)?;
-                    let decoder = match track.quality() {
+                    let mut decoder = match track.quality() {
                         AudioQuality::Lossless => rodio::Decoder::new_flac(decryptor),
                         _ => rodio::Decoder::new_mp3(decryptor),
                     }?;
+
+                    if let Some(progress) = self.deferred_seek.take() {
+                        if let Err(e) = decoder.try_seek(progress) {
+                            error!("failed to seek to deferred position: {}", e);
+                        }
+                    }
 
                     let rx = if self.normalization {
                         let difference = self.gain_target_db - track.gain();
@@ -539,6 +549,7 @@ impl Player {
         self.sources = sources;
 
         self.playing_since = Duration::ZERO;
+        self.deferred_seek = None;
         self.current_rx = None;
         self.preload_rx = None;
     }
@@ -614,10 +625,23 @@ impl Player {
                 self.go_next();
             } else {
                 let progress = track.duration().mul_f32(progress);
-                self.sink.try_seek(progress)?;
-
-                // Reset the playing time to zero, as the sink will now reset it also.
-                self.playing_since = Duration::ZERO;
+                match self.sink.try_seek(progress) {
+                    Ok(()) => {
+                        // Reset the playing time to zero, as the sink will now reset it also.
+                        self.playing_since = Duration::ZERO;
+                    }
+                    Err(e) => {
+                        if let rodio::source::SeekError::NotSupported { .. } = e {
+                            // If the current track is not buffered yet, we can't seek.
+                            // In that case, we defer the seek until the track is buffered.
+                            if self.current_rx.is_none() {
+                                self.deferred_seek = Some(progress);
+                                return Ok(());
+                            }
+                        }
+                        return Err(e.into());
+                    }
+                }
             }
         }
 
