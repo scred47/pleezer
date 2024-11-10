@@ -91,7 +91,11 @@ impl Player {
     pub fn new(config: &Config, device: &str) -> Result<Self> {
         let (sink, stream) = Self::open_sink(device)?;
         let (sources, output) = rodio::queue::queue(true);
+
+        // The output source will output silence when the queue is empty.
+        // That will cause the sink to start playing, so we need to pause it.
         sink.append(output);
+        sink.pause();
 
         Ok(Self {
             queue: Vec::new(),
@@ -444,7 +448,7 @@ impl Player {
 
     #[must_use]
     pub fn is_playing(&self) -> bool {
-        !self.sink.is_paused() && !self.sink.empty()
+        self.current_rx.is_some() && !self.sink.is_paused()
     }
 
     pub fn set_playing(&mut self, should_play: bool) {
