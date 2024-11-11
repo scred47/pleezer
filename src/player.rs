@@ -331,13 +331,20 @@ impl Player {
                     }
 
                     let rx = if self.normalization {
-                        let difference = self.gain_target_db - track.gain();
-                        let ratio = f32::powf(10.0, difference / 20.0);
+                        let mut ratio = 1.0;
+                        match track.gain() {
+                            Some(gain) => {
+                                let difference = self.gain_target_db - gain;
+                                ratio = f32::powf(10.0, difference / 20.0);
 
-                        debug!(
-                            "normalizing track {track} ({} dB) by {ratio:.2}",
-                            track.gain()
-                        );
+                                debug!("normalizing track {track} ({gain} dB) by {ratio:.2}");
+                            }
+                            None => {
+                                warn!(
+                                    "track {track} has no gain information, skipping normalization"
+                                );
+                            }
+                        }
 
                         let normalized = decoder.amplify(ratio);
                         self.sources.append_with_signal(normalized)

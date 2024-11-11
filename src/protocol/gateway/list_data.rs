@@ -27,8 +27,8 @@ pub struct ListData {
     pub duration: Duration,
     #[serde(rename = "SNG_TITLE")]
     pub title: String,
-    #[serde_as(as = "DisplayFromStr")]
-    pub gain: f32,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub gain: Option<f32>,
     pub track_token: String,
     #[serde(rename = "TRACK_TOKEN_EXPIRE")]
     #[serde_as(as = "TimestampSeconds<i64, Flexible>")]

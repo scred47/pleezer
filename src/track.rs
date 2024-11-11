@@ -38,7 +38,7 @@ pub struct Track {
     track_token: String,
     title: String,
     artist: String,
-    gain: f32,
+    gain: Option<f32>,
     expiry: SystemTime,
     quality: AudioQuality,
     duration: Duration,
@@ -70,7 +70,7 @@ impl Track {
     }
 
     #[must_use]
-    pub fn gain(&self) -> f32 {
+    pub fn gain(&self) -> Option<f32> {
         self.gain
     }
 
