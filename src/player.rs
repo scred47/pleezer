@@ -542,7 +542,6 @@ impl Player {
         self.sources = sources;
 
         self.playing_since = Duration::ZERO;
-        self.deferred_seek = None;
         self.current_rx = None;
         self.preload_rx = None;
     }
@@ -622,17 +621,17 @@ impl Player {
                     Ok(()) => {
                         // Reset the playing time to zero, as the sink will now reset it also.
                         self.playing_since = Duration::ZERO;
+                        self.deferred_seek = None;
                     }
                     Err(e) => {
                         if let rodio::source::SeekError::NotSupported { .. } = e {
                             // If the current track is not buffered yet, we can't seek.
                             // In that case, we defer the seek until the track is buffered.
-                            if self.current_rx.is_none() {
-                                self.deferred_seek = Some(progress);
-                                return Ok(());
-                            }
+                            self.deferred_seek = Some(progress);
+                        } else {
+                            // If the seek failed for any other reason, we return an error.
+                            return Err(e.into());
                         }
-                        return Err(e.into());
                     }
                 }
             }
