@@ -54,6 +54,7 @@ pub struct Client {
     reporting_timer: Pin<Box<tokio::time::Sleep>>,
 
     queue: Option<queue::List>,
+    deferred_position: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
@@ -152,6 +153,7 @@ impl Client {
             interruptions: config.interruptions,
 
             queue: None,
+            deferred_position: None,
         })
     }
 
@@ -601,6 +603,10 @@ impl Client {
             self.queue = Some(list);
             self.player.set_queue(tracks);
 
+            if let Some(position) = self.deferred_position.take() {
+                self.player.set_position(position);
+            }
+
             return Ok(());
         }
 
@@ -692,9 +698,9 @@ impl Client {
             )
             .await?;
 
-            // The status response to the first skip, that is received during
-            // the initial handshake, should be "1" (Error).
-            let status = if self.is_connected() {
+            // The status response to the first skip, that is received during the initial handshake
+            // ahead of the queue publication, should be "1" (Error).
+            let status = if self.player.track().is_some() {
                 Status::OK
             } else {
                 Status::Error
@@ -726,28 +732,19 @@ impl Client {
         set_repeat_mode: Option<RepeatMode>,
         set_volume: Option<Percentage>,
     ) -> Result<()> {
-        // Set the element (track) before setting progress & playback.
-        // The queue containing this track should have been set before.
         if let Some(item) = item {
-            if let Some(queue_id) = queue_id {
-                if item.queue_id == queue_id {
-                    if let Some(ref local) = self.queue {
-                        if local.id != queue_id {
-                            return Err(Error::failed_precondition(format!(
-                                "remote queue {queue_id} does not match local queue {}",
-                                local.id
-                            )));
-                        }
-                    } else {
-                        // Weird but non-fatal - just play a single track then
-                        warn!("setting track without a local queue");
-                    }
-                    self.player.set_position(item.position)?;
-                } else {
-                    return Err(Error::failed_precondition(format!(
-                        "queue {queue_id} does not match queue item {item}"
-                    )));
-                }
+            let position = item.position;
+
+            // Sometimes Deezer sends a skip message ahead of a queue publication.
+            // In this case, we defer setting the position until the queue is published.
+            if self
+                .queue
+                .as_ref()
+                .is_some_and(|local| queue_id.is_some_and(|remote| local.id == remote))
+            {
+                self.player.set_position(position);
+            } else {
+                self.deferred_position = Some(position);
             }
         }
 
@@ -825,13 +822,9 @@ impl Client {
 
                 let command = self.command(controller.clone(), progress);
                 self.send_message(command).await?;
-
-                Ok(())
-            } else {
-                Err(Error::failed_precondition(
-                    "playback progress should have active track".to_string(),
-                ))
             }
+
+            Ok(())
         } else {
             Err(Error::failed_precondition(
                 "playback progress should have an active connection".to_string(),
