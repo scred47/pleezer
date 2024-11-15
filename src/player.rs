@@ -514,6 +514,12 @@ impl Player {
     /// It is allowed to set the position to a value that is greater than the length of the queue.
     /// This is useful when the queue is not yet set, but the future position is already known.
     pub fn set_position(&mut self, position: usize) {
+        // If the position is already set, do nothing. Deezer also sends the same position when
+        // seeking, in which case we should not clear the current track.
+        if self.position == position {
+            return;
+        }
+
         debug!("setting playlist position to {position}");
 
         // While skipping to another track, cancel the download of the current track if it is
