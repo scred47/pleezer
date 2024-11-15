@@ -140,6 +140,17 @@ impl Gateway {
         {
             Ok(response) => {
                 if let Some(data) = response.first() {
+                    if !data.gatekeeps.remote_control {
+                        return Err(Error::permission_denied(
+                            "remote control is disabled for this account".to_string(),
+                        ));
+                    }
+                    if data.user.options.too_many_devices {
+                        return Err(Error::permission_denied(
+                            "too many devices; remove one or more in your account settings"
+                                .to_string(),
+                        ));
+                    }
                     self.set_user_data(data.clone());
                 } else {
                     return Err(Error::not_found("no user data received".to_string()));
@@ -335,25 +346,11 @@ impl Gateway {
         }
 
         match &self.user_data {
-            Some(data) => {
-                if !data.gatekeeps.remote_control {
-                    return Err(Error::permission_denied(
-                        "remote control is disabled for this account".to_string(),
-                    ));
-                }
-                if data.user.options.too_many_devices {
-                    return Err(Error::permission_denied(
-                        "too many devices; remove one or more in your account settings".to_string(),
-                    ));
-                }
-
-                let expires_at = self.expires_at();
-                Ok(UserToken {
-                    user_id: data.user.id,
-                    token: data.user_token.clone(),
-                    expires_at,
-                })
-            }
+            Some(data) => Ok(UserToken {
+                user_id: data.user.id,
+                token: data.user_token.clone(),
+                expires_at: self.expires_at(),
+            }),
             None => Err(Error::unavailable("user data unavailable".to_string())),
         }
     }

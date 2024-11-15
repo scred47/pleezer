@@ -33,8 +33,10 @@ pub struct Client {
 
     credentials: Credentials,
     gateway: Gateway,
-    // TODO : merge with gateway
+
     user_token: Option<UserToken>,
+    time_to_live_tx: tokio::sync::mpsc::Sender<Duration>,
+    time_to_live_rx: tokio::sync::mpsc::Receiver<Duration>,
 
     version: String,
     websocket_tx:
@@ -128,13 +130,18 @@ impl Client {
         let watchdog_rx = tokio::time::sleep(Duration::ZERO);
         let watchdog_tx = tokio::time::sleep(Duration::ZERO);
 
+        let (time_to_live_tx, time_to_live_rx) = tokio::sync::mpsc::channel(1);
+
         Ok(Self {
             device_id: config.device_id.into(),
             device_name: config.device_name.clone(),
 
             credentials: config.credentials.clone(),
             gateway: Gateway::new(config)?,
+
             user_token: None,
+            time_to_live_tx,
+            time_to_live_rx,
 
             version,
             websocket_tx: None,
@@ -178,36 +185,39 @@ impl Client {
                 .time_to_live()
                 .checked_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
 
-            if let Some(duration) = time_to_live {
-                debug!("user id: {}", token.user_id);
+            match time_to_live {
+                Some(duration) => {
+                    // This takes a few milliseconds and would normally
+                    // truncate (round down). Return `ceil` is more human
+                    // readable.
+                    debug!(
+                        "user data time to live: {:.0}s",
+                        duration.as_secs_f32().ceil(),
+                    );
 
-                let audio_quality = self.gateway.audio_quality().unwrap_or_default();
-                info!("user casting quality: {audio_quality}");
-                self.player.set_audio_quality(audio_quality);
-
-                let normalization = self.gateway.normalization().unwrap_or_default();
-                let gain_target_db = self.gateway.target_gain().unwrap_or(DEFAULT_GAIN_TARGET_DB);
-                info!("volume normalization to {gain_target_db:.1} dB: {normalization}");
-                self.player.set_gain_target_db(gain_target_db);
-                self.player.set_normalization(normalization);
-
-                if let Some(license_token) = self.gateway.license_token() {
-                    self.player.set_license_token(license_token);
+                    break Ok((token, duration));
                 }
-
-                // This takes a few milliseconds and would normally
-                // truncate (round down). Return `ceil` is more human
-                // readable.
-                debug!(
-                    "user data time to live: {:.0}s",
-                    duration.as_secs_f32().ceil(),
-                );
-
-                break Ok((token, duration));
+                None => {
+                    // Flush user tokens that expire within the threshold.
+                    self.gateway.flush_user_token();
+                }
             }
+        }
+    }
 
-            // Flush user tokens that expire within the threshold.
-            self.gateway.flush_user_token();
+    fn set_player_settings(&mut self) {
+        let audio_quality = self.gateway.audio_quality().unwrap_or_default();
+        info!("user casting quality: {audio_quality}");
+        self.player.set_audio_quality(audio_quality);
+
+        let normalization = self.gateway.normalization().unwrap_or_default();
+        let gain_target_db = self.gateway.target_gain().unwrap_or(DEFAULT_GAIN_TARGET_DB);
+        info!("volume normalization to {gain_target_db:.1} dB: {normalization}");
+        self.player.set_gain_target_db(gain_target_db);
+        self.player.set_normalization(normalization);
+
+        if let Some(license_token) = self.gateway.license_token() {
+            self.player.set_license_token(license_token);
         }
     }
 
@@ -220,10 +230,12 @@ impl Client {
     /// - sending or receiving messages failed
     pub async fn start(&mut self) -> Result<()> {
         if let Credentials::Login { email, password } = &self.credentials.clone() {
+            // We can drop the result because the ARL is stored as a cookie.
             let _arl = self.login(email, password).await?;
         }
 
         let (user_token, time_to_live) = self.user_token().await?;
+        debug!("user id: {}", user_token.user_id);
 
         // Set timer for user token expiration. Wake a short while before
         // actual expiration. This prevents API request errors when the
@@ -238,6 +250,8 @@ impl Client {
         .parse::<http::Uri>()?;
         let mut request = ClientRequestBuilder::new(uri);
 
+        self.user_token = Some(user_token);
+
         // Decorate the websocket request with the same cookies as the gateway.
         if let Some(cookies) = self.gateway.cookies() {
             if let Ok(cookie_str) = cookies.to_str() {
@@ -250,8 +264,6 @@ impl Client {
         let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
         let (websocket_tx, mut websocket_rx) = ws_stream.split();
         self.websocket_tx = Some(websocket_tx);
-
-        self.user_token = Some(user_token);
 
         self.subscribe(Ident::Stream).await?;
         self.subscribe(Ident::RemoteDiscover).await?;
@@ -279,6 +291,11 @@ impl Client {
 
                 () = &mut expiry => {
                     break Err(Error::deadline_exceeded("user token expired"));
+                }
+                Some(time_to_live) = self.time_to_live_rx.recv() => {
+                    if let Some(deadline) = tokio::time::Instant::now().checked_add(time_to_live) {
+                        expiry.as_mut().reset(deadline);
+                    }
                 }
 
                 () = &mut self.reporting_timer, if self.is_connected() && self.player.is_playing() => {
@@ -308,7 +325,8 @@ impl Client {
                                         break Ok(());
                                     }
 
-                                    break Err(Error::internal(format!("error handling message: {e}")));                                }
+                                    break Err(Error::internal(format!("error handling message: {e}")));
+                                }
                             }
                         }
                         Err(e) => error!("error receiving message: {e}"),
@@ -548,6 +566,17 @@ impl Client {
                     self.discovery_state = DiscoveryState::Taken;
                 }
 
+                // Refreshed the user token on every reconnection in order to reload the user
+                // configuration, like normalization and audio quality.
+                let (user_token, time_to_live) = self.user_token().await?;
+                self.user_token = Some(user_token);
+                self.set_player_settings();
+
+                // Inform the select loop about the new time to live.
+                if let Err(e) = self.time_to_live_tx.send(time_to_live).await {
+                    error!("failed to send user token time to live: {e}");
+                }
+
                 // The unique session ID is used when reporting playback.
                 self.connection_state = ConnectionState::Connected {
                     controller: from,
@@ -585,6 +614,9 @@ impl Client {
         if let Some(controller) = self.controller() {
             info!("disconnected from {controller}");
         }
+
+        // Force the user token to be reloaded on the next connection.
+        self.gateway.flush_user_token();
 
         self.connection_state = ConnectionState::Disconnected;
         self.discovery_state = DiscoveryState::Available;

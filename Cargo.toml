@@ -16,7 +16,6 @@ exclude = ["secrets.toml"]
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-async-trait = "0.1"
 base64 = "0.22"
 blowfish = "0.9"
 cbc = "0.1"
