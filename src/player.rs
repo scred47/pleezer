@@ -1,3 +1,4 @@
+use core::f32;
 use std::{sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -299,6 +300,9 @@ impl Player {
         }
     }
 
+    const AGC_ATTACK_TIME: Duration = Duration::from_millis(5);
+    const AGC_RELEASE_TIME: Duration = Duration::from_millis(100);
+
     async fn load_track(
         &mut self,
         position: usize,
@@ -330,14 +334,20 @@ impl Player {
                         }
                     }
 
-                    let rx = if self.normalization {
-                        let mut ratio = 1.0;
+                    let mut difference = 0.0;
+                    let mut ratio = 1.0;
+                    if self.normalization {
                         match track.gain() {
                             Some(gain) => {
-                                let difference = self.gain_target_db - gain;
-                                ratio = f32::powf(10.0, difference / 20.0);
+                                difference = self.gain_target_db - gain;
 
-                                debug!("normalizing track {track} ({gain} dB) by {ratio:.2}");
+                                // Keep -1 dBTP of headroom on tracks with lossy decoding to avoid
+                                // clipping due to inter-sample peaks.
+                                if difference > 0.0 && track.quality() != AudioQuality::Lossless {
+                                    difference -= 1.0;
+                                }
+
+                                ratio = f32::powf(10.0, difference / 20.0);
                             }
                             None => {
                                 warn!(
@@ -345,9 +355,27 @@ impl Player {
                                 );
                             }
                         }
+                    }
 
-                        let normalized = decoder.amplify(ratio);
-                        self.sources.append_with_signal(normalized)
+                    let rx = if ratio < 1.0 {
+                        debug!(
+                            "attenuating track {track} by {difference:.1} dB ({})",
+                            Percentage::from_ratio_f32(ratio)
+                        );
+                        let attenuated = decoder.amplify(ratio);
+                        self.sources.append_with_signal(attenuated)
+                    } else if ratio > 1.0 {
+                        debug!(
+                            "amplifying track {track} by {difference:.1} dB ({}) (with limiter)",
+                            Percentage::from_ratio_f32(ratio)
+                        );
+                        let amplified = decoder.automatic_gain_control(
+                            ratio,
+                            Self::AGC_ATTACK_TIME.as_secs_f32(),
+                            Self::AGC_RELEASE_TIME.as_secs_f32(),
+                            difference,
+                        );
+                        self.sources.append_with_signal(amplified)
                     } else {
                         self.sources.append_with_signal(decoder)
                     };

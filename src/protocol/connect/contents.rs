@@ -451,7 +451,7 @@ impl Percentage {
 impl fmt::Display for Percentage {
     /// Formats an `Percentage` for display with a `%` sign.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:.2}%", self.as_percent_f32())
+        write!(f, "{:.1}%", self.as_percent_f32())
     }
 }
 
