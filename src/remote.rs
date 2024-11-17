@@ -1,4 +1,4 @@
-use std::{collections::HashSet, num::NonZeroU64, ops::ControlFlow, pin::Pin, time::Duration};
+use std::{collections::HashSet, ops::ControlFlow, pin::Pin, time::Duration};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use log::Level;
@@ -24,7 +24,7 @@ use crate::{
         QueueItem, RepeatMode, Status, UserId,
     },
     tokens::UserToken,
-    track::Track,
+    track::{Track, TrackId},
 };
 
 pub struct Client {
@@ -409,7 +409,7 @@ impl Client {
         self.message(destination, remote_discover, body)
     }
 
-    async fn report_playback(&mut self, track_id: NonZeroU64) -> Result<()> {
+    async fn report_playback(&mut self, track_id: TrackId) -> Result<()> {
         if let ConnectionState::Connected { session_id, .. } = &self.connection_state {
             let message = Message::StreamSend {
                 channel: self.channel(Ident::Stream),

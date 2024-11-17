@@ -6,6 +6,7 @@ use std::{
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UserToken {
+    // TODO: replace with UserId
     pub user_id: NonZeroU64,
     pub token: String,
     pub expires_at: SystemTime,

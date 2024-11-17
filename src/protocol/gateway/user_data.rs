@@ -46,6 +46,7 @@ pub struct UserData {
 #[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
 pub struct User {
     #[serde(rename = "USER_ID")]
+    // TODO : replace with UserId
     pub id: NonZeroU64,
     #[serde(rename = "OPTIONS")]
     pub options: Options,

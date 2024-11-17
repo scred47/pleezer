@@ -1,7 +1,6 @@
 use std::{
     fs,
     io::{self, Cursor, Read, Seek, SeekFrom},
-    num::NonZeroU64,
     ops::Deref,
     str::FromStr,
 };
@@ -13,7 +12,7 @@ use md5::{Digest, Md5};
 use crate::{
     error::{Error, Result},
     protocol::media::Cipher,
-    track::Track,
+    track::{Track, TrackId},
 };
 
 /// Provides a stream of decrypted data from an encrypted track by implementing
@@ -143,7 +142,7 @@ impl Decrypt {
     /// Calculate the decryption key for a track ID and salt. The salt is the
     /// Deezer decryption key, from which the track-specific key is calculated.
     #[must_use]
-    pub fn key_for_track_id(track_id: NonZeroU64, salt: &Key) -> Key {
+    pub fn key_for_track_id(track_id: TrackId, salt: &Key) -> Key {
         let track_hash = format!("{:x}", Md5::digest(track_id.to_string()));
         let track_hash = track_hash.as_bytes();
 

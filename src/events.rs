@@ -1,8 +1,8 @@
-use std::num::NonZeroU64;
+use crate::track::TrackId;
 
 #[derive(Clone, Debug)]
 pub enum Event {
-    Play(NonZeroU64),
+    Play(TrackId),
     // TODO - proposals:
     // QueueChanged(Queue),
     // PlayingChanged(bool),

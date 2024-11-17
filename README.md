@@ -28,15 +28,16 @@
 
 - **Audio Quality**: Stream audio in basic, standard, HQ, and lossless formats based on your Deezer subscription level.
 - **Gapless Playback**: Enjoy uninterrupted transitions between tracks.
-- **Playback Controls**: Includes options for repeat, shuffle, Flow, and mixes.
+- **Flow & Mixes**: Listen to personalized playlists and mixes.
 - **Playback Reporting**: Provides accurate playback data for artist monetization.
 - **Authentication**: Allows login using email/password or ARL (Authentication Reference Link).
 - **Normalization**: Ensures consistent volume levels across all tracks.
+- **User-uploaded MP3 Files**: Supports playback of user-uploaded MP3 files.
 
 ### Planned Features
 
+- **Shuffle**: Support for shuffling tracks in a playlist.
 - **Radio and Podcasts**: Support for Deezer’s radio and podcast features.
-- **User-uploaded MP3 Files**: Support playback of MP3 files uploaded by users to Deezer.
 - **Device Registration**: Register unique devices and adhere to Deezer’s device limit policy.
 - **Proxy Support**: Enable the use of **pleezer** in environments with restricted internet access.
 listening experience.

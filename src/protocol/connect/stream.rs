@@ -1,11 +1,11 @@
-use std::{fmt, num::NonZeroU64, str::FromStr};
+use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DeserializeFromStr, DisplayFromStr, SerializeDisplay};
 use uuid::Uuid;
 
 use super::channel::UserId;
-use crate::error::Error;
+use crate::{error::Error, track::TrackId};
 
 /// The contents of a [`Message`] on a [`Stream`] [`Channel`] on a
 /// [Deezer Connect][Connect] websocket.
@@ -56,7 +56,7 @@ pub struct Value {
 
     #[serde(rename = "SNG_ID")]
     #[serde_as(as = "DisplayFromStr")]
-    pub track_id: NonZeroU64,
+    pub track_id: TrackId,
 }
 
 #[derive(Copy, Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, Hash)]

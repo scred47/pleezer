@@ -245,6 +245,7 @@ impl Client {
         request: reqwest::Request,
     ) -> impl Future<Output = Result<reqwest::Response>> + '_ {
         // No need to await with jitter because the level of concurrency is low.
+        // TODO : use different rate limiter for each host.
         let throttle = self.rate_limiter.until_ready();
         throttle.then(|()| self.unlimited.execute(request).map_err(Into::into))
     }

@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Write},
     io::Read,
-    num::NonZeroU64,
     str::FromStr,
     time::Duration,
 };
@@ -23,7 +22,7 @@ use uuid::Uuid;
 
 use super::channel::Ident;
 use super::protos::queue;
-use crate::error::Error;
+use crate::{error::Error, track::TrackId};
 
 // Most IDs are UUIDs, but case sensitive, while Deezer Connect uses
 // uppercase on iOS and lowercase on Android. Therefore, many IDs are typed
@@ -390,7 +389,7 @@ impl fmt::Display for AudioQuality {
             AudioQuality::Standard => write!(f, "Standard"),
             AudioQuality::High => write!(f, "High Quality"),
             AudioQuality::Lossless => write!(f, "High Fidelity"),
-            AudioQuality::Unknown => Err(fmt::Error),
+            AudioQuality::Unknown => write!(f, "Unknown"),
         }
     }
 }
@@ -460,7 +459,7 @@ impl fmt::Display for Percentage {
 )]
 pub struct QueueItem {
     pub queue_id: String,
-    pub track_id: NonZeroU64,
+    pub track_id: TrackId,
     // `usize` because this will index into an array. Also from the protobuf it
     // is known that this really an `u32`.
     pub position: usize,
@@ -524,7 +523,21 @@ impl FromStr for QueueItem {
                 "list element string slice should hold `track_id` part".to_string(),
             )
         })?;
-        let track_id = track_id.parse::<NonZeroU64>()?;
+
+        // User-uploaded track IDs are negative. If the track ID is empty, then
+        // see if the next part is a user-uploaded track ID.
+        let track_id = if track_id.is_empty() {
+            if let Some(user_uploaded_id) = parts.next() {
+                let negative_track_id = format!("-{user_uploaded_id}");
+                negative_track_id.parse::<TrackId>()?
+            } else {
+                return Err(Self::Err::invalid_argument(
+                    "user-uploaded track id should not be empty".to_string(),
+                ));
+            }
+        } else {
+            track_id.parse::<TrackId>()?
+        };
 
         let position = parts.next().ok_or_else(|| {
             Self::Err::invalid_argument(

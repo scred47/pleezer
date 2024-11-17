@@ -1,6 +1,6 @@
 use std::{
     fmt, fs,
-    num::NonZeroU64,
+    num::NonZeroI64,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
 };
@@ -31,10 +31,13 @@ pub enum State {
     Complete,
 }
 
+/// A unique identifier for a track. User-uploaded tracks are identified by negative IDs.
+#[expect(clippy::module_name_repetitions)]
+pub type TrackId = NonZeroI64;
+
 #[derive(Debug)]
 pub struct Track {
-    // TODO : replace NonZeroU64 with TrackId everywhere
-    id: NonZeroU64,
+    id: TrackId,
     track_token: String,
     title: String,
     artist: String,
@@ -60,7 +63,7 @@ impl Track {
     const PREFETCH_DEFAULT: usize = 60 * 1024;
 
     #[must_use]
-    pub fn id(&self) -> NonZeroU64 {
+    pub fn id(&self) -> TrackId {
         self.id
     }
 
@@ -243,8 +246,12 @@ impl Track {
             }],
         };
 
+        // Do not use `client.unlimited` but instead apply rate limiting.
+        // This is to prevent hammering the Deezer API in case of deserialize errors.
         let get_url = Self::MEDIA_GET_URL.parse::<reqwest::Url>()?;
-        let response = client.unlimited.post(get_url).json(&request).send().await?;
+        let body = serde_json::to_string(&request)?;
+        let request = client.post(get_url, body);
+        let response = client.execute(request).await?;
         let result = response.json::<media::Response>().await?;
 
         // Deezer only sends a single media object.
@@ -267,7 +274,9 @@ impl Track {
 
         let available_quality = AudioQuality::from(result.format);
 
-        if quality != available_quality {
+        // User-uploaded tracks are not reported with any quality. We could estimate the quality
+        // based on the bitrate, but the official client does not do this either.
+        if !self.is_user_uploaded() && quality != available_quality {
             warn!(
                 "requested track {self} in {}, but got {}",
                 quality, available_quality
@@ -275,6 +284,11 @@ impl Track {
         }
 
         Ok(result)
+    }
+
+    #[must_use]
+    pub fn is_user_uploaded(&self) -> bool {
+        self.id.is_negative()
     }
 
     async fn open_stream(

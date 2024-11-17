@@ -106,6 +106,8 @@ fn init_logger(config: &Args) {
         logger.filter_module(module_path!(), level);
 
         // Filter log messages of external crates.
+        logger.filter_module("symphonia_bundle_flac", LevelFilter::Warn);
+        logger.filter_module("symphonia_bundle_mp3", LevelFilter::Warn);
         logger.filter_module("symphonia_core", LevelFilter::Warn);
     }
 

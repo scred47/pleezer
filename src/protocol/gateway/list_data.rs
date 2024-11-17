@@ -1,11 +1,12 @@
-use std::{
-    num::NonZeroU64,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
-use serde_with::{formats::Flexible, serde_as, DisplayFromStr, DurationSeconds, TimestampSeconds};
+use serde_with::{
+    formats::Flexible, serde_as, DisplayFromStr, DurationSeconds, PickFirst, TimestampSeconds,
+};
 use veil::Redact;
+
+use crate::track::TrackId;
 
 use super::Method;
 
@@ -20,8 +21,8 @@ pub type Queue = Vec<ListData>;
 #[serde(rename_all = "UPPERCASE")]
 pub struct ListData {
     #[serde(rename = "SNG_ID")]
-    #[serde_as(as = "DisplayFromStr")]
-    pub track_id: NonZeroU64,
+    #[serde_as(as = "PickFirst<(_, serde_with::DisplayFromStr)>")]
+    pub track_id: TrackId,
     #[serde(rename = "ART_NAME")]
     pub artist: String,
     #[serde_as(as = "DurationSeconds<String>")]
@@ -42,5 +43,5 @@ pub struct ListData {
 pub struct Request {
     #[serde(rename = "sng_ids")]
     #[serde_as(as = "Vec<DisplayFromStr>")]
-    pub track_ids: Vec<NonZeroU64>,
+    pub track_ids: Vec<TrackId>,
 }
