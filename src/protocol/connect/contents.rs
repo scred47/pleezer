@@ -73,7 +73,7 @@ pub struct Contents {
 impl fmt::Display for Contents {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // FIXME: padding is not respected.
-        write!(f, "{:<16}", self.body.message_type(),)
+        write!(f, "{:<16}", self.body.message_type())
     }
 }
 

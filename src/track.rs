@@ -18,7 +18,7 @@ use crate::{
     protocol::{
         connect::AudioQuality,
         gateway,
-        media::{self, Cipher, CipherFormat, Format, Medium},
+        media::{self, Cipher, CipherFormat, Data, Format, Medium},
     },
 };
 
@@ -207,6 +207,10 @@ impl Track {
     ///
     /// Returns an error if the requested audio quality is unknown, or if the
     /// media source could not be retrieved.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the download state lock is poisoned.
     pub async fn get_medium(
         &self,
         client: &http::Client,
@@ -243,13 +247,21 @@ impl Track {
         let response = client.unlimited.post(get_url).json(&request).send().await?;
         let result = response.json::<media::Response>().await?;
 
-        // The official client also seems to always use the first media object.
-        let result = result
-            .data
-            .first()
-            .and_then(|data| data.media.first())
-            .cloned()
-            .ok_or_else(|| Error::not_found(format!("no media found for track {self}")))?;
+        // Deezer only sends a single media object.
+        let result = match result.data.first() {
+            Some(data) => match data {
+                Data::Media { media } => media.first().cloned().ok_or(Error::not_found(
+                    format!("empty media data for track {self}"),
+                ))?,
+                Data::Errors { errors } => {
+                    return Err(Error::unavailable(errors.first().map_or_else(
+                        || format!("unknown error getting media for track {self}"),
+                        ToString::to_string,
+                    )));
+                }
+            },
+            None => return Err(Error::not_found(format!("no media data for track {self}"))),
+        };
 
         trace!("{} (redacted): {{ ... }}", Self::MEDIA_GET_URL);
 
@@ -257,7 +269,7 @@ impl Track {
 
         if quality != available_quality {
             warn!(
-                "requested track {self} in {} audio quality, but got {}",
+                "requested track {self} in {}, but got {}",
                 quality, available_quality
             );
         }
@@ -270,14 +282,15 @@ impl Track {
         client: &http::Client,
         medium: &Medium,
     ) -> Result<HttpStream<reqwest::Client>> {
+        let mut result = Err(Error::unavailable(format!(
+            "no valid sources found for track {self}"
+        )));
+
+        let now = SystemTime::now();
+
         // Deezer usually returns multiple sources for a track. The official
         // client seems to always use the first one. We start with the first
         // and continue with the next one if the first one fails to start.
-        let mut stream = Err(Error::unavailable(format!(
-            "no valid sources found for track {self}"
-        )));
-        let now = SystemTime::now();
-
         #[expect(clippy::iter_next_slice)]
         while let Some(source) = medium.sources.iter().next() {
             // URLs can theoretically be non-HTTP, and we only support HTTP(S) URLs.
@@ -309,7 +322,7 @@ impl Track {
             match HttpStream::new(client.unlimited.clone(), source.url.clone()).await {
                 Ok(http_stream) => {
                     debug!("starting download of track {self} from {host_str}");
-                    stream = Ok(http_stream);
+                    result = Ok(http_stream);
                     break;
                 }
                 Err(err) => {
@@ -319,7 +332,7 @@ impl Track {
             };
         }
 
-        stream
+        result
     }
 
     /// Start downloading the track with the given `client` and from the given

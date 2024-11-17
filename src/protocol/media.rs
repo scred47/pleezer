@@ -90,8 +90,22 @@ pub struct Response {
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
-pub struct Data {
-    pub media: Vec<Medium>,
+#[serde(untagged)]
+pub enum Data {
+    Media { media: Vec<Medium> },
+    Errors { errors: Vec<Error> },
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
+pub struct Error {
+    code: i64,
+    message: String,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} ({})", self.message, self.code)
+    }
 }
 
 #[serde_as]

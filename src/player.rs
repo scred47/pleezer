@@ -311,13 +311,26 @@ impl Player {
             match track.state() {
                 State::Pending => {
                     // Start downloading the track.
-                    let medium = track
+                    match track
                         .get_medium(&self.client, self.audio_quality, self.license_token.clone())
-                        .await?;
-                    track
-                        .start_download(&self.client, &medium)
                         .await
-                        .map(|()| None)
+                    {
+                        Ok(medium) => match track.start_download(&self.client, &medium).await {
+                            Ok(()) => return Ok(None),
+                            Err(e) => {
+                                error!("failed to start download: {}", e);
+                            }
+                        },
+                        Err(e) => {
+                            error!("failed to get medium: {}", e);
+                        }
+                    }
+
+                    // Open a channe and immediately send a message, signaling that the track is
+                    // "done". This will prevent the player from trying to load the track again.
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    let _ = tx.send(());
+                    Ok(Some(rx))
                 }
                 State::Buffered | State::Complete => {
                     // Append the track to the sink.
