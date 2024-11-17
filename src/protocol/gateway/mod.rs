@@ -1,8 +1,8 @@
-pub mod get_arl;
+pub mod arl;
 pub mod list_data;
 pub mod user_data;
 
-pub use get_arl::GetArl;
+pub use arl::Arl;
 pub use list_data::{ListData, Queue};
 pub use user_data::UserData;
 

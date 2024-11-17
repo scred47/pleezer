@@ -314,7 +314,7 @@ impl Gateway {
         )?;
 
         let arl = self
-            .request::<gateway::GetArl>(Self::EMPTY_JSON_OBJECT, Some(headers))
+            .request::<gateway::Arl>(Self::EMPTY_JSON_OBJECT, Some(headers))
             .await
             .and_then(|response| {
                 response
