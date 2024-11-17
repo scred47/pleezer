@@ -2,6 +2,7 @@ use std::{num::NonZeroU64, time::SystemTime};
 
 use serde::Deserialize;
 use serde_with::{formats::Flexible, serde_as, DisplayFromStr, TimestampSeconds};
+use veil::Redact;
 
 use super::Method;
 
@@ -14,13 +15,14 @@ impl Method for UserData {
 
 // TODO : #[serde(rename_all = "UPPERCASE")]
 #[serde_as]
-#[derive(Clone, PartialEq, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Deserialize, Redact)]
 pub struct UserData {
     #[serde(rename = "USER")]
     pub user: User,
     #[serde(rename = "SESSION_ID")]
     session_id: String,
     #[serde(rename = "USER_TOKEN")]
+    #[redact]
     pub user_token: String,
     #[serde(rename = "OFFER_NAME")]
     pub plan: String,
@@ -28,8 +30,10 @@ pub struct UserData {
     #[serde(rename = "SERVER_TIMESTAMP")]
     timestamp: SystemTime,
     #[serde(rename = "PLAYER_TOKEN")]
+    #[redact]
     player_token: String,
     #[serde(rename = "checkForm")]
+    #[redact]
     pub api_token: String,
     #[serde(rename = "__DZR_GATEKEEPS__")]
     pub gatekeeps: Gatekeeps,
@@ -54,8 +58,9 @@ pub struct User {
 // TODO: find out how to register our own device.
 
 #[serde_as]
-#[derive(Clone, Eq, PartialEq, Deserialize, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Redact, Hash)]
 pub struct Options {
+    #[redact]
     pub license_token: String,
     audio_quality_default_preset: String,
     pub too_many_devices: bool,

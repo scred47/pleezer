@@ -167,9 +167,8 @@ impl Client {
     async fn login(&mut self, email: &str, password: &str) -> Result<Arl> {
         let arl = self.gateway.login(email, password).await?;
 
-        let len = arl.len();
-        let min = usize::min(len, 8);
-        trace!("redacted arl {}... with {} characters", &arl[0..min], len);
+        // Use `arl:?` to print as `Debug`, which is redacted.
+        trace!("arl: {arl:?}");
 
         Ok(arl)
     }

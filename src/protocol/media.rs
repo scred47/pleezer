@@ -3,6 +3,7 @@ use std::{fmt, time::SystemTime};
 use serde::{Deserialize, Serialize};
 use serde_with::{formats::Flexible, serde_as, DisplayFromStr, TimestampSeconds};
 use url::Url;
+use veil::Redact;
 
 use super::connect::AudioQuality;
 
@@ -131,9 +132,10 @@ pub struct CipherType {
 }
 
 #[serde_as]
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Redact, Hash)]
 pub struct Source {
     #[serde_as(as = "DisplayFromStr")]
+    #[redact]
     pub url: Url,
     pub provider: String,
 }

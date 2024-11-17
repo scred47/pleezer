@@ -15,7 +15,7 @@ use crate::{
     http::Client as HttpClient,
     protocol::{
         connect::{queue, AudioQuality},
-        gateway::{self, Method, Queue, UserData},
+        gateway::{self, Queue, UserData},
     },
     // TODO : move into gateway
     tokens::UserToken,
@@ -217,13 +217,7 @@ impl Gateway {
 
         let response = self.http_client.execute(request).await?;
         let result = response.json::<gateway::Response<T>>().await?;
-
-        let redacted = T::METHOD == gateway::get_arl::GetArl::METHOD;
-        if redacted {
-            trace!("{} (redacted): {{ ... }}", T::METHOD);
-        } else {
-            trace!("{}: {result:#?}", T::METHOD);
-        }
+        trace!("{}: {result:#?}", T::METHOD);
 
         Ok(result)
     }

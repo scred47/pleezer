@@ -263,7 +263,7 @@ impl Track {
             None => return Err(Error::not_found(format!("no media data for track {self}"))),
         };
 
-        trace!("{} (redacted): {{ ... }}", Self::MEDIA_GET_URL);
+        trace!("get_url: {result:#?}");
 
         let available_quality = AudioQuality::from(result.format);
 

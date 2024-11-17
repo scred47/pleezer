@@ -5,6 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use serde_with::{formats::Flexible, serde_as, DisplayFromStr, DurationSeconds, TimestampSeconds};
+use veil::Redact;
 
 use super::Method;
 
@@ -15,7 +16,7 @@ impl Method for ListData {
 pub type Queue = Vec<ListData>;
 
 #[serde_as]
-#[derive(Clone, PartialEq, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Deserialize, Redact)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct ListData {
     #[serde(rename = "SNG_ID")]
@@ -29,6 +30,7 @@ pub struct ListData {
     pub title: String,
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub gain: Option<f32>,
+    #[redact]
     pub track_token: String,
     #[serde(rename = "TRACK_TOKEN_EXPIRE")]
     #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
