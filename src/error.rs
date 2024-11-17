@@ -513,3 +513,9 @@ impl From<rodio::decoder::DecoderError> for Error {
         }
     }
 }
+
+impl From<tokio::time::error::Elapsed> for Error {
+    fn from(e: tokio::time::error::Elapsed) -> Self {
+        Self::deadline_exceeded(e.to_string())
+    }
+}

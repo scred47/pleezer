@@ -14,7 +14,7 @@ use crate::{
     error::{Error, ErrorKind, Result},
     http::Client as HttpClient,
     protocol::{
-        connect::{queue, AudioQuality},
+        connect::{queue, AudioQuality, UserId},
         gateway::{self, Queue, UserData},
     },
     // TODO : move into gateway
@@ -294,6 +294,31 @@ impl Gateway {
         let body = serde_json::to_string(&track_list)?;
         match self.request::<gateway::ListData>(body, None).await {
             Ok(response) => Ok(response.all().clone()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Gets a Flow playlist for the user.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if:
+    /// - the HTTP request fails
+    /// - the HTTP response cannot be parsed as [JSON]
+    pub async fn user_radio(&mut self, user_id: UserId) -> Result<Queue> {
+        let request = gateway::user_radio::Request { user_id };
+        let body = serde_json::to_string(&request)?;
+        match self.request::<gateway::UserRadio>(body, None).await {
+            Ok(response) => {
+                // Transform the `UserRadio` response into a `Queue`. This is done to have
+                // `UserRadio` re-use the `ListData` struct (for which `Queue` is an alias).
+                Ok(response
+                    .all()
+                    .clone()
+                    .into_iter()
+                    .map(|item| item.0)
+                    .collect())
+            }
             Err(e) => Err(e),
         }
     }

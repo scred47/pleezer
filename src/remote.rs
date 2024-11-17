@@ -20,8 +20,9 @@ use crate::{
     gateway::Gateway,
     player::{Player, DEFAULT_GAIN_TARGET_DB},
     protocol::connect::{
-        queue, stream, Body, Channel, Contents, DeviceId, Headers, Ident, Message, Percentage,
-        QueueItem, RepeatMode, Status, UserId,
+        queue::{self, ContainerType, MixType},
+        stream, Body, Channel, Contents, DeviceId, Headers, Ident, Message, Percentage, QueueItem,
+        RepeatMode, Status, UserId,
     },
     tokens::UserToken,
     track::{Track, TrackId},
@@ -624,14 +625,56 @@ impl Client {
     async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
         // TODO : does it really matter whether there's an active connection?
         if self.controller().is_some() {
-            // TODO : kick off into separate thread and await with timeout
-            let queue = self.gateway.list_to_queue(&list).await?;
-            let tracks = queue.into_iter().map(Track::from).collect();
+            let context = list.contexts.first().unwrap_or_default();
+            let container_type = context.container.typ.enum_value_or_default();
+            let mix_type = context.container.mix.typ.enum_value_or_default();
 
-            // TODO : check list type for podcasts, radio, etc.
+            let is_flow = mix_type == MixType::MIX_TYPE_USER;
+
+            // Await with timeout in order to prevent blocking the select loop.
+            let queue = tokio::time::timeout(Duration::from_secs(1), async {
+                match container_type {
+                    ContainerType::CONTAINER_TYPE_LIVE => {
+                        error!("live radio is not supported yet");
+                        Ok(Vec::new())
+                    }
+                    ContainerType::CONTAINER_TYPE_PODCAST => {
+                        error!("podcasts are not supported yet");
+                        Ok(Vec::new())
+                    }
+                    _ => {
+                        if is_flow {
+                            self.gateway.user_radio(self.user_id()).await
+                        } else {
+                            self.gateway.list_to_queue(&list).await
+                        }
+                    }
+                }
+            })
+            .await??;
+
+            let tracks: Vec<_> = queue.into_iter().map(Track::from).collect();
 
             debug!("setting queue to {}", list.id);
-            self.queue = Some(list);
+
+            if is_flow {
+                let mut list = list.clone();
+                list.tracks = tracks
+                    .iter()
+                    .map(|track| queue::Track {
+                        id: track.id().to_string(),
+                        ..Default::default()
+                    })
+                    .collect();
+
+                self.queue = Some(list);
+
+                // Refresh the controller's queue with the tracks that we got from the user radio.
+                self.handle_refresh_queue().await?;
+            } else {
+                self.queue = Some(list);
+            }
+
             self.player.set_queue(tracks);
 
             if let Some(position) = self.deferred_position.take() {

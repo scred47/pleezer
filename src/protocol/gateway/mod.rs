@@ -1,10 +1,12 @@
 pub mod arl;
 pub mod list_data;
 pub mod user_data;
+pub mod user_radio;
 
 pub use arl::Arl;
 pub use list_data::{ListData, Queue};
 pub use user_data::UserData;
+pub use user_radio::UserRadio;
 
 use std::collections::HashMap;
 

@@ -320,7 +320,7 @@ impl Player {
                         }
                     }
 
-                    // Open a channe and immediately send a message, signaling that the track is
+                    // Open a channel and immediately send a message, signaling that the track is
                     // "done". This will prevent the player from trying to load the track again.
                     let (tx, rx) = std::sync::mpsc::channel();
                     let _ = tx.send(());
