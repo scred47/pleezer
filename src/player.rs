@@ -2,7 +2,6 @@ use core::f32;
 use std::{sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
-use rand::seq::SliceRandom;
 use rodio::Source;
 
 use crate::{
@@ -16,7 +15,6 @@ use crate::{
         Percentage,
     },
     track::{State, Track},
-    with_small_rng,
 };
 
 /// The sample format used by the player, as determined by the decoder.
@@ -35,9 +33,6 @@ pub struct Player {
 
     /// The track queue, a.k.a. the playlist.
     queue: Vec<Track>,
-
-    /// The order of the queue, which may be shuffled.
-    queue_order: Vec<usize>,
 
     /// The current position in the queue.
     position: usize,
@@ -103,7 +98,6 @@ impl Player {
 
         Ok(Self {
             queue: Vec::new(),
-            queue_order: Vec::new(),
             position: 0,
             audio_quality: AudioQuality::default(),
             client: http::Client::without_cookies(config)?,
@@ -530,26 +524,6 @@ impl Player {
         self.queue = tracks;
     }
 
-    fn reorder_queue(&mut self) {
-        // Remember the current track, to keep the same track playing after
-        let old_order = self.queue_order.clone();
-        let old_position = old_order.get(self.position);
-
-        if self.shuffle {
-            self.queue_order = (0..self.queue.len()).collect();
-            with_small_rng(|rng| self.queue_order.shuffle(rng));
-        } else {
-            self.queue_order = (0..self.queue.len()).collect();
-        }
-
-        for i in 0..self.queue.len() {
-            if self.queue_order.get(i) == old_position {
-                self.position = i;
-                break;
-            }
-        }
-    }
-
     /// Sets the playlist position.
     ///
     /// It is allowed to set the position to a value that is greater than the length of the queue.
@@ -601,6 +575,11 @@ impl Player {
     pub fn set_shuffle(&mut self, shuffle: bool) {
         debug!("setting shuffle to {shuffle}");
         self.shuffle = shuffle;
+
+        // TODO: implement shuffle
+        if shuffle {
+            warn!("shuffle is not yet implemented");
+        }
     }
 
     #[must_use]
