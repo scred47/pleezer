@@ -10,7 +10,8 @@ use pleezer::{
     config::{Config, Credentials},
     error::{Error, ErrorKind, Result},
     player::Player,
-    remote, with_small_rng,
+    rand::with_rng,
+    remote,
 };
 
 /// Profile to display when not built in release mode.
@@ -247,7 +248,7 @@ async fn run(args: Args) -> Result<()> {
         trace!("user agent: {user_agent}");
 
         // Deezer on desktop uses a new `cid` on every start.
-        let client_id = with_small_rng(|rng| rng.gen_range(100_000_000..=999_999_999));
+        let client_id = with_rng(|rng| rng.gen_range(100_000_000..=999_999_999));
         trace!("client id: {client_id}");
 
         Config {
@@ -315,7 +316,7 @@ async fn run(args: Args) -> Result<()> {
                 // Sleep with jitter to prevent thundering herds. Subsecond
                 // precision further prevents that by spreading requests
                 // when users are launching this from some crontab.
-                let duration = Duration::from_millis(with_small_rng(|rng| rng.gen_range(5_000..6_000)));
+                let duration = Duration::from_millis(with_rng(|rng| rng.gen_range(5_000..6_000)));
                 info!("restarting in {:.1}s", duration.as_secs_f32());
                 restart_timer.as_mut().reset(tokio::time::Instant::now() + duration);
             }

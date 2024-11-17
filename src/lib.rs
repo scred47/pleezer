@@ -13,28 +13,10 @@ pub mod gateway;
 pub mod http;
 pub mod player;
 pub mod protocol;
+pub mod rand;
 pub mod remote;
 pub mod tokens;
 pub mod track;
 
 #[allow(clippy::enum_glob_use)]
 pub mod error;
-
-use rand::{rngs::SmallRng, SeedableRng};
-use std::cell::RefCell;
-
-thread_local! {
-    /// A thread-local random number generator that is insecure but fast.
-    pub(crate) static SMALL_RNG: RefCell<SmallRng> = RefCell::new(SmallRng::from_entropy());
-}
-
-/// Access a pre-initialized random number generator that is insecure but fast.
-pub fn with_small_rng<F, R>(f: F) -> R
-where
-    F: FnOnce(&mut SmallRng) -> R,
-{
-    SMALL_RNG.with(|rng| {
-        let mut rng = rng.borrow_mut();
-        f(&mut rng)
-    })
-}
