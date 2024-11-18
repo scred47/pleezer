@@ -14,7 +14,7 @@ use crate::{
         contents::{AudioQuality, RepeatMode},
         Percentage,
     },
-    track::{State, Track},
+    track::{State, Track, TrackId},
 };
 
 /// The sample format used by the player, as determined by the decoder.
@@ -33,6 +33,9 @@ pub struct Player {
 
     /// The track queue, a.k.a. the playlist.
     queue: Vec<Track>,
+
+    /// The queue of tracks to skip.
+    skip_queue: Vec<TrackId>,
 
     /// The current position in the queue.
     position: usize,
@@ -98,6 +101,7 @@ impl Player {
 
         Ok(Self {
             queue: Vec::new(),
+            skip_queue: Vec::new(),
             position: 0,
             audio_quality: AudioQuality::default(),
             client: http::Client::without_cookies(config)?,
@@ -305,26 +309,16 @@ impl Player {
             match track.state() {
                 State::Pending => {
                     // Start downloading the track.
-                    match track
+                    let medium = track
                         .get_medium(&self.client, self.audio_quality, self.license_token.clone())
-                        .await
-                    {
-                        Ok(medium) => match track.start_download(&self.client, &medium).await {
-                            Ok(()) => return Ok(None),
-                            Err(e) => {
-                                error!("failed to start download: {}", e);
-                            }
-                        },
-                        Err(e) => {
-                            error!("failed to get medium: {}", e);
-                        }
-                    }
+                        .await?;
 
-                    // Open a channel and immediately send a message, signaling that the track is
-                    // "done". This will prevent the player from trying to load the track again.
-                    let (tx, rx) = std::sync::mpsc::channel();
-                    let _ = tx.send(());
-                    Ok(Some(rx))
+                    // Return `None` on success to indicate that the track is not yet appended
+                    // to the sink.
+                    track
+                        .start_download(&self.client, &medium)
+                        .await
+                        .map(|()| None)
                 }
                 State::Buffered | State::Complete => {
                     // Append the track to the sink.
@@ -433,13 +427,17 @@ impl Player {
                         && self.track().is_some_and(Track::is_complete)
                     {
                         let next_position = self.position.saturating_add(1);
-                        if self.queue.len() > next_position {
-                            match self.load_track(next_position).await {
-                                Ok(rx) => {
-                                    self.preload_rx = rx;
-                                }
-                                Err(e) => {
-                                    error!("failed to preload track: {e}");
+                        if let Some(next_track) = self.queue.get(next_position) {
+                            let next_track_id = next_track.id();
+                            if !self.skip_queue.contains(&next_track_id) {
+                                match self.load_track(next_position).await {
+                                    Ok(rx) => {
+                                        self.preload_rx = rx;
+                                    }
+                                    Err(e) => {
+                                        error!("failed to preload next track: {e}");
+                                        self.skip_queue.push(next_track_id);
+                                    }
                                 }
                             }
                         }
@@ -447,25 +445,32 @@ impl Player {
                 }
 
                 None => {
-                    if self.track().is_some() {
-                        match self.load_track(self.position).await {
-                            Ok(rx) => {
-                                if let Some(rx) = rx {
-                                    self.current_rx = Some(rx);
-                                    self.notify_play();
+                    if let Some(track) = self.track() {
+                        let track_id = track.id();
+                        if self.skip_queue.contains(&track_id) {
+                            error!("skipping track {track}");
+                            self.go_next();
+                        } else {
+                            match self.load_track(self.position).await {
+                                Ok(rx) => {
+                                    if let Some(rx) = rx {
+                                        self.current_rx = Some(rx);
+                                        self.notify_play();
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("failed to load track: {e}");
+                                    self.skip_queue.push(track_id);
+                                    self.go_next();
                                 }
                             }
-                            Err(e) => {
-                                error!("failed to load track: {e}");
-                                self.go_next();
-                            }
-                        };
+                        }
                     }
                 }
             }
 
             // Yield to the runtime to allow other tasks to run.
-            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 
