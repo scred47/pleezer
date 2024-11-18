@@ -1,5 +1,5 @@
 use std::{
-    fmt, fs,
+    fmt, fs, io,
     num::NonZeroI64,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
@@ -471,20 +471,48 @@ impl Track {
         Ok(())
     }
 
-    /// Cancel the download of the track. Has no effect if the download is
+    /// Cancel any download of the track. Has no effect if the download is
     /// already complete or has not been started yet.
     ///
     /// # Panics
     ///
     /// Panics if the download state lock is poisoned.
     pub fn cancel_download(&mut self) {
-        if self.state() != State::Complete {
+        if matches!(self.state(), State::Starting | State::Buffered) {
             debug!("cancelling download of track {self}");
-            if let Some(data) = self.data.as_mut() {
+            if let Some(data) = self.data.take() {
                 data.cancel_download();
             }
+
             *self.state.lock().unwrap() = State::Pending;
         }
+    }
+
+    /// Remove the downloaded file and cancel any download. Has no effect if the
+    /// download has not been started yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file could not be closed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffered lock is poisoned.
+    pub fn remove_file(&mut self) -> Result<()> {
+        self.cancel_download();
+
+        if let Some(file) = self.file.take() {
+            if let Err(e) = file.close() {
+                if e.kind() != io::ErrorKind::NotFound {
+                    return Err(e.into());
+                }
+            }
+        }
+
+        self.file_size = None;
+        *self.buffered.lock().unwrap() = Duration::ZERO;
+
+        Ok(())
     }
 
     /// Returns the file size of the track, if known after the download has

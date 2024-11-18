@@ -529,6 +529,17 @@ impl Player {
         self.queue = tracks;
     }
 
+    pub fn extend_queue(&mut self, tracks: Vec<Track>) {
+        self.queue.extend(tracks);
+
+        // Remove temporary files that are no longer needed.
+        for i in 0..self.position() {
+            if let Err(e) = self.queue[i].remove_file() {
+                error!("failed to remove file: {e}");
+            }
+        }
+    }
+
     /// Sets the playlist position.
     ///
     /// It is allowed to set the position to a value that is greater than the length of the queue.

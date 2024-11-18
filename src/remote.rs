@@ -85,6 +85,7 @@ fn from_now(seconds: Duration) -> Option<tokio::time::Instant> {
 }
 
 impl Client {
+    const NETWORK_TIMEOUT: Duration = Duration::from_secs(1);
     const TOKEN_EXPIRATION_THRESHOLD: Duration = Duration::from_secs(60);
     const REPORTING_INTERVAL: Duration = Duration::from_secs(3);
     const WATCHDOG_RX_TIMEOUT: Duration = Duration::from_secs(10);
@@ -336,18 +337,7 @@ impl Client {
                 Err(e) = self.player.run() => break Err(e),
 
                 Some(event) = event_rx.recv() => {
-                    match event {
-                        Event::Play(track) => {
-                            // Report playback progress without waiting for the next
-                            // reporting interval, so the UI refreshes immediately.
-                            let _ = self.report_playback_progress().await;
-
-                            // Report the playback stream.
-                            if let Err(e) = self.report_playback(track).await {
-                                error!("error streaming track: {e}");
-                            }
-                        }
-                    }
+                    self.handle_event(event).await;
                 }
             }
         };
@@ -355,6 +345,89 @@ impl Client {
         self.stop().await;
 
         loop_result
+    }
+
+    async fn handle_event(&mut self, event: Event) {
+        match event {
+            Event::Play(track) => {
+                // Report playback progress without waiting for the next
+                // reporting interval, so the UI refreshes immediately.
+                let _ = self.report_playback_progress().await;
+
+                // Report the playback stream.
+                if let Err(e) = self.report_playback(track).await {
+                    error!("error streaming {track}: {e}");
+                }
+
+                if self.is_flow() {
+                    // Extend the queue if the player is near the end.
+                    if self
+                        .queue
+                        .as_ref()
+                        .map_or(0, |queue| queue.tracks.len())
+                        .saturating_sub(self.player.position())
+                        <= 2
+                    {
+                        if let Err(e) = self.extend_queue().await {
+                            error!("error extending queue: {e}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn extend_queue(&mut self) -> Result<()> {
+        let user_id = self.user_id();
+
+        if let Some(list) = self.queue.as_mut() {
+            let new_queue =
+                tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.user_radio(user_id))
+                    .await??;
+
+            let new_tracks: Vec<_> = new_queue.into_iter().map(Track::from).collect();
+
+            let new_list: Vec<_> = new_tracks
+                .iter()
+                .map(|track| queue::Track {
+                    id: track.id().to_string(),
+                    ..Default::default()
+                })
+                .collect();
+
+            // Generate a new list ID for the UI to pick up.
+            list.id = Uuid::new_v4().to_string();
+
+            debug!(
+                "extending queue {} with {} tracks",
+                list.id,
+                new_tracks.len()
+            );
+
+            list.tracks.extend(new_list);
+            self.player.extend_queue(new_tracks);
+
+            // Refresh the controller's queue with the tracks that we got from the user radio.
+            self.handle_refresh_queue().await
+        } else {
+            Err(Error::failed_precondition(
+                "cannot extend queue: queue is missing",
+            ))
+        }
+    }
+
+    fn is_flow(&self) -> bool {
+        self.queue.as_ref().is_some_and(|queue| {
+            queue
+                .contexts
+                .first()
+                .unwrap_or_default()
+                .container
+                .mix
+                .typ
+                .enum_value_or_default()
+                == MixType::MIX_TYPE_USER
+        })
     }
 
     fn reset_watchdog_rx(&mut self) {
@@ -625,60 +698,43 @@ impl Client {
     async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
         // TODO : does it really matter whether there's an active connection?
         if self.controller().is_some() {
-            let context = list.contexts.first().unwrap_or_default();
-            let container_type = context.container.typ.enum_value_or_default();
-            let mix_type = context.container.mix.typ.enum_value_or_default();
-
-            let is_flow = mix_type == MixType::MIX_TYPE_USER;
+            let container_type = list
+                .contexts
+                .first()
+                .unwrap_or_default()
+                .container
+                .typ
+                .enum_value_or_default();
 
             // Await with timeout in order to prevent blocking the select loop.
-            let queue = tokio::time::timeout(Duration::from_secs(1), async {
-                match container_type {
-                    ContainerType::CONTAINER_TYPE_LIVE => {
-                        error!("live radio is not supported yet");
-                        Ok(Vec::new())
-                    }
-                    ContainerType::CONTAINER_TYPE_PODCAST => {
-                        error!("podcasts are not supported yet");
-                        Ok(Vec::new())
-                    }
-                    _ => {
-                        if is_flow {
-                            self.gateway.user_radio(self.user_id()).await
-                        } else {
-                            self.gateway.list_to_queue(&list).await
-                        }
-                    }
+            let queue = match container_type {
+                ContainerType::CONTAINER_TYPE_LIVE => {
+                    error!("live radio is not supported yet");
+                    Vec::new()
                 }
-            })
-            .await??;
+                ContainerType::CONTAINER_TYPE_PODCAST => {
+                    error!("podcasts are not supported yet");
+                    Vec::new()
+                }
+                _ => {
+                    tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.list_to_queue(&list))
+                        .await??
+                }
+            };
 
             let tracks: Vec<_> = queue.into_iter().map(Track::from).collect();
 
             debug!("setting queue to {}", list.id);
 
-            if is_flow {
-                let mut list = list.clone();
-                list.tracks = tracks
-                    .iter()
-                    .map(|track| queue::Track {
-                        id: track.id().to_string(),
-                        ..Default::default()
-                    })
-                    .collect();
-
-                self.queue = Some(list);
-
-                // Refresh the controller's queue with the tracks that we got from the user radio.
-                self.handle_refresh_queue().await?;
-            } else {
-                self.queue = Some(list);
-            }
-
+            self.queue = Some(list);
             self.player.set_queue(tracks);
 
             if let Some(position) = self.deferred_position.take() {
                 self.player.set_position(position);
+            }
+
+            if self.is_flow() {
+                self.extend_queue().await?;
             }
 
             return Ok(());
@@ -707,6 +763,7 @@ impl Client {
     async fn handle_refresh_queue(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             if let Some(ref queue) = self.queue {
+                // First publish the queue to the controller.
                 let contents = Body::PublishQueue {
                     message_id: Uuid::new_v4().into(),
                     queue: queue.clone(),
@@ -714,7 +771,16 @@ impl Client {
 
                 let channel = self.channel(Ident::RemoteQueue);
                 let publish_queue = self.message(controller.clone(), channel, contents);
-                self.send_message(publish_queue).await
+                self.send_message(publish_queue).await?;
+
+                // Then signal the controller to refresh its UI.
+                let contents = Body::RefreshQueue {
+                    message_id: Uuid::new_v4().into(),
+                };
+
+                let refresh_queue =
+                    self.message(self.controller().unwrap().clone(), channel, contents);
+                self.send_message(refresh_queue).await
             } else {
                 Err(Error::failed_precondition(
                     "queue refresh should have a published queue".to_string(),
@@ -1002,8 +1068,6 @@ impl Client {
 
             Body::PublishQueue { queue, .. } => self.handle_publish_queue(queue).await,
 
-            Body::RefreshQueue { .. } => self.handle_refresh_queue().await,
-
             Body::Skip {
                 message_id,
                 queue_id,
@@ -1036,7 +1100,10 @@ impl Client {
                 Ok(())
             }
 
-            Body::ConnectionOffer { .. } | Body::PlaybackProgress { .. } | Body::Ready { .. } => {
+            Body::ConnectionOffer { .. }
+            | Body::PlaybackProgress { .. }
+            | Body::Ready { .. }
+            | Body::RefreshQueue { .. } => {
                 trace!("ignoring message intended for a controller");
                 Ok(())
             }
