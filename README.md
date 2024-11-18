@@ -37,7 +37,7 @@
 ### Planned Features
 
 - **Shuffle**: Support for shuffling tracks in a playlist.
-- **Radio and Podcasts**: Support for Deezer’s radio and podcast features.
+- **Live Radio and Podcasts**: Support for Deezer’s live radio and podcast features.
 - **Device Registration**: Register unique devices and adhere to Deezer’s device limit policy.
 - **Proxy Support**: Enable the use of **pleezer** in environments with restricted internet access.
 listening experience.
