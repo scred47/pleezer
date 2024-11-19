@@ -329,8 +329,12 @@ impl Player {
                 }?;
 
                 if let Some(progress) = self.deferred_seek.take() {
-                    if let Err(e) = decoder.try_seek(progress) {
-                        error!("failed to seek to deferred position: {}", e);
+                    // Set the track position only if `progress` is beyond the track start. We start
+                    // at the beginning anyway, and this prevents decoder errors.
+                    if !progress.is_zero() {
+                        if let Err(e) = decoder.try_seek(progress) {
+                            error!("failed to seek to deferred position: {}", e);
+                        }
                     }
                 }
 
