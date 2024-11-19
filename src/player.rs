@@ -311,17 +311,20 @@ impl Player {
             .ok_or_else(|| Error::not_found(format!("track at position {position} not found")))?;
 
         if track.is_pending() {
-            // Start downloading the track.
-            let medium = track
-                .get_medium(&self.client, self.audio_quality, self.license_token.clone())
-                .await?;
+            return tokio::time::timeout(Duration::from_secs(1), async {
+                // Start downloading the track.
+                let medium = track
+                    .get_medium(&self.client, self.audio_quality, self.license_token.clone())
+                    .await?;
 
-            // Return `None` on success to indicate that the track is not yet appended
-            // to the sink.
-            return track
-                .start_download(&self.client, &medium)
-                .await
-                .map(|()| None);
+                // Return `None` on success to indicate that the track is not yet appended
+                // to the sink.
+                track
+                    .start_download(&self.client, &medium)
+                    .await
+                    .map(|()| None)
+            })
+            .await?;
         }
 
         if track.is_available() {

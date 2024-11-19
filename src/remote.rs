@@ -706,6 +706,8 @@ impl Client {
                 .typ
                 .enum_value_or_default();
 
+            debug!("setting queue to {}", list.id);
+
             // Await with timeout in order to prevent blocking the select loop.
             let queue = match container_type {
                 ContainerType::CONTAINER_TYPE_LIVE => {
@@ -723,8 +725,6 @@ impl Client {
             };
 
             let tracks: Vec<_> = queue.into_iter().map(Track::from).collect();
-
-            debug!("setting queue to {}", list.id);
 
             self.queue = Some(list);
             self.player.set_queue(tracks);
