@@ -2,6 +2,7 @@ use core::f32;
 use std::{sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
+use md5::{Digest, Md5};
 use rodio::Source;
 
 use crate::{
@@ -90,7 +91,20 @@ impl Player {
     /// # Errors
     ///
     /// Will return `Err` if no HTTP client can be built from the `Config`.
-    pub fn new(config: &Config, device: &str) -> Result<Self> {
+    pub async fn new(config: &Config, device: &str) -> Result<Self> {
+        let client = http::Client::without_cookies(config)?;
+
+        let bf_secret = if let Some(secret) = config.bf_secret {
+            secret
+        } else {
+            debug!("no bf_secret specified, fetching one from the web player");
+            Config::try_key(&client).await?
+        };
+
+        if format!("{:x}", Md5::digest(*bf_secret)) != Config::BF_SECRET_MD5 {
+            return Err(Error::permission_denied("the bf_secret is not valid"));
+        }
+
         let (sink, stream) = Self::open_sink(device)?;
         let (sources, output) = rodio::queue::queue(true);
 
@@ -104,9 +118,9 @@ impl Player {
             skip_queue: Vec::new(),
             position: 0,
             audio_quality: AudioQuality::default(),
-            client: http::Client::without_cookies(config)?,
+            client,
             license_token: String::new(),
-            bf_secret: config.bf_secret,
+            bf_secret,
             repeat_mode: RepeatMode::default(),
             shuffle: false,
             normalization: false,

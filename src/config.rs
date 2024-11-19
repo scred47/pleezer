@@ -1,6 +1,12 @@
+use regex_lite::Regex;
 use uuid::Uuid;
 
-use crate::{arl::Arl, decrypt::Key};
+use crate::{
+    arl::Arl,
+    decrypt::{Key, KEY_LENGTH},
+    error::{Error, Result},
+    http,
+};
 
 /// Methods that can be used to authenticate with Deezer.
 #[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -71,5 +77,84 @@ pub struct Config {
     pub credentials: Credentials,
 
     /// Secret for computing the track decryption key.
-    pub bf_secret: Key,
+    pub bf_secret: Option<Key>,
+}
+
+impl Config {
+    pub const BF_SECRET_MD5: &'static str = "7ebf40da848f4a0fb3cc56ddbe6c2d09";
+    const WEB_PLAYER_URL: &'static str = "https://www.deezer.com/en/channels/explore/";
+
+    /// Get the decryption key from the Deezer web player.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The web player source could not be retrieved.
+    /// - The app-web source could not be found.
+    /// - The secret key could not be found or parsed.
+    #[expect(clippy::missing_panics_doc)]
+    pub async fn try_key(client: &http::Client) -> Result<Key> {
+        // Get the web player source.
+        let source = Self::get_text(client, Self::WEB_PLAYER_URL).await?;
+
+        // Find the URL of the app-web source.
+        let re = Regex::new(r"https:\/\/.+\/app-web.*\.js").unwrap();
+        let url = re
+            .find(&source)
+            .ok_or(Error::not_found("unable to find app-web source"))?;
+
+        // Get the app-web source.
+        let url = url.as_str();
+        trace!("bootstrapping from {url}");
+        let source = Self::get_text(client, url).await?;
+
+        // Find the Blowfish decryption key.
+        let re = Regex::new(r"0x61%2C(0x[0-9a-f]{2}%2C){6}0x67").unwrap();
+        let a = re
+            .find(&source)
+            .ok_or(Error::not_found("unable to find first half of secret key"))?;
+        let re = Regex::new(r"0x31%2C(0x[0-9a-f]{2}%2C){6}0x34").unwrap();
+        let b = re
+            .find(&source)
+            .ok_or(Error::not_found("unable to find second half of secret key"))?;
+
+        let a = Self::convert_half(a.as_str())?;
+        let b = Self::convert_half(b.as_str())?;
+
+        let mut key = Vec::with_capacity(KEY_LENGTH);
+        for i in 0..(KEY_LENGTH / 2) {
+            key.push(a[i]);
+            key.push(b[i]);
+        }
+
+        let key = String::from_utf8_lossy(&key).into_owned();
+        key.parse()
+    }
+
+    async fn get_text(client: &http::Client, url: &str) -> Result<String> {
+        let url = url.parse::<reqwest::Url>()?;
+        let request = client.get(url, "");
+        let response = client.execute(request).await?;
+        response.text().await.map_err(Into::into)
+    }
+
+    #[expect(clippy::cast_possible_truncation)]
+    fn convert_half(half: &str) -> Result<Vec<u8>> {
+        let bytes: Vec<u8> = half
+            .split("%2C")
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .filter_map(|s| u8::from_str_radix(s.trim_start_matches("0x"), KEY_LENGTH as u32).ok())
+            .collect();
+
+        let len = bytes.len();
+        if len != 8 {
+            return Err(Error::out_of_range(format!(
+                "half key has {len} valid characters"
+            )));
+        }
+
+        Ok(bytes)
+    }
 }

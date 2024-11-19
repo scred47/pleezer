@@ -8,6 +8,7 @@ use uuid::Uuid;
 use pleezer::{
     arl::Arl,
     config::{Config, Credentials},
+    decrypt,
     error::{Error, ErrorKind, Result},
     player::Player,
     rand::with_rng,
@@ -191,10 +192,11 @@ async fn run(args: Args) -> Result<()> {
         };
 
         let bf_secret = match secrets.get("bf_secret").and_then(|value| value.as_str()) {
-            Some(bf_secret) => bf_secret.parse()?,
-            None => {
-                todo!("bf_secret not found in secrets file");
+            Some(value) => {
+                let key = value.parse::<decrypt::Key>()?;
+                Some(key)
             }
+            None => None,
         };
 
         let app_name = env!("CARGO_PKG_NAME").to_owned();
@@ -274,7 +276,7 @@ async fn run(args: Args) -> Result<()> {
         }
     };
 
-    let player = Player::new(&config, &args.device)?;
+    let player = Player::new(&config, &args.device).await?;
     let mut client = remote::Client::new(&config, player)?;
 
     // Restart after sleeping some duration to prevent accidental denial of

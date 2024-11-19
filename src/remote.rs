@@ -119,7 +119,7 @@ impl Client {
         } else {
             format!("{patch}")
         };
-        debug!("remote version: {version}");
+        trace!("remote version: {version}");
 
         // Controllers send discovery requests every two seconds.
         let time_to_live = Duration::from_secs(5);
