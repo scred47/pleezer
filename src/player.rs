@@ -527,6 +527,7 @@ impl Player {
         self.clear();
         self.position = 0;
         self.queue = tracks;
+        self.skip_queue = Vec::new();
     }
 
     pub fn extend_queue(&mut self, tracks: Vec<Track>) {
