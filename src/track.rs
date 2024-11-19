@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum State {
+pub enum DownloadState {
     #[default]
     Pending,
     Starting,
@@ -45,10 +45,10 @@ pub struct Track {
     expiry: SystemTime,
     quality: AudioQuality,
     duration: Duration,
-    state: Arc<Mutex<State>>,
     buffered: Arc<Mutex<Duration>>,
     file: Option<NamedTempFile>,
-    data: Option<StreamDownload<TempStorageProvider>>,
+    download: Option<StreamDownload<TempStorageProvider>>,
+    download_state: Arc<Mutex<DownloadState>>,
     file_size: Option<u64>,
     cipher: Cipher,
 }
@@ -123,28 +123,41 @@ impl Track {
     ///
     /// Panics if the download state lock is poisoned.
     #[must_use]
-    pub fn state(&self) -> State {
-        *self.state.lock().unwrap()
+    pub fn download_state(&self) -> DownloadState {
+        *self.download_state.lock().unwrap()
     }
 
     #[must_use]
     pub fn is_pending(&self) -> bool {
-        self.state() == State::Pending
+        self.download_state() == DownloadState::Pending
     }
 
     #[must_use]
     pub fn is_starting(&self) -> bool {
-        self.state() == State::Starting
+        self.download_state() == DownloadState::Starting
     }
 
     #[must_use]
     pub fn is_buffered(&self) -> bool {
-        self.state() == State::Buffered
+        self.download_state() == DownloadState::Buffered
     }
 
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.state() == State::Complete
+        self.download_state() == DownloadState::Complete
+    }
+
+    #[must_use]
+    pub fn is_available(&self) -> bool {
+        matches!(
+            self.download_state(),
+            DownloadState::Buffered | DownloadState::Complete
+        )
+    }
+
+    #[must_use]
+    pub fn is_lossless(&self) -> bool {
+        self.quality == AudioQuality::Lossless
     }
 
     const BF_CBC_STRIPE_MP3_64: CipherFormat = CipherFormat {
@@ -365,7 +378,7 @@ impl Track {
         // Don't hold the lock because some await points are coming up.
         // Instead, set the state to `Starting` to prevent multiple downloads
         // from starting at the same time before the state is set to `Downloading`.
-        *self.state.lock().unwrap() = State::Starting;
+        *self.download_state.lock().unwrap() = DownloadState::Starting;
         let stream = self.open_stream(client, medium).await?;
 
         // Set actual audio quality and cipher type.
@@ -395,14 +408,14 @@ impl Track {
         let track_str = self.to_string();
         let duration = self.duration;
         let buffered = Arc::clone(&self.buffered);
-        let track_state = Arc::clone(&self.state);
+        let download_state = Arc::clone(&self.download_state);
         let callback = move |stream: &HttpStream<_>,
                              stream_state: StreamState,
                              token: &tokio_util::sync::CancellationToken| {
-            let mut track_state = track_state.lock().unwrap();
+            let mut download_state = download_state.lock().unwrap();
 
             // If the track was reset to `Pending`, cancel the download.
-            if *track_state == State::Pending {
+            if *download_state == DownloadState::Pending {
                 token.cancel();
             }
 
@@ -414,13 +427,13 @@ impl Track {
                 // the mutex is poisoned, then the main thread panicked and
                 // we should propagate the error.
                 *buffered.lock().unwrap() = duration;
-                *track_state = State::Complete;
+                *download_state = DownloadState::Complete;
             } else {
                 // When moving from `StreamPhase::Prefetching` to `StreamPhase::Downloading`,
                 // set the track state to `Buffered` to indicate that the track has enough
                 // data buffered to start playing.
                 if let StreamPhase::Downloading { .. } = stream_state.phase {
-                    *track_state = State::Buffered;
+                    *download_state = DownloadState::Buffered;
                 }
 
                 if let Some(file_size) = stream.content_length() {
@@ -466,43 +479,30 @@ impl Track {
         // (the file is deleted when the last handle is closed) and to be able
         // to reopen it for reading later.
         self.file = Some(temp_file);
-        self.data = Some(download);
+        self.download = Some(download);
 
         Ok(())
     }
 
-    /// Cancel any download of the track. Has no effect if the download is
-    /// already complete or has not been started yet.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the download state lock is poisoned.
-    pub fn cancel_download(&mut self) {
-        if matches!(self.state(), State::Starting | State::Buffered) {
-            debug!("cancelling download of track {self}");
-            if let Some(data) = self.data.take() {
-                data.cancel_download();
-            }
-
-            *self.state.lock().unwrap() = State::Pending;
-        }
-    }
-
-    /// Remove the downloaded file and cancel any download. Has no effect if the
-    /// download has not been started yet.
+    /// Cancel and remove any download of the track. Has no effect if the download is already
+    /// complete or has not been started yet.
     ///
     /// # Errors
     ///
-    /// Returns an error if the file could not be closed.
+    /// Returns an error if a file was found, but its handle could not be closed.
     ///
     /// # Panics
     ///
-    /// Panics if the buffered lock is poisoned.
-    pub fn remove_file(&mut self) -> Result<()> {
-        self.cancel_download();
+    /// Panics if the buffered or download state locks are poisoned.
+    pub fn reset_download(&mut self) -> Result<()> {
+        if let Some(download) = self.download.take() {
+            download.cancel_download();
+        }
 
         if let Some(file) = self.file.take() {
             if let Err(e) = file.close() {
+                // Ignore `NotFound` errors, because the file is already deleted. This can happen
+                // if the download was cancelled and no file handle was open.
                 if e.kind() != io::ErrorKind::NotFound {
                     return Err(e.into());
                 }
@@ -510,7 +510,9 @@ impl Track {
         }
 
         self.file_size = None;
+
         *self.buffered.lock().unwrap() = Duration::ZERO;
+        *self.download_state.lock().unwrap() = DownloadState::Pending;
 
         Ok(())
     }
@@ -547,9 +549,9 @@ impl From<gateway::ListData> for Track {
             expiry: item.expiry,
             quality: AudioQuality::Standard,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),
-            state: Arc::new(Mutex::new(State::Pending)),
+            download_state: Arc::new(Mutex::new(DownloadState::Pending)),
             file: None,
-            data: None,
+            download: None,
             file_size: None,
             cipher: Cipher::BF_CBC_STRIPE,
         }

@@ -14,7 +14,7 @@ use crate::{
         contents::{AudioQuality, RepeatMode},
         Percentage,
     },
-    track::{State, Track, TrackId},
+    track::{Track, TrackId},
 };
 
 /// The sample format used by the player, as determined by the decoder.
@@ -306,93 +306,85 @@ impl Player {
         position: usize,
     ) -> Result<Option<std::sync::mpsc::Receiver<()>>> {
         if let Some(track) = self.queue.get_mut(position) {
-            match track.state() {
-                State::Pending => {
-                    // Start downloading the track.
-                    let medium = track
-                        .get_medium(&self.client, self.audio_quality, self.license_token.clone())
-                        .await?;
+            if track.is_pending() {
+                // Start downloading the track.
+                let medium = track
+                    .get_medium(&self.client, self.audio_quality, self.license_token.clone())
+                    .await?;
 
-                    // Return `None` on success to indicate that the track is not yet appended
-                    // to the sink.
-                    track
-                        .start_download(&self.client, &medium)
-                        .await
-                        .map(|()| None)
-                }
-                State::Buffered | State::Complete => {
-                    // Append the track to the sink.
-                    // TODO : don't bail out on error
-                    let decryptor = Decrypt::new(track, &self.bf_secret)?;
-                    let mut decoder = match track.quality() {
-                        AudioQuality::Lossless => rodio::Decoder::new_flac(decryptor),
-                        _ => rodio::Decoder::new_mp3(decryptor),
-                    }?;
-
-                    if let Some(progress) = self.deferred_seek.take() {
-                        if let Err(e) = decoder.try_seek(progress) {
-                            error!("failed to seek to deferred position: {}", e);
-                        }
-                    }
-
-                    let mut difference = 0.0;
-                    let mut ratio = 1.0;
-                    if self.normalization {
-                        match track.gain() {
-                            Some(gain) => {
-                                difference = self.gain_target_db - gain;
-
-                                // Keep -1 dBTP of headroom on tracks with lossy decoding to avoid
-                                // clipping due to inter-sample peaks.
-                                if difference > 0.0 && track.quality() != AudioQuality::Lossless {
-                                    difference -= 1.0;
-                                }
-
-                                ratio = f32::powf(10.0, difference / 20.0);
-                            }
-                            None => {
-                                warn!(
-                                    "track {track} has no gain information, skipping normalization"
-                                );
-                            }
-                        }
-                    }
-
-                    let rx = if ratio < 1.0 {
-                        debug!(
-                            "attenuating track {track} by {difference:.1} dB ({})",
-                            Percentage::from_ratio_f32(ratio)
-                        );
-                        let attenuated = decoder.amplify(ratio);
-                        self.sources.append_with_signal(attenuated)
-                    } else if ratio > 1.0 {
-                        debug!(
-                            "amplifying track {track} by {difference:.1} dB ({}) (with limiter)",
-                            Percentage::from_ratio_f32(ratio)
-                        );
-                        let amplified = decoder.automatic_gain_control(
-                            ratio,
-                            Self::AGC_ATTACK_TIME.as_secs_f32(),
-                            Self::AGC_RELEASE_TIME.as_secs_f32(),
-                            difference,
-                        );
-                        self.sources.append_with_signal(amplified)
-                    } else {
-                        self.sources.append_with_signal(decoder)
-                    };
-
-                    Ok(Some(rx))
-                }
-                State::Starting => {
-                    // Wait for the track to buffer.
-                    Ok(None)
-                }
+                // Return `None` on success to indicate that the track is not yet appended
+                // to the sink.
+                return track
+                    .start_download(&self.client, &medium)
+                    .await
+                    .map(|()| None);
             }
-        } else {
-            Err(Error::out_of_range(format!(
-                "queue has no track at position {position}"
-            )))
+
+            if track.is_available() {
+                // Append the track to the sink.
+                let decryptor = Decrypt::new(track, &self.bf_secret)?;
+                let mut decoder = match track.quality() {
+                    AudioQuality::Lossless => rodio::Decoder::new_flac(decryptor),
+                    _ => rodio::Decoder::new_mp3(decryptor),
+                }?;
+
+                if let Some(progress) = self.deferred_seek.take() {
+                    if let Err(e) = decoder.try_seek(progress) {
+                        error!("failed to seek to deferred position: {}", e);
+                    }
+                }
+
+                let mut difference = 0.0;
+                let mut ratio = 1.0;
+                if self.normalization {
+                    match track.gain() {
+                        Some(gain) => {
+                            difference = self.gain_target_db - gain;
+
+                            // Keep -1 dBTP of headroom on tracks with lossy decoding to avoid
+                            // clipping due to inter-sample peaks.
+                            if difference > 0.0 && !track.is_lossless() {
+                                difference -= 1.0;
+                            }
+
+                            ratio = f32::powf(10.0, difference / 20.0);
+                        }
+                        None => {
+                            warn!("track {track} has no gain information, skipping normalization");
+                        }
+                    }
+                }
+
+                let rx = if ratio < 1.0 {
+                    debug!(
+                        "attenuating track {track} by {difference:.1} dB ({})",
+                        Percentage::from_ratio_f32(ratio)
+                    );
+                    let attenuated = decoder.amplify(ratio);
+                    self.sources.append_with_signal(attenuated)
+                } else if ratio > 1.0 {
+                    debug!(
+                        "amplifying track {track} by {difference:.1} dB ({}) (with limiter)",
+                        Percentage::from_ratio_f32(ratio)
+                    );
+                    let amplified = decoder.automatic_gain_control(
+                        ratio,
+                        Self::AGC_ATTACK_TIME.as_secs_f32(),
+                        Self::AGC_RELEASE_TIME.as_secs_f32(),
+                        difference,
+                    );
+                    self.sources.append_with_signal(amplified)
+                } else {
+                    self.sources.append_with_signal(decoder)
+                };
+
+                return Ok(Some(rx));
+            }
         }
+
+        Err(Error::out_of_range(format!(
+            "queue has no track at position {position}"
+        )))
     }
 
     /// Run the player.
@@ -535,8 +527,14 @@ impl Player {
 
         // Remove temporary files that are no longer needed.
         for i in 0..self.position() {
-            if let Err(e) = self.queue[i].remove_file() {
-                error!("failed to remove file: {e}");
+            self.reset_track(i);
+        }
+    }
+
+    fn reset_track(&mut self, position: usize) {
+        if let Some(track) = self.queue.get_mut(position) {
+            if let Err(e) = track.reset_download() {
+                error!("failed to remove track {track}: {e}");
             }
         }
     }
@@ -557,14 +555,10 @@ impl Player {
         // While skipping to another track, cancel the download of the current track if it is
         // still pending. Also cancel the download of the next track, unless it is the track that
         // we are skipping to.
-        if let Some(track) = self.queue.get_mut(self.position) {
-            track.cancel_download();
-        }
+        self.reset_track(self.position);
         let next_position = self.position.saturating_add(1);
         if position != next_position {
-            if let Some(next_track) = self.queue.get_mut(next_position) {
-                next_track.cancel_download();
-            }
+            self.reset_track(next_position);
         }
 
         self.clear();
