@@ -270,17 +270,17 @@ We appreciate and encourage contributions to **pleezer**! Whether you're fixing 
 
 1. **Submit Issues**: Submit issues for bugs or feature requests by [reporting an issue](https://github.com/roderickvd/pleezer/issues). Include detailed debug logs and be responsive to follow-up questions and testing. Inactive issues may be closed. This is not a general help forum; issues should focus on **pleezer** itself, not your system configuration.
 
-2. **Create Pull Requests**: To contribute code changes or improvements, submit a [pull request](https://github.com/roderickvd/pleezer/pulls). Follow the coding standards and guidelines in the [CONTRIBUTING.md](CONTRIBUTING.md) file.
+2. **Create Pull Requests**: To contribute code changes or improvements, submit a [pull request](https://github.com/roderickvd/pleezer/pulls). Follow the coding standards and guidelines in the [CONTRIBUTING.md](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md) file.
 
 3. **Participate in Discussions**: Engage in [GitHub discussions](https://github.com/roderickvd/pleezer/discussions) to offer feedback, stay informed, and collaborate with the community.
 
-For more details on contributing, refer to the [CONTRIBUTING.md](CONTRIBUTING.md) file.
+For more details on contributing, refer to the [CONTRIBUTING.md](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md) file.
 
 ## Versioning
 
 **pleezer** uses [Semantic Versioning](https://semver.org/). As the project is currently below version 1.0.0, according to Semantic Versioning, anything may change at any time. This means that breaking changes may occur and will be signified by a minor version bump as we refine and update the API.
 
-All significant changes are documented in the [Changelog](CHANGELOG.md).
+All significant changes are documented in the [Changelog](https://github.com/roderickvd/pleezer/blob/main/CHANGELOG.md).
 
 ## Related Projects
 
@@ -291,7 +291,7 @@ There are several projects that have influenced **pleezer**. Here are a few:
 
 ## License
 
-**pleezer** is licensed under the [Sustainable Use License](LICENSE.md). This license promotes [fair use](https://faircode.io) and sustainable development of open-source software while preventing unregulated commercial exploitation.
+**pleezer** is licensed under the [Sustainable Use License](https://github.com/roderickvd/pleezer/blob/main/LICENSE.md). This license promotes [fair use](https://faircode.io) and sustainable development of open-source software while preventing unregulated commercial exploitation.
 
 ### Non-Commercial Use
 
@@ -335,4 +335,4 @@ It is your responsibility to thoroughly understand and adhere to Deezer’s Term
 
 ## Security
 
-For information on how security is handled, including how to report vulnerabilities, please refer to the [SECURITY.md](SECURITY.md) file.
+For information on how security is handled, including how to report vulnerabilities, please refer to the [SECURITY.md](https://github.com/roderickvd/pleezer/blob/main/SECURITY.md) file.
