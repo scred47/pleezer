@@ -83,3 +83,8 @@ protoc-bin-vendored = "3"
 [profile.release]
 lto = true
 codegen-units = 1
+
+[package.metadata.docs.rs]
+# Disable documentation build on docs.rs
+# Remove this section when ready to publish documentation
+private = true
