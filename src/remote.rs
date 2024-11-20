@@ -213,7 +213,7 @@ impl Client {
 
         let normalization = self.gateway.normalization().unwrap_or_default();
         let gain_target_db = self.gateway.target_gain().unwrap_or(DEFAULT_GAIN_TARGET_DB);
-        info!("volume normalization to {gain_target_db:.1} dB: {normalization}");
+        info!("volume normalization to {gain_target_db:.0} dB: {normalization}");
         self.player.set_gain_target_db(gain_target_db);
         self.player.set_normalization(normalization);
 
@@ -706,7 +706,7 @@ impl Client {
                 .typ
                 .enum_value_or_default();
 
-            debug!("setting queue to {}", list.id);
+            info!("setting queue to {}", list.id);
 
             // Await with timeout in order to prevent blocking the select loop.
             let queue = match container_type {

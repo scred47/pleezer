@@ -565,7 +565,7 @@ impl Player {
             return;
         }
 
-        debug!("setting playlist position to {position}");
+        info!("setting playlist position to {position}");
 
         // Clear the sink, which will drop any handles to the current and next tracks.
         self.clear();
@@ -600,7 +600,7 @@ impl Player {
     }
 
     pub fn set_shuffle(&mut self, shuffle: bool) {
-        debug!("setting shuffle to {shuffle}");
+        info!("setting shuffle to {shuffle}");
         self.shuffle = shuffle;
 
         // TODO: implement shuffle
@@ -615,7 +615,7 @@ impl Player {
     }
 
     pub fn set_repeat_mode(&mut self, repeat_mode: RepeatMode) {
-        debug!("setting repeat mode to {repeat_mode}");
+        info!("setting repeat mode to {repeat_mode}");
         self.repeat_mode = repeat_mode;
 
         if repeat_mode == RepeatMode::One {
@@ -636,7 +636,7 @@ impl Player {
             return;
         }
 
-        debug!("setting volume to {volume}");
+        info!("setting volume to {volume}");
         let ratio = volume.as_ratio_f32();
         self.sink.set_volume(ratio);
     }
@@ -659,7 +659,7 @@ impl Player {
     /// - there is no active track
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
         if let Some(track) = self.track() {
-            debug!("setting track progress to {progress}");
+            info!("setting track progress to {progress}");
             let progress = progress.as_ratio_f32();
             if progress < 1.0 {
                 let progress = track.duration().mul_f32(progress);
