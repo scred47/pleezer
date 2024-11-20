@@ -1,0 +1,127 @@
+name: Bug Report
+description: Create a report to help us improve
+labels: ["bug"]
+assignees: ["roderickvd"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: |
+        Please provide a clear and concise description of the bug. Mention how often it occurs (always, sometimes, rarely) if applicable.
+      placeholder: A clear and concise description of what the bug is...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: |
+        Please provide detailed steps to reproduce the behavior:
+      placeholder: |
+        1. Launch pleezer with the command '...'
+        2. Use the Deezer client to '...' (e.g., play a song, skip to the next track, control volume)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Please include a full verbose log from launch to the issue.
+
+        To enable verbose logging:
+        ```bash
+        pleezer -v     # for verbose logging
+        pleezer -vv    # for extra verbose logging
+        ```
+
+        If the log is too large, please redirect it to a file:
+        ```bash
+        pleezer -vv > pleezer.log 2>&1
+        ```
+
+        Then attach the log file to this issue.
+      placeholder: |
+        [2024-11-20T21:11:18Z DEBUG pleezer] Command Args {
+            secrets_file: "secrets.toml",
+            name: None,
+            device: "",
+            no_interruptions: false,
+            quiet: false,
+            verbose: 1,
+        }
+        ...
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: e.g., Ubuntu 20.04, macOS 11.2, Windows 10
+    validations:
+      required: true
+
+  - type: input
+    id: pleezer-version
+    attributes:
+      label: pleezer version
+      placeholder: e.g., 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust version (if building from source)
+      placeholder: e.g., 1.82.0
+    validations:
+      required: false
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware specifications
+      placeholder: e.g., Raspberry Pi 3B+, 1GB RAM
+    validations:
+      required: true
+
+  - type: input
+    id: deezer-client
+    attributes:
+      label: Deezer client specifications
+      placeholder: e.g., Deezer 10.25.1.1 on iOS 14.6, Android 11
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here, like your network or audio configuration.
+      placeholder: Any other relevant information...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: due-diligence
+    attributes:
+      label: Due Diligence
+      description: Please confirm that you have completed the following tasks.
+      options:
+        - label: I am using the [latest version](https://github.com/roderickvd/pleezer/releases) of pleezer
+          required: true
+        - label: I have searched the [issues](https://github.com/roderickvd/pleezer/issues) for similar reports
+          required: true
+        - label: I have included a full verbose log from launch to the issue, not just an excerpt
+          required: true
+        - label: I confirm that this is an issue with pleezer, not with my system configuration or other software
+          required: true
+        - label: I confirm that this is not a security issue, which should be [reported](https://github.com/roderickvd/pleezer/security/policy) privately
+          required: true
+        - label: I have read and understood the [Contributing guidelines](https://github.com/roderickvd/pleezer/CONTRIBUTING.md)
+          required: true

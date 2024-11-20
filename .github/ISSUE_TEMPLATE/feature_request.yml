@@ -1,0 +1,53 @@
+name: Feature Request
+description: Suggest an idea for this project
+labels: ["enhancement"]
+assignees: ["roderickvd"]
+body:
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Feature Description
+      description: |
+        Please provide a clear and concise description of the feature you are requesting. Explain why this feature would be useful and how it would improve the project.
+      placeholder: A clear and detailed description of the feature...
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Ideas
+      description: |
+        If you have any ideas on how this feature could be implemented, please share them here.
+        This could include:
+        - Code snippets
+        - Design suggestions
+        - References to similar features in other projects
+        - Dependencies or related features to consider
+      placeholder: Your implementation suggestions...
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: |
+        Have you considered any alternative solutions or workarounds?
+        Why do you believe the proposed feature is the best solution?
+      placeholder: Describe alternatives you've considered...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: due-diligence
+    attributes:
+      label: Due Diligence
+      description: Please confirm that you have completed the following tasks
+      options:
+        - label: I have searched the [issues](https://github.com/roderickvd/pleezer/issues) for similar feature requests
+          required: true
+        - label: I have checked the documentation and confirmed that this feature is not already implemented
+          required: true
+        - label: I have read and understood the [Contributing guidelines](https://github.com/roderickvd/pleezer/CONTRIBUTING.md)
+          required: true
