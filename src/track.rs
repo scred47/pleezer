@@ -1,5 +1,5 @@
 use std::{
-    fmt, fs, io,
+    fmt,
     num::NonZeroI64,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
@@ -7,9 +7,8 @@ use std::{
 
 use stream_download::{
     self, http::HttpStream, source::SourceStream, storage::temp::TempStorageProvider,
-    StreamDownload, StreamPhase, StreamState,
+    StreamDownload, StreamHandle, StreamPhase, StreamState,
 };
-use tempfile::{NamedTempFile, TempPath};
 use time::OffsetDateTime;
 
 use crate::{
@@ -21,15 +20,6 @@ use crate::{
         media::{self, Cipher, CipherFormat, Data, Format, Medium},
     },
 };
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum DownloadState {
-    #[default]
-    Pending,
-    Starting,
-    Buffered,
-    Complete,
-}
 
 /// A unique identifier for a track. User-uploaded tracks are identified by negative IDs.
 #[expect(clippy::module_name_repetitions)]
@@ -46,16 +36,14 @@ pub struct Track {
     quality: AudioQuality,
     duration: Duration,
     buffered: Arc<Mutex<Duration>>,
-    file: Option<NamedTempFile>,
-    download: Option<StreamDownload<TempStorageProvider>>,
-    download_state: Arc<Mutex<DownloadState>>,
     file_size: Option<u64>,
     cipher: Cipher,
+    handle: Option<StreamHandle>,
 }
 
 impl Track {
     /// Amount of seconds to audio to buffer before the track can be read from.
-    const PREFETCH_LENGTH: Duration = Duration::from_secs(10);
+    const PREFETCH_LENGTH: Duration = Duration::from_secs(3);
 
     /// The default amount of bytes to prefetch before the track can be read
     /// from. This is used when the track does not provide a `Content-Length`
@@ -115,44 +103,6 @@ impl Track {
     #[must_use]
     pub fn is_encrypted(&self) -> bool {
         self.cipher != Cipher::NONE
-    }
-
-    /// Returns the current download state of the track.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the download state lock is poisoned.
-    #[must_use]
-    pub fn download_state(&self) -> DownloadState {
-        *self.download_state.lock().unwrap()
-    }
-
-    #[must_use]
-    pub fn is_pending(&self) -> bool {
-        self.download_state() == DownloadState::Pending
-    }
-
-    #[must_use]
-    pub fn is_starting(&self) -> bool {
-        self.download_state() == DownloadState::Starting
-    }
-
-    #[must_use]
-    pub fn is_buffered(&self) -> bool {
-        self.download_state() == DownloadState::Buffered
-    }
-
-    #[must_use]
-    pub fn is_complete(&self) -> bool {
-        self.download_state() == DownloadState::Complete
-    }
-
-    #[must_use]
-    pub fn is_available(&self) -> bool {
-        matches!(
-            self.download_state(),
-            DownloadState::Buffered | DownloadState::Complete
-        )
     }
 
     #[must_use]
@@ -374,11 +324,11 @@ impl Track {
     /// # Panics
     ///
     /// Panics if the download state lock is poisoned.
-    pub async fn start_download(&mut self, client: &http::Client, medium: &Medium) -> Result<()> {
-        // Don't hold the lock because some await points are coming up.
-        // Instead, set the state to `Starting` to prevent multiple downloads
-        // from starting at the same time before the state is set to `Downloading`.
-        *self.download_state.lock().unwrap() = DownloadState::Starting;
+    pub async fn start_download(
+        &mut self,
+        client: &http::Client,
+        medium: &Medium,
+    ) -> Result<StreamDownload<TempStorageProvider>> {
         let stream = self.open_stream(client, medium).await?;
 
         // Set actual audio quality and cipher type.
@@ -390,7 +340,7 @@ impl Track {
         // necessarily true. However, it is a good approximation.
         let mut prefetch_size = None;
         if let Some(file_size) = stream.content_length() {
-            debug!("downloading {file_size} bytes for track {self}");
+            info!("downloading {file_size} bytes for track {self}");
             self.file_size = Some(file_size);
 
             if !self.duration.is_zero() {
@@ -400,7 +350,7 @@ impl Track {
                 prefetch_size = Some(size);
             }
         } else {
-            debug!("downloading track {self} with unknown file size");
+            info!("downloading track {self} with unknown file size");
         };
         let prefetch_size = prefetch_size.unwrap_or(Self::PREFETCH_DEFAULT as u64);
 
@@ -408,113 +358,69 @@ impl Track {
         let track_str = self.to_string();
         let duration = self.duration;
         let buffered = Arc::clone(&self.buffered);
-        let download_state = Arc::clone(&self.download_state);
         let callback = move |stream: &HttpStream<_>,
                              stream_state: StreamState,
-                             token: &tokio_util::sync::CancellationToken| {
-            let mut download_state = download_state.lock().unwrap();
-
-            // If the track was reset to `Pending`, cancel the download.
-            if *download_state == DownloadState::Pending {
-                token.cancel();
-            }
-
+                             _: &tokio_util::sync::CancellationToken| {
             if stream_state.phase == StreamPhase::Complete {
-                debug!("completed download of track {track_str}");
+                info!("completed download of track {track_str}");
 
                 // Prevent rounding errors and set the buffered duration
                 // equal to the total duration. It's OK to unwrap here: if
                 // the mutex is poisoned, then the main thread panicked and
                 // we should propagate the error.
                 *buffered.lock().unwrap() = duration;
-                *download_state = DownloadState::Complete;
-            } else {
-                // When moving from `StreamPhase::Prefetching` to `StreamPhase::Downloading`,
-                // set the track state to `Buffered` to indicate that the track has enough
-                // data buffered to start playing.
-                if let StreamPhase::Downloading { .. } = stream_state.phase {
-                    *download_state = DownloadState::Buffered;
-                }
+            } else if let Some(file_size) = stream.content_length() {
+                if file_size > 0 {
+                    // `f64` not for precision, but to be able to fit
+                    // as big as possible file sizes.
+                    // TODO : use `Percentage` type
+                    #[expect(clippy::cast_precision_loss)]
+                    let progress = stream_state.current_position as f64 / file_size as f64;
 
-                if let Some(file_size) = stream.content_length() {
-                    if file_size > 0 {
-                        // `f64` not for precision, but to be able to fit
-                        // as big as possible file sizes.
-                        // TODO : use `Percentage` type
-                        #[expect(clippy::cast_precision_loss)]
-                        let progress = stream_state.current_position as f64 / file_size as f64;
-
-                        // OK to unwrap: see rationale above.
-                        *buffered.lock().unwrap() = duration.mul_f64(progress);
-                    }
+                    // OK to unwrap: see rationale above.
+                    *buffered.lock().unwrap() = duration.mul_f64(progress);
                 }
             }
         };
 
-        // Create a temporary file to store the downloaded data and reopen it
-        // to pass it to the download object.
-        let temp_file = NamedTempFile::new()?;
-        let file = temp_file.reopen()?;
-        let path = temp_file.path().to_owned();
-
-        // Start the download and store the download object. The `await` here
-        // will *not* block until the download is complete, but only until the
-        // download is started. The download will continue in the background.
+        // Start the download. The `await` here will *not* block until the download is complete,
+        // but only until the download is started. The download will continue in the background.
         let download = StreamDownload::from_stream(
             stream,
-            TempStorageProvider::with_tempfile_builder(move || {
-                Ok(NamedTempFile::from_parts(
-                    // temp_file.reopen()?,
-                    file.try_clone()?,
-                    TempPath::from_path(&path),
-                ))
-            }),
+            TempStorageProvider::default(),
             stream_download::Settings::default()
                 .on_progress(callback)
                 .prefetch_bytes(prefetch_size),
         )
         .await?;
 
-        // Store the temporary file. This is necessary to keep the file open
-        // (the file is deleted when the last handle is closed) and to be able
-        // to reopen it for reading later.
-        self.file = Some(temp_file);
-        self.download = Some(download);
-
-        Ok(())
+        self.handle = Some(download.handle());
+        Ok(download)
     }
 
-    /// Cancel and remove any download of the track. Has no effect if the download is already
-    /// complete or has not been started yet.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a file was found, but its handle could not be closed.
+    /// Returns a handle to interact with the download of the track, if the
+    /// download has been started.
+    #[must_use]
+    pub fn handle(&self) -> Option<StreamHandle> {
+        self.handle.clone()
+    }
+
+    /// Whether the download of the track is complete.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.buffered().as_secs() == self.duration.as_secs()
+    }
+
+    /// Reset the download progress and file size of the track. This can be
+    /// useful if the download was interrupted and needs to be restarted.
     ///
     /// # Panics
     ///
-    /// Panics if the buffered or download state locks are poisoned.
-    pub fn reset_download(&mut self) -> Result<()> {
-        if let Some(download) = self.download.take() {
-            download.cancel_download();
-        }
-
-        if let Some(file) = self.file.take() {
-            if let Err(e) = file.close() {
-                // Ignore `NotFound` errors, because the file is already deleted. This can happen
-                // if the download was cancelled and no file handle was open.
-                if e.kind() != io::ErrorKind::NotFound {
-                    return Err(e.into());
-                }
-            }
-        }
-
+    /// Panics if the buffered lock is poisoned.
+    pub fn reset_download(&mut self) {
+        self.handle = None;
         self.file_size = None;
-
         *self.buffered.lock().unwrap() = Duration::ZERO;
-        *self.download_state.lock().unwrap() = DownloadState::Pending;
-
-        Ok(())
     }
 
     /// Returns the file size of the track, if known after the download has
@@ -522,18 +428,6 @@ impl Track {
     #[must_use]
     pub fn file_size(&self) -> Option<u64> {
         self.file_size
-    }
-
-    /// Reopen an independent file handle to the downloaded track.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the download has not been started yet.
-    pub fn try_file(&self) -> Result<fs::File> {
-        self.file
-            .as_ref()
-            .ok_or_else(|| Error::unavailable("track {self} download not started"))
-            .and_then(|file| file.reopen().map_err(Into::into))
     }
 }
 
@@ -549,11 +443,9 @@ impl From<gateway::ListData> for Track {
             expiry: item.expiry,
             quality: AudioQuality::Standard,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),
-            download_state: Arc::new(Mutex::new(DownloadState::Pending)),
-            file: None,
-            download: None,
             file_size: None,
             cipher: Cipher::BF_CBC_STRIPE,
+            handle: None,
         }
     }
 }

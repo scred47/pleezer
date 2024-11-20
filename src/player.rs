@@ -314,7 +314,12 @@ impl Player {
         }
     }
 
+    /// The audio gain control (AGC) attack time.
+    /// This value is equal to what Spotify uses.
     const AGC_ATTACK_TIME: Duration = Duration::from_millis(5);
+
+    /// The audio gain control (AGC) release time.
+    /// This value is equal to what Spotify uses.
     const AGC_RELEASE_TIME: Duration = Duration::from_millis(100);
 
     async fn load_track(
@@ -326,8 +331,8 @@ impl Player {
             .get_mut(position)
             .ok_or_else(|| Error::not_found(format!("track at position {position} not found")))?;
 
-        if track.is_pending() {
-            return tokio::time::timeout(Duration::from_secs(1), async {
+        if track.handle().is_none() {
+            let download = tokio::time::timeout(Duration::from_secs(1), async {
                 // Start downloading the track.
                 let medium = track
                     .get_medium(&self.client, self.audio_quality, self.license_token.clone())
@@ -335,17 +340,12 @@ impl Player {
 
                 // Return `None` on success to indicate that the track is not yet appended
                 // to the sink.
-                track
-                    .start_download(&self.client, &medium)
-                    .await
-                    .map(|()| None)
+                track.start_download(&self.client, &medium).await
             })
-            .await?;
-        }
+            .await??;
 
-        if track.is_available() {
             // Append the track to the sink.
-            let decryptor = Decrypt::new(track, &self.bf_secret)?;
+            let decryptor = Decrypt::new(track, download, &self.bf_secret)?;
             let mut decoder = match track.quality() {
                 AudioQuality::Lossless => rodio::Decoder::new_flac(decryptor),
                 _ => rodio::Decoder::new_mp3(decryptor),
@@ -552,19 +552,6 @@ impl Player {
 
     pub fn extend_queue(&mut self, tracks: Vec<Track>) {
         self.queue.extend(tracks);
-
-        // Remove temporary files that are no longer needed.
-        for i in 0..self.position() {
-            self.reset_track(i);
-        }
-    }
-
-    fn reset_track(&mut self, position: usize) {
-        if let Some(track) = self.queue.get_mut(position) {
-            if let Err(e) = track.reset_download() {
-                error!("failed to remove track {track}: {e}");
-            }
-        }
     }
 
     /// Sets the playlist position.
@@ -582,17 +569,6 @@ impl Player {
 
         // Clear the sink, which will drop any handles to the current and next tracks.
         self.clear();
-
-        // While skipping to another track, cancel the download of the current track if it is
-        // still pending. Also cancel the download of the next track, unless it is the track that
-        // we are skipping to.
-        self.reset_track(self.position);
-        let next_position = self.position.saturating_add(1);
-        if position != next_position {
-            self.reset_track(next_position);
-        }
-
-        // Finally, set the new position.
         self.position = position;
     }
 
@@ -603,6 +579,15 @@ impl Player {
         self.sink.append(output);
         self.sink.skip_one();
         self.sources = sources;
+
+        // Resetting the sink drops any downloads of the current and next tracks.
+        // We need to reset the download state of those tracks.
+        if let Some(current) = self.queue.get_mut(self.position) {
+            current.reset_download();
+        }
+        if let Some(next) = self.queue.get_mut(self.position.saturating_add(1)) {
+            next.reset_download();
+        }
 
         self.playing_since = Duration::ZERO;
         self.current_rx = None;
@@ -676,14 +661,7 @@ impl Player {
         if let Some(track) = self.track() {
             debug!("setting track progress to {progress}");
             let progress = progress.as_ratio_f32();
-
-            // The proper way of checking for floating point equality.
-            if (progress - 1.0).abs() <= f32::EPSILON {
-                // Setting the progress to 1.0 is equivalent to skipping to the next track.
-                // This prevents `UnexpectedEof` when seeking to the end of the track.
-                self.clear();
-                self.go_next();
-            } else {
+            if progress < 1.0 {
                 let progress = track.duration().mul_f32(progress);
                 match self.sink.try_seek(progress) {
                     Ok(()) => {
@@ -702,6 +680,11 @@ impl Player {
                         }
                     }
                 }
+            } else {
+                // Setting the progress to 1.0 is equivalent to skipping to the next track.
+                // This prevents `UnexpectedEof` when seeking to the end of the track.
+                self.clear();
+                self.go_next();
             }
         }
 

@@ -1,5 +1,4 @@
 use std::{
-    fs,
     io::{self, Cursor, Read, Seek, SeekFrom},
     ops::Deref,
     str::FromStr,
@@ -8,6 +7,7 @@ use std::{
 use blowfish::{cipher::BlockDecryptMut, cipher::KeyIvInit, Blowfish};
 use cbc::cipher::block_padding::NoPadding;
 use md5::{Digest, Md5};
+use stream_download::{storage::temp::TempStorageProvider, StreamDownload};
 
 use crate::{
     error::{Error, Result},
@@ -38,11 +38,17 @@ use crate::{
 ///
 /// Tracks without encryption are not supported by this module simply have their
 /// `Read` and `Seek` implementations passed through.
+///
+/// # Buffering
+///
+/// The decryption is done in blocks of 2 kB. This means that the `Read` trait
+/// will read at most 2 kB of data at a time. Therefore, it is not necessary to
+/// wrap the `Decrypt` struct in a `BufReader`.
 pub struct Decrypt {
-    /// The file to decrypt.
-    file: fs::File,
+    /// The download stream to decrypt.
+    download: StreamDownload<TempStorageProvider>,
 
-    /// The size of the file.
+    /// The size of the download.
     file_size: Option<u64>,
 
     /// The encryption cipher.
@@ -118,19 +124,20 @@ impl Decrypt {
     /// # Errors
     ///
     /// Will return `Err` if the track uses an unsupported encryption algorithm.
-    pub fn new(track: &Track, salt: &Key) -> Result<Self> {
+    pub fn new(
+        track: &Track,
+        download: StreamDownload<TempStorageProvider>,
+        salt: &Key,
+    ) -> Result<Self> {
         if !Self::SUPPORTED_CIPHERS.contains(&track.cipher()) {
             return Err(Error::unimplemented("unsupported encryption algorithm"));
         }
-
-        let mut file = track.try_file()?;
-        file.rewind()?;
 
         // Calculate decryption key.
         let key = Self::key_for_track_id(track.id(), salt);
 
         Ok(Self {
-            file,
+            download,
             file_size: track.file_size(),
             cipher: track.cipher(),
             key,
@@ -170,7 +177,7 @@ impl Seek for Decrypt {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         // If the track is not encrypted, we can seek directly.
         if self.cipher == Cipher::NONE {
-            return self.file.seek(pos);
+            return self.download.seek(pos);
         }
 
         // Calculate the target position in the encrypted file.
@@ -234,13 +241,13 @@ impl Seek for Decrypt {
             self.block = Some(block);
 
             // Seek to the start of the block in the encrypted file.
-            self.file
+            self.download
                 .seek(SeekFrom::Start(block * Self::CBC_BLOCK_SIZE as u64))?;
 
             // TODO : when this is the first block of two unencrypted blocks,
             // read ahead 2 * CBC_BLOCK_SIZE.
             let mut buffer = [0; Self::CBC_BLOCK_SIZE];
-            let length = self.file.read(&mut buffer)?;
+            let length = self.download.read(&mut buffer)?;
 
             // Decrypt the block if it is encrypted. Every third block is
             // encrypted, and only if the block is of a full stripe size.
@@ -280,7 +287,7 @@ impl Read for Decrypt {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // If the track is not encrypted, we can read directly.
         if self.cipher == Cipher::NONE {
-            return self.file.read(buf);
+            return self.download.read(buf);
         }
 
         let mut bytes_on_buffer = self.bytes_on_buffer();

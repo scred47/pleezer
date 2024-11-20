@@ -1663,7 +1663,6 @@ dependencies = [
  "serde_with",
  "stream-download",
  "sysinfo",
- "tempfile",
  "thiserror 2.0.3",
  "time",
  "tokio",
