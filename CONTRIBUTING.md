@@ -4,6 +4,9 @@ Thank you for your interest in contributing to **pleezer**! Your support is cruc
 
 ## Table of Contents
 
+- [Stance Against Piracy](#stance-against-piracy)
+- [Versioning and Commit Standards](#versioning-and-commit-standards)
+- [Design Principles](#design-principles)
 - [Code of Conduct and Project Governance](#code-of-conduct-and-project-governance)
 - [Getting Started](#getting-started)
 - [How to Contribute](#how-to-contribute)
@@ -21,9 +24,61 @@ Thank you for your interest in contributing to **pleezer**! Your support is cruc
 - [Release Process](#release-process)
 - [Acknowledgments](#acknowledgments)
 
+## Stance Against Piracy
+
+**pleezer** takes a firm stance against piracy and copyright infringement. We are committed to:
+- Supporting artists and content creators
+- Maintaining compliance with Deezer's Terms of Service
+- Protecting intellectual property rights
+
+We will not:
+- Accept contributions that enable or promote piracy
+- Entertain discussions about circumventing content protection
+- Support features designed for unauthorized content extraction
+
+Any pull requests or issues related to such activities will be closed immediately without discussion.
+
+## Versioning and Commit Standards
+
+**pleezer** follows:
+- [Semantic Versioning](https://semver.org/) for version numbering
+- [Conventional Commits](https://www.conventionalcommits.org/) for commit messages
+- [Keep a Changelog](https://keepachangelog.com/) for tracking changes
+
+These standards help maintain clarity and consistency in our development process.
+
+## Design Principles
+
+### Core Architecture
+
+**pleezer** is built on several key architectural decisions that guide our development:
+
+1. **Audio System Integration**
+   - We use the [Rodio](https://github.com/RustAudio/rodio) library as our audio foundation
+   - Rodio was chosen for its robust cross-platform support and comprehensive audio backend abstraction
+   - Audio backend improvements should be contributed upstream to Rodio
+   - While Rodio supports numerous audio backends, we maintain this separation of concerns:
+     - Backend-specific improvements belong in Rodio
+     - If you need an unsupported backend, consider forking pleezer
+
+2. **Project Focus**
+   - Our primary goal is to provide a high-quality headless player that integrates seamlessly with official Deezer clients
+   - While parts of pleezer may be useful as a library, alternative control methods are outside our scope
+   - We welcome contributions that:
+     - Improve modularity and extensibility
+     - Enhance the codebase's utility as a library
+     - Maintain our focus on the Deezer Connect protocol
+
+3. **Engineering Principles**
+   We value code that is:
+   - Strongly typed and panic-free
+   - Built around well-encapsulated newtypes
+   - Readable, correct, and idiomatic Rust
+   - Robust and maintainable
+
 ## Code of Conduct and Project Governance
 
-We require all contributors to adhere to our [Code of Conduct](CODE_OF_CONDUCT.md), which ensures a respectful and constructive environment for everyone. The project is currently maintained by the author, who has the final decision-making authority. We expect all contributors to resolve any conflicts, either technical or interpersonal, in a manner that aligns with the Code of Conduct. The final decision on any conflicts rests with the author.
+We require all contributors to adhere to our [Code of Conduct](https://github.com/roderickvd/pleezer/blob/main/CODE_OF_CONDUCT.md), which ensures a respectful and constructive environment for everyone. The project is currently maintained by the author, who has the final decision-making authority. We expect all contributors to resolve any conflicts, either technical or interpersonal, in a manner that aligns with the Code of Conduct. The final decision on any conflicts rests with the author.
 
 ## Getting Started
 
@@ -47,7 +102,7 @@ We require all contributors to adhere to our [Code of Conduct](CODE_OF_CONDUCT.m
 
 1. **Create a Branch**: Always create a new branch for each feature or bug fix. Avoid committing directly to the `main` branch. Use descriptive branch names.
 2. **Test Your Code**: Ensure your code works as expected before submitting a pull request. Cross-platform testing is encouraged if possible.
-3. **Update the Changelog**: Update the [CHANGELOG.md](CHANGELOG.md) file with a summary of your changes under the "Unreleased" section. Follow the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+3. **Update the Changelog**: Update the [CHANGELOG.md](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md) file with a summary of your changes under the "Unreleased" section. Follow the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
 4. **Open a Pull Request**: Submit a pull request against the `main` branch. Include a clear description of your changes and reference any related issues. Use descriptive and imperative commit messages.
 5. **Review Process**: We will review your pull request as soon as possible, but response times can vary.
 6. **Testing**: While writing new tests is encouraged, it’s not required at this stage as we do not yet have a test harness. Just make sure your code passes any existing tests.
@@ -55,11 +110,11 @@ We require all contributors to adhere to our [Code of Conduct](CODE_OF_CONDUCT.m
 
 We will acknowledge contributors in the release notes unless they choose to opt out. Sponsoring the project via [GitHub Sponsors](https://github.com/sponsors/roderickvd) is also a meaningful way to contribute.
 
-By contributing, you agree that your code will be licensed under the terms of the [Sustainable Use License](LICENSE.md).
+By contributing, you agree that your code will be licensed under the terms of the [Sustainable Use License](https://github.com/roderickvd/pleezer/blob/main/LICENSE.md).
 
 ### Security
 
-Please refer to the [SECURITY.md](SECURITY.md) file for information on how to report security vulnerabilities. Do not use GitHub issues or discussions for reporting security vulnerabilities.
+Please refer to the [SECURITY.md](https://github.com/roderickvd/pleezer/blob/main/SECURITY.md) file for information on how to report security vulnerabilities. Do not use GitHub issues or discussions for reporting security vulnerabilities.
 
 ## Financial Contributions
 
@@ -96,7 +151,7 @@ Our goal is to provide thorough documentation for **pleezer**. Contributions to 
 We aim for fast and frequent releases to ensure that improvements and fixes are delivered to users as quickly as possible. Our release process involves the following steps:
 
 1. **Merge Pull Requests**: Ensure all relevant pull requests are merged into the `main` branch.
-2. **Update Changelog**: Ensure the [CHANGELOG.md](CHANGELOG.md) file is up-to-date with the latest changes.
+2. **Update Changelog**: Ensure the [CHANGELOG.md](https://github.com/roderickvd/pleezer/blob/main/CHANGELOG.md) file is up-to-date with the latest changes.
 3. **Tag a New Release**: Create a new tag for the release.
 4. **Publish to Crates.io**: Publish the new version to [crates.io](https://crates.io/crates/pleezer).
 
