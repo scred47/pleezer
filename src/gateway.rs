@@ -14,7 +14,10 @@ use crate::{
     error::{Error, ErrorKind, Result},
     http::Client as HttpClient,
     protocol::{
-        connect::{queue, AudioQuality, UserId},
+        connect::{
+            queue::{self, TrackType},
+            AudioQuality, UserId,
+        },
         gateway::{self, Queue, UserData},
     },
     // TODO : move into gateway
@@ -287,7 +290,16 @@ impl Gateway {
             track_ids: list
                 .tracks
                 .iter()
-                .map(|track| track.id.parse())
+                .map(|track| {
+                    let track_type = track.typ.enum_value_or_default();
+                    if track_type == TrackType::TRACK_TYPE_SONG {
+                        track.id.parse().map_err(Into::into)
+                    } else {
+                        Err(Error::unimplemented(format!(
+                            "{track_type:?} not yet implemented"
+                        )))
+                    }
+                })
                 .collect::<std::result::Result<Vec<_>, _>>()?,
         };
 
