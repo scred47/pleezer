@@ -49,5 +49,5 @@ body:
           required: true
         - label: I have checked the documentation and confirmed that this feature is not already implemented
           required: true
-        - label: I have read and understood the [Contributing guidelines](https://github.com/roderickvd/pleezer/CONTRIBUTING.md)
+        - label: I have read and understood the [Contributing guidelines](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md)
           required: true

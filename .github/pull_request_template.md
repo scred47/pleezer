@@ -33,9 +33,9 @@ Describe the testing that was done to ensure the changes work as expected. Inclu
 
 Please confirm that you have completed the following tasks by checking the boxes:
 
-- [ ] I have linked any related issues or feature requests.
+- [ ] I have linked any related [issues or feature requests](https://github.com/roderickvd/pleezer/issues).
 - [ ] I have selected the appropriate labels for this pull request.
 - [ ] I have performed cross-platform testing if possible.
-- [ ] I have updated the [CHANGELOG.md](CHANGELOG.md) file with a summary of my changes under the "Unreleased" section.
+- [ ] I have updated the [CHANGELOG.md](https://github.com/roderickvd/pleezer/blob/main/CHANGELOG.md) file with a summary of my changes under the "Unreleased" section.
 - [ ] I have kept the pull request as a draft until it is ready for review (if applicable).
-- [ ] I have read and understood the [Contributing guidelines](CONTRIBUTING.md).
+- [ ] I have read and understood the [Contributing guidelines](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md).
