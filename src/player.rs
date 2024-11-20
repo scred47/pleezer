@@ -305,7 +305,9 @@ impl Player {
             } else {
                 // Reached the end of the queue: rewind to the beginning.
                 if repeat_mode != RepeatMode::All {
-                    self.pause();
+                    // Using this instead of `pause()` ensures that we only get a notification
+                    // if the player was actually playing.
+                    self.set_playing(false);
                 };
                 self.position = 0;
             }
@@ -450,7 +452,7 @@ impl Player {
                                     }
                                     Err(e) => {
                                         error!("failed to preload next track: {e}");
-                                        self.skip_queue.push(next_track_id);
+                                        self.mark_unavailable(next_track_id);
                                     }
                                 }
                             }
@@ -462,7 +464,6 @@ impl Player {
                     if let Some(track) = self.track() {
                         let track_id = track.id();
                         if self.skip_queue.contains(&track_id) {
-                            error!("skipping track {track}");
                             self.go_next();
                         } else {
                             match self.load_track(self.position).await {
@@ -474,7 +475,7 @@ impl Player {
                                 }
                                 Err(e) => {
                                     error!("failed to load track: {e}");
-                                    self.skip_queue.push(track_id);
+                                    self.mark_unavailable(track_id);
                                     self.go_next();
                                 }
                             }
@@ -486,6 +487,11 @@ impl Player {
             // Yield to the runtime to allow other tasks to run.
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    fn mark_unavailable(&mut self, track_id: TrackId) {
+        warn!("marking track {track_id} as unavailable");
+        self.skip_queue.push(track_id);
     }
 
     fn notify_play(&self) {
