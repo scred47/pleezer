@@ -1,6 +1,6 @@
 # pleezer
 
-**pleezer** is an open-source, headless streaming player that uses the [Deezer Connect](https://support.deezer.com/hc/en-gb/articles/5449309457949-Deezer-Connect) protocol to provide high-quality streaming while respecting artists’ rights and complying with Deezer’s terms of service.
+**pleezer** is an open-source, headless streaming player built around the [Deezer Connect](https://support.deezer.com/hc/en-gb/articles/5449309457949-Deezer-Connect) protocol. "Headless" means it runs without a graphical interface, making it ideal for DIY setups, server-based systems, or custom integrations where flexibility is key.
 
 ## Project Status
 
@@ -26,23 +26,20 @@
 
 ### Supported Features
 
-- **Audio Quality**: Stream audio in basic, standard, HQ, and lossless formats based on your Deezer subscription level.
-- **Gapless Playback**: Enjoy uninterrupted transitions between tracks.
-- **Flow & Mixes**: Listen to personalized playlists and mixes.
-- **Playback Reporting**: Provides accurate playback data for artist monetization.
-- **Authentication**: Allows login using email/password or ARL (Authentication Reference Link).
-- **Normalization**: Ensures consistent volume levels across all tracks.
-- **User-uploaded MP3 Files**: Supports playback of user-uploaded MP3 files.
+- **High-Quality Audio**: Stream in basic, HQ, or lossless formats depending on your Deezer subscription.
+- **Gapless Playback**: Enjoy seamless transitions between tracks.
+- **Flow and Mixes**: Access personalized playlists and mixes tailored to your preferences.
+- **Playback Reporting**: Contribute to accurate artist monetization metrics.
+- **User MP3 Support**: Play your uploaded MP3 files alongside streamed content.
+- **Authentication Options**: Log in via Deezer email/password or ARL token.
+- **Volume Normalization**: Maintain consistent volume across all tracks while preventing clipping or distortion.
 
 ### Planned Features
 
-- **Shuffle**: Support for shuffling tracks in a playlist.
-- **Live Radio and Podcasts**: Support for Deezer’s live radio and podcast features.
-- **Device Registration**: Register unique devices and adhere to Deezer’s device limit policy.
-- **Proxy Support**: Enable the use of **pleezer** in environments with restricted internet access.
-listening experience.
-- **ASIO Support**: Stream audio to ASIO-compatible devices for low-latency audio.
-- **JACK Audio Support**: Stream audio to JACK Audio Connection Kit for advanced audio routing.
+- Shuffle support
+- Live radio and podcast integration
+- Advanced audio outputs: ASIO, JACK
+- Device registration and improved proxy support
 
 ## Installation
 
