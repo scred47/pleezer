@@ -1,7 +1,10 @@
+use veil::Redact;
+
 use crate::error::{Error, Result};
 use std::{fmt, ops::Deref, str::FromStr};
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Redact, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[redact(all)]
 pub struct Arl(String);
 
 impl Arl {
