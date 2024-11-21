@@ -1025,8 +1025,16 @@ impl Client {
                                 }
                             }
 
-                            // Ignore streaming information from others.
-                            Message::StreamReceive { .. } => return ControlFlow::Continue(()),
+                            Message::StreamReceive { .. } => {
+                                if self.eavesdrop {
+                                    if log_enabled!(Level::Trace) {
+                                        trace!("{message:#?}");
+                                    } else {
+                                        debug!("{message}");
+                                    }
+                                }
+                                return ControlFlow::Continue(());
+                            }
 
                             _ => {
                                 trace!("ignoring unexpected message: {message:#?}");
