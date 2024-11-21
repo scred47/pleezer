@@ -11,52 +11,52 @@ The **pleezer** project is actively being developed, and we currently only suppo
 
 ## Reporting a Vulnerability
 
-We take the security of **pleezer** seriously. If you discover a security vulnerability within **pleezer**, please disclose it to us privately to avoid public exposure of the vulnerability until it's fixed.
+We take the security of **pleezer** seriously. If you discover a security vulnerability, please follow these steps:
 
-To report security vulnerabilities, please do not use GitHub issues or discussions. Instead, contact the author directly via email. The email address can be found in the [Contacting the Author](README.md#contacting-the-author) section of the README.md file.
+1. **Do not** report security vulnerabilities through public GitHub issues or discussions
+2. Contact the author directly via email (see [Contacting the Author](https://github.com/roderickvd/pleezer/blob/main/README.md#contacting-the-author))
+3. Include detailed steps to reproduce the vulnerability
+4. Wait for acknowledgment before any public disclosure
 
-When reporting a vulnerability, please provide detailed steps to reproduce the issue. This will help us understand the problem and fix it more quickly.
+### What to Expect
 
-**Response Process**:
-- **Acknowledgment**: We will acknowledge receipt of your report as soon as possible, typically within a few days to a few weeks, but please be aware that response times may vary.
-- **Investigation**: We will investigate the report thoroughly and impartially.
-- **Confidentiality**: We will maintain confidentiality to the extent possible, sharing information only with those who need to know.
-- **Resolution**: We will communicate the outcome of the investigation to the reporter and take appropriate action based on the findings.
-
-We will also notify you when the issue is resolved and acknowledge your contribution in the release notes unless you choose to opt-out.
-
-## Security Updates
-
-When a security vulnerability is discovered and fixed, we will release a new version of **pleezer** as soon as possible. We will also provide a description of the vulnerability, its potential impact, and the steps taken to fix it in the release notes.
-
-We strongly recommend users regularly check for updates and always use the latest version of **pleezer**.
-
-## Responsible Disclosure
-
-We kindly ask that you give us a reasonable amount of time to fix the issue before you publish it. This helps to ensure that the vulnerability does not put other users at risk.
+- **Acknowledgment**: We aim to acknowledge reports within a few days to a few weeks
+- **Updates**: We will keep you informed of our progress
+- **Disclosure**: We will coordinate the public disclosure with you after the fix is released
+- **Credit**: We will acknowledge your contribution in the release notes (unless you prefer not to be credited)
 
 ## Security Practices
 
-As a user, it's important to follow good security practices when using **pleezer**. This includes:
+### For Users
 
-- Keeping your `secrets.toml` file secure and private.
-- Regularly updating **pleezer** to the latest version.
-- Using strong, unique passwords for your accounts.
-- Avoiding sharing sensitive information in public forums.
+- Keep your `secrets.toml` file secure and private
+- Update to the latest version of **pleezer** regularly
+- Use strong, unique passwords for your Deezer account
+- Avoid sharing sensitive information in public forums
 
-## Security Tools and Practices
+### For Contributors
 
-We use the following tools and practices to ensure the security of the **pleezer** project:
+We maintain security through:
+- Weekly dependency scans via [GitHub Dependabot](https://github.com/roderickvd/pleezer/security/dependabot)
+- Mandatory code reviews for all changes
+- Security-focused testing and review processes
 
-- **GitHub Dependabot**: We use [GitHub Dependabot](https://docs.github.com/en/code-security/supply-chain-security/keeping-your-dependencies-updated-automatically) for weekly automated security scans to identify and fix vulnerabilities in our dependencies.
-- **Code Reviews**: All code changes are reviewed by maintainers to ensure they meet security standards.
+## Security Updates
 
-## Community Involvement
+When we fix a security vulnerability:
+1. We release an update as quickly as possible
+2. We document the fix in the release notes
+3. We notify affected users if necessary
 
-We encourage community involvement in our security practices. If you have suggestions for improving the security of **pleezer**, please let us know through [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions) or by contacting the author directly.
+## Responsible Disclosure
 
-## Legal Considerations
+We kindly request:
+1. Private disclosure of vulnerabilities
+2. Reasonable time to investigate and fix issues
+3. Coordination on public disclosure timing
 
-By reporting a vulnerability, you agree to give us a reasonable amount of time to fix the issue before you publish it. This helps to ensure that the vulnerability does not put other users at risk.
+Your help in keeping **pleezer** users secure is greatly appreciated.
 
-Remember, your security is also our priority. We appreciate your cooperation and understanding.
+## Questions or Suggestions?
+
+For general security suggestions, use [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions). For sensitive security matters, contact the author directly.

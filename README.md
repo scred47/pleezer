@@ -14,19 +14,20 @@
 - [Troubleshooting](#troubleshooting)
 - [Setting Up Your Build Environment](#setting-up-your-build-environment)
 - [Contributing](#contributing)
-- [Versioning](#versioning)
+- [Support My Work](#support-my-work)
 - [Related Projects](#related-projects)
 - [License](#license)
+- [Important Information](#important-information)
+  - [Important Disclaimer](#important-disclaimer)
+  - [Deezer Terms of Service](#deezer-terms-of-service)
+  - [Security](#security)
 - [Contacting the Author](#contacting-the-author)
-- [Support My Work](#support-my-work)
-- [Important Disclaimer](#important-disclaimer)
-- [Deezer Terms of Service](#deezer-terms-of-service)
 
 ## Features
 
 ### Supported Features
 
-- **High-Quality Audio**: Stream in basic, HQ, or lossless formats depending on your Deezer subscription.
+- **High-Quality Audio**: Stream in basic, HQ, or lossless formats depending on your [Deezer subscription](http://www.deezer.com/offers).
 - **Gapless Playback**: Enjoy seamless transitions between tracks.
 - **Flow and Mixes**: Access personalized playlists and mixes tailored to your preferences.
 - **Playback Reporting**: Contribute to accurate artist monetization metrics.
@@ -83,7 +84,7 @@ Before installing **pleezer**, ensure your system has the necessary build enviro
 
 ## Usage
 
-Once **pleezer** is launched, it will wait for a connection from another Deezer client. Here’s how to connect and use **pleezer** with your mobile device or other Deezer clients:
+Once **pleezer** is launched, it will wait for a connection from another Deezer client. Here's how to connect and use **pleezer** with your mobile device or other Deezer clients:
 
 1. **Open** the Deezer app on your mobile device or another Deezer client.
 2. **Tap** the loudspeaker icon, usually found in the bottom-left corner, to access the Audio Output section.
@@ -174,7 +175,7 @@ For authentication, **pleezer** requires a `secrets.toml` file containing either
 
 In addition to the authentication keys, the `secrets.toml` file can also include the following optional key:
 
-- **bf_secret** (optional): The secret for computing the track decryption key. If not provided, **pleezer** will attempt to extract it from Deezer’s public resources. Providing this secret is optional and **pleezer** does not include it to prevent piracy.
+- **bf_secret** (optional): The secret for computing the track decryption key. If not provided, **pleezer** will attempt to extract it from Deezer's public resources. Providing this secret is optional and **pleezer** does not include it to prevent piracy.
 
 **Important:** Keep your `secrets.toml` file secure and private. Do not share it, as it contains sensitive information that can give unauthorized access to your Deezer account.
 
@@ -200,7 +201,7 @@ arl = "your-arl"
 bf_secret = "your-bf-secret"
 ```
 
-You can start with the [`secrets.toml.example`](secrets.toml.example) file provided in the repository as a template.
+You can start with the [`secrets.toml.example`](https://github.com/roderickvd/pleezer/blob/main/secrets.toml.example) file provided in the repository as a template.
 
 ## Troubleshooting
 
@@ -276,11 +277,11 @@ We appreciate and encourage contributions to **pleezer**! Whether you're fixing 
 
 For more details on contributing, refer to the [CONTRIBUTING.md](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md) file.
 
-## Versioning
+## Support My Work
 
-**pleezer** uses [Semantic Versioning](https://semver.org/). As the project is currently below version 1.0.0, according to Semantic Versioning, anything may change at any time. This means that breaking changes may occur and will be signified by a minor version bump as we refine and update the API.
+If you appreciate the effort and dedication put into **pleezer** and other open-source projects, consider supporting my work through GitHub Sponsorships. Your contributions help me continue developing and improving software, and they make a meaningful difference in the sustainability of these projects.
 
-All significant changes are documented in the [Changelog](https://github.com/roderickvd/pleezer/blob/main/CHANGELOG.md).
+Become a sponsor today at [github.com/sponsors/roderickvd](https://github.com/sponsors/roderickvd). Thank you for your support!
 
 ## Related Projects
 
@@ -308,31 +309,27 @@ For example, **pleezer** can be included in free software or hardware, but if it
 
 This approach addresses challenges seen with projects like [librespot](https://github.com/librespot-org/librespot), which, despite widespread use, has seen limited contributions. By requiring commercial users to obtain a separate license, we aim to promote fair contributions and support the ongoing development of **pleezer**.
 
-## Contacting the Author
+## Important Information
 
-For general inquiries, please use [GitHub Issues](https://github.com/roderickvd/pleezer/issues) or [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions). For commercial licensing or to report security vulnerabilities, you may contact me directly via email. Please avoid using email for general support or feature requests.
-
-## Support My Work
-
-If you appreciate the effort and dedication put into **pleezer** and other open-source projects, consider supporting my work through GitHub Sponsorships. Your contributions help me continue developing and improving software, and they make a meaningful difference in the sustainability of these projects.
-
-Become a sponsor today at [github.com/sponsors/roderickvd](https://github.com/sponsors/roderickvd). Thank you for your support!
-
-## Important Disclaimer
+### Important Disclaimer
 
 **pleezer** is an independent project and is not affiliated with, endorsed by, or created by Deezer. It is developed to provide a streaming player that is fully compatible with the Deezer Connect protocol.
 
 **pleezer** **does not and will not support** saving or extracting music files for offline use. This project is committed to respecting artists' rights and strongly opposes piracy. Users must not use **pleezer** to infringe on intellectual property rights.
 
-## Deezer Terms of Service
+### Deezer Terms of Service
 
 When using **pleezer**, you must comply with [Deezer's Terms of Service](https://www.deezer.com/legal/cgu). This includes, but is not limited to:
 
 - Using the software only for permitted purposes, such as personal or family use.
 - Avoiding any activities that violate Deezer's policies or terms.
 
-It is your responsibility to thoroughly understand and adhere to Deezer’s Terms of Service while using **pleezer**.
+It is your responsibility to thoroughly understand and adhere to Deezer's Terms of Service while using **pleezer**.
 
-## Security
+### Security
 
 For information on how security is handled, including how to report vulnerabilities, please refer to the [SECURITY.md](https://github.com/roderickvd/pleezer/blob/main/SECURITY.md) file.
+
+## Contacting the Author
+
+For general inquiries, please use [GitHub Issues](https://github.com/roderickvd/pleezer/issues) or [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions). For commercial licensing or to report security vulnerabilities, you may contact me directly via email. Please avoid using email for general support or feature requests.
