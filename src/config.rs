@@ -78,10 +78,18 @@ pub struct Config {
 
     /// Secret for computing the track decryption key.
     pub bf_secret: Option<Key>,
+
+    /// Whether to eavesdrop on the network traffic.
+    pub eavesdrop: bool,
 }
 
 impl Config {
+    /// The checksum of the secret key used to decrypt tracks. This is *not* the actual key,
+    /// but used to verify that some supplied key is correct.
     pub const BF_SECRET_MD5: &'static str = "7ebf40da848f4a0fb3cc56ddbe6c2d09";
+
+    /// The URL of the Deezer web player, used to retrieve the `app-web` source from which
+    /// the secret key is extracted.
     const WEB_PLAYER_URL: &'static str = "https://www.deezer.com/en/channels/explore/";
 
     /// Get the decryption key from the Deezer web player.
@@ -131,6 +139,11 @@ impl Config {
         key.parse()
     }
 
+    /// Get the body text of a URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the URL could not be parsed or the request failed.
     async fn get_text(client: &http::Client, url: &str) -> Result<String> {
         let url = url.parse::<reqwest::Url>()?;
         let request = client.get(url, "");
@@ -138,6 +151,12 @@ impl Config {
         response.text().await.map_err(Into::into)
     }
 
+    /// Convert a half key from the `app-web` source to a format and ordering suitable for
+    /// constructing the full key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the half key does not contain the right amount of valid characters.
     #[expect(clippy::cast_possible_truncation)]
     fn convert_half(half: &str) -> Result<Vec<u8>> {
         let bytes: Vec<u8> = half

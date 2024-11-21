@@ -58,6 +58,8 @@ pub struct Client {
 
     queue: Option<queue::List>,
     deferred_position: Option<usize>,
+
+    eavesdrop: bool,
 }
 
 #[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
@@ -163,6 +165,8 @@ impl Client {
 
             queue: None,
             deferred_position: None,
+
+            eavesdrop: config.eavesdrop,
         })
     }
 
@@ -273,7 +277,11 @@ impl Client {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
         self.player.register(event_tx);
 
-        info!("ready for discovery");
+        if self.eavesdrop {
+            warn!("not discoverable: eavesdropping on websocket");
+        } else {
+            info!("ready for discovery");
+        }
 
         let loop_result = loop {
             tokio::select! {
@@ -986,23 +994,30 @@ impl Client {
                                     return ControlFlow::Continue(());
                                 }
 
-                                // Ignore messages directed at others.
-                                if let Some(destination) = contents.headers.destination {
-                                    if destination != self.device_id {
-                                        return ControlFlow::Continue(());
+                                let for_another = contents
+                                    .headers
+                                    .destination
+                                    .is_some_and(|destination| destination != self.device_id);
+
+                                // Only log messages intended for this device or eavesdropping.
+                                if !for_another || self.eavesdrop {
+                                    if log_enabled!(Level::Trace) {
+                                        trace!("{message:#?}");
+                                    } else {
+                                        debug!("{message}");
                                     }
                                 }
 
-                                if let Some(controller) = self.controller() {
-                                    if controller == from {
-                                        self.reset_watchdog_rx();
-                                    }
+                                // Ignore messages not intended for this device.
+                                if for_another || self.eavesdrop {
+                                    return ControlFlow::Continue(());
                                 }
 
-                                if log_enabled!(Level::Trace) {
-                                    trace!("{message:#?}");
-                                } else {
-                                    debug!("{message}");
+                                if self
+                                    .controller()
+                                    .is_some_and(|controller| controller == from)
+                                {
+                                    self.reset_watchdog_rx();
                                 }
 
                                 if let Err(e) = self.dispatch(from, contents.body).await {

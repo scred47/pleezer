@@ -49,7 +49,7 @@ struct Args {
     ///
     /// Use "?" to list available devices. If omitted, the system's default
     /// output device is used.
-    #[arg(short, long, default_value_t = String::from(""))]
+    #[arg(short, long, default_value = "")]
     device: String,
 
     /// Prevent session interruptions
@@ -68,6 +68,14 @@ struct Args {
     /// Specify twice for trace logging.
     #[arg(short, long, action = clap::ArgAction::Count, group = ARGS_GROUP_LOGGING)]
     verbose: u8,
+
+    /// Eavesdrop on the Deezer Connect websocket
+    ///
+    /// This option disables connections to this player and instead listens to
+    /// the Deezer Connect websocket. This is useful for development purposes,
+    /// and only makes sense together with the `-vv` option (trace logging).
+    #[arg(long, default_value_t = false, requires = "verbose")]
+    eavesdrop: bool,
 }
 
 /// Initializes the logger facade.
@@ -273,6 +281,8 @@ async fn run(args: Args) -> Result<()> {
 
             credentials,
             bf_secret,
+
+            eavesdrop: args.eavesdrop,
         }
     };
 
