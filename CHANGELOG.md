@@ -8,16 +8,21 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
+- [remote] Eavesdropping on the Deezer Connect websocket
 
 ### Changed
+- [docs] Improve consistency and readability of the README, Code of Conduct, Contributing guidelines, and Security Policy
+- [player] Store tracks to skip in a `HashSet`
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+- [protocol] Deserialize `connect` messages without `offer_id`
 
 ### Security
+- [arl] Redact ARL from logs
 
 [Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.1.0...HEAD
 
