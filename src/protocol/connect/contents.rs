@@ -171,7 +171,7 @@ pub enum Body {
     Connect {
         message_id: String,
         from: DeviceId,
-        offer_id: String,
+        offer_id: Option<String>,
     },
 
     ConnectionOffer {
@@ -715,6 +715,7 @@ pub enum Payload {
     PublishQueue(queue::List),
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum Params {
@@ -724,12 +725,12 @@ pub enum Params {
         supported_control_versions: HashSet<String>,
     },
 
-    Connect {
-        offer_id: String,
-    },
-
     DiscoveryRequest {
         discovery_session: String,
+    },
+
+    Connect {
+        offer_id: Option<String>,
     },
 }
 

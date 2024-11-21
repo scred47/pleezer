@@ -550,10 +550,10 @@ impl Client {
         self.send_message(discover).await
     }
 
-    async fn handle_connect(&mut self, from: DeviceId, offer_id: &str) -> Result<()> {
-        let controller = self.connection_offers.remove(offer_id).ok_or_else(|| {
-            Error::failed_precondition(format!("connection offer {offer_id} should be active"))
-        })?;
+    async fn handle_connect(&mut self, from: DeviceId, offer_id: Option<String>) -> Result<()> {
+        let controller = offer_id
+            .and_then(|offer_id| self.connection_offers.remove(&offer_id))
+            .ok_or_else(|| Error::failed_precondition("connection offer should be active"))?;
 
         if controller != from {
             return Err(Error::failed_precondition(format!(
@@ -1073,7 +1073,7 @@ impl Client {
 
             Body::Close { .. } => self.handle_close().await,
 
-            Body::Connect { from, offer_id, .. } => self.handle_connect(from, &offer_id).await,
+            Body::Connect { from, offer_id, .. } => self.handle_connect(from, offer_id).await,
 
             Body::DiscoveryRequest { from, .. } => self.handle_discovery_request(from).await,
 
