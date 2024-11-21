@@ -271,11 +271,11 @@ We appreciate and encourage contributions to **pleezer**! Whether you're fixing 
 
 1. **Submit Issues**: Submit issues for bugs or feature requests by [reporting an issue](https://github.com/roderickvd/pleezer/issues). Include detailed debug logs and be responsive to follow-up questions and testing. Inactive issues may be closed. This is not a general help forum; issues should focus on **pleezer** itself, not your system configuration.
 
-2. **Create Pull Requests**: To contribute code changes or improvements, submit a [pull request](https://github.com/roderickvd/pleezer/pulls). Follow the coding standards and guidelines in the [CONTRIBUTING.md](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md) file.
+2. **Create Pull Requests**: To contribute code changes or improvements, submit a [pull request](https://github.com/roderickvd/pleezer/pulls). Follow the coding standards in the [Contributing Guidelines](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md).
 
 3. **Participate in Discussions**: Engage in [GitHub discussions](https://github.com/roderickvd/pleezer/discussions) to offer feedback, stay informed, and collaborate with the community.
 
-For more details on contributing, refer to the [CONTRIBUTING.md](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md) file.
+For more details on contributing, refer to the [Contributing Guidelines](https://github.com/roderickvd/pleezer/blob/main/CONTRIBUTING.md).
 
 ## Support My Work
 
@@ -328,7 +328,7 @@ It is your responsibility to thoroughly understand and adhere to Deezer's Terms 
 
 ### Security
 
-For information on how security is handled, including how to report vulnerabilities, please refer to the [SECURITY.md](https://github.com/roderickvd/pleezer/blob/main/SECURITY.md) file.
+For information on how security is handled, including how to report vulnerabilities, please refer to the [Security Policy](https://github.com/roderickvd/pleezer/blob/main/SECURITY.md).
 
 ## Contacting the Author
 

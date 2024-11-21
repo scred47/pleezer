@@ -136,7 +136,7 @@ While we do not have a formal performance testing process, manual testing is enc
 
 1. **Create a Branch**: Always create a new branch for each feature or bug fix. Avoid committing directly to the `main` branch. Use descriptive branch names.
 2. **Test Your Code**: Ensure your code works as expected before submitting a pull request. Cross-platform testing is encouraged if possible.
-3. **Update the Changelog**: Update the [CHANGELOG.md](https://github.com/roderickvd/pleezer/blob/main/CHANGELOG.md) file with a summary of your changes under the "Unreleased" section. Follow the [Keep a Changelog](https://keepachangelog.com/) format.
+3. **Update the Changelog**: Update the [Changelog](https://github.com/roderickvd/pleezer/blob/main/CHANGELOG.md) with a summary of your changes under the "Unreleased" section. Follow the [Keep a Changelog](https://keepachangelog.com/) format.
 4. **Open a Pull Request**: Submit a pull request against the `main` branch. Include a clear description of your changes and reference any related issues. Use descriptive and imperative commit messages.
 5. **Review Process**: We will review your pull request as soon as possible, but response times can vary.
 6. **Testing**: While writing new tests is encouraged, it's not required at this stage as we do not yet have a test harness. Just make sure your code passes any existing tests.
@@ -148,14 +148,14 @@ By contributing, you agree that your code will be licensed under the terms of th
 
 ### Security
 
-Please refer to the [SECURITY.md](https://github.com/roderickvd/pleezer/blob/main/SECURITY.md) file for information on how to report security vulnerabilities. Do not use GitHub issues or discussions for reporting security vulnerabilities.
+Please refer to the [Security Policy](https://github.com/roderickvd/pleezer/blob/main/SECURITY.md) for information on how to report security vulnerabilities. Do not use GitHub issues or discussions for reporting security vulnerabilities.
 
 ### Release Process
 
 We aim for fast and frequent releases to ensure that improvements and fixes are delivered to users as quickly as possible. Our release process involves the following steps:
 
 1. **Merge Pull Requests**: Ensure all relevant pull requests are merged into the `main` branch.
-2. **Update Changelog**: Ensure the [CHANGELOG.md](https://github.com/roderickvd/pleezer/blob/main/CHANGELOG.md) file is up-to-date with the latest changes.
+2. **Update Changelog**: Ensure the [Changelog](https://github.com/roderickvd/pleezer/blob/main/CHANGELOG.md) is up-to-date with the latest changes.
 3. **Tag a New Release**: Create a new tag for the release.
 4. **Publish to Crates.io**: Publish the new version to [crates.io](https://crates.io/crates/pleezer).
 

@@ -47,7 +47,7 @@ Unacceptable behavior will not be tolerated. Consequences for such behavior will
 
 If you experience or witness unacceptable behavior, please report it by:
 
-1. **Contacting the Project Author**: You can reach out directly via the contact details provided in the [README.md](https://github.com/roderickvd/pleezer/blob/main/README.md) file.
+1. **Contacting the Project Author**: You can reach out directly via the contact details provided in the [README](https://github.com/roderickvd/pleezer/blob/main/README.md).
 2. **Using GitHub's Report Abuse Feature**: Use GitHub's anonymous [Report Abuse](https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-github-user-account/managing-abuse-or-spam/reporting-abuse-or-spam) feature.
 
 Please include as much detail as possible, including links, screenshots, or any other relevant information.
