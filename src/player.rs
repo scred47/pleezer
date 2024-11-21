@@ -1,5 +1,4 @@
-use core::f32;
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
 use md5::{Digest, Md5};
@@ -35,8 +34,8 @@ pub struct Player {
     /// The track queue, a.k.a. the playlist.
     queue: Vec<Track>,
 
-    /// The queue of tracks to skip.
-    skip_queue: Vec<TrackId>,
+    /// The set of tracks to skip.
+    skip_tracks: HashSet<TrackId>,
 
     /// The current position in the queue.
     position: usize,
@@ -115,7 +114,7 @@ impl Player {
 
         Ok(Self {
             queue: Vec::new(),
-            skip_queue: Vec::new(),
+            skip_tracks: HashSet::new(),
             position: 0,
             audio_quality: AudioQuality::default(),
             client,
@@ -445,7 +444,7 @@ impl Player {
                         let next_position = self.position.saturating_add(1);
                         if let Some(next_track) = self.queue.get(next_position) {
                             let next_track_id = next_track.id();
-                            if !self.skip_queue.contains(&next_track_id) {
+                            if !self.skip_tracks.contains(&next_track_id) {
                                 match self.load_track(next_position).await {
                                     Ok(rx) => {
                                         self.preload_rx = rx;
@@ -463,7 +462,7 @@ impl Player {
                 None => {
                     if let Some(track) = self.track() {
                         let track_id = track.id();
-                        if self.skip_queue.contains(&track_id) {
+                        if self.skip_tracks.contains(&track_id) {
                             self.go_next();
                         } else {
                             match self.load_track(self.position).await {
@@ -490,8 +489,9 @@ impl Player {
     }
 
     fn mark_unavailable(&mut self, track_id: TrackId) {
-        warn!("marking track {track_id} as unavailable");
-        self.skip_queue.push(track_id);
+        if self.skip_tracks.insert(track_id) {
+            warn!("marking track {track_id} as unavailable");
+        }
     }
 
     fn notify_play(&self) {
@@ -547,7 +547,8 @@ impl Player {
         self.clear();
         self.position = 0;
         self.queue = tracks;
-        self.skip_queue = Vec::new();
+        self.skip_tracks.clear();
+        self.skip_tracks.shrink_to_fit();
     }
 
     pub fn extend_queue(&mut self, tracks: Vec<Track>) {
