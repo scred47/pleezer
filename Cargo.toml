@@ -2,14 +2,14 @@
 name = "pleezer"
 version = "0.1.0"
 authors = ["Roderick van Domburg"]
+description = "Headless Deezer Connect player"
 edition = "2021"
 rust-version = "1.82"
-description = "Headless Deezer Connect player"
+license-file = "LICENSE.md"
 readme = "README.md"
 repository = "https://github.com/roderickvd/pleezer/"
-license-file = "LICENSE.md"
-keywords = ["audio", "deezer", "player"]
 categories = ["multimedia::audio"]
+keywords = ["audio", "deezer", "player"]
 exclude = ["secrets.toml"]
 
 [badges]
@@ -19,7 +19,6 @@ maintenance = { status = "actively-developed" }
 base64 = "0.22"
 blowfish = "0.9"
 cbc = "0.1"
-clap = { version = "4.0", features = ["cargo", "derive", "env", "wrap_help"] }
 cpal = "0.15"
 env_logger = { version = "0.11", default-features = false, features = [
     "auto-color",
@@ -75,6 +74,19 @@ toml = "0.8"
 url = "2.3"
 uuid = { version = "1.2", features = ["fast-rng", "serde", "v4", "v5"] }
 veil = "0.2"
+
+[[bin]]
+name = "pleezer"
+path = "src/main.rs"
+required-features = ["binary"]
+
+[features]
+binary = ["dep:clap"]
+
+[dependencies.clap]
+version = "4.0"
+features = ["cargo", "derive", "env", "wrap_help"]
+optional = true
 
 [build-dependencies]
 protobuf-codegen = "3"

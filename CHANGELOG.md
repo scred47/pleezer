@@ -16,6 +16,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [docs] Enhanced documentation clarity and consistency across all policy documents
 - [main] Improved command-line argument descriptions and examples
+- [main] Made command-line parsing dependency (`clap`) optional and binary-only
 - [player] Optimized track skipping using `HashSet` for better performance
 
 ### Deprecated
