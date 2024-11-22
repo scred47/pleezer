@@ -84,9 +84,6 @@ name = "pleezer"
 path = "src/main.rs"
 required-features = ["binary"]
 
-[features]
-binary = ["dep:clap"]
-
 [dependencies.clap]
 version = "4.0"
 features = ["cargo", "derive", "env", "wrap_help"]
