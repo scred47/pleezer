@@ -145,6 +145,13 @@ Your music will start playing on the selected device.
     pleezer -vv   # Trace logging
     ```
 
+- `--eavesdrop`: Listen to the Deezer Connect websocket without participating. This is useful for development purposes and requires verbose or probably trace logging (`-v` or `-vv`). Example:
+    ```bash
+    pleezer --eavesdrop -vv
+    ```
+
+    **Note:** This option provides only partial insight into client communications. While some messages are echoed across all websockets belonging to a user, most messages are sent on separate websockets specific to each client. For complete traffic analysis, monitoring of all websockets would be required.
+
 - `-s` or `--secrets`: Specify the secrets configuration file. Defaults to `secrets.toml`. Example:
     ```bash
     pleezer -s /path/to/secrets.toml
