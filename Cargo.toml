@@ -57,6 +57,7 @@ serde_with = { version = "3.11", default-features = false, features = [
     "macros",
     "std",
 ] }
+shell-escape = "0.1"
 stream-download = { version = "0.13", features = ["reqwest-rustls"] }
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 thiserror = "2"

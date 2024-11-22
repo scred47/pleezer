@@ -62,6 +62,9 @@ pub struct Config {
     /// By default this is `true`.
     pub interruptions: bool,
 
+    /// Script to execute when events occur
+    pub hook: Option<String>,
+
     /// The client ID used in API requests.
     ///
     /// By default this is a random number of 9 digits.

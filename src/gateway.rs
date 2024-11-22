@@ -273,8 +273,17 @@ impl Gateway {
             .map(|data| data.user.settings.site.player_normalize)
     }
 
-    pub fn target_gain(&self) -> Option<f32> {
+    /// The reference level for normalization.
+    pub fn target_gain(&self) -> Option<i8> {
         self.user_data.as_ref().map(|data| data.gain.target)
+    }
+
+    /// The user's account name.
+    pub fn user_name(&self) -> &str {
+        self.user_data
+            .as_ref()
+            .map(|data| data.user.name.as_str())
+            .unwrap_or_default()
     }
 
     /// Converts a list of tracks from the Deezer API to a [`Queue`].

@@ -1661,6 +1661,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_with",
+ "shell-escape",
  "stream-download",
  "sysinfo",
  "thiserror 2.0.3",
@@ -2308,6 +2309,12 @@ name = "sha1_smol"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
+name = "shell-escape"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45bb67a18fa91266cc7807181f62f9178a6873bfad7dc788c42e6430db40184f"
 
 [[package]]
 name = "shlex"

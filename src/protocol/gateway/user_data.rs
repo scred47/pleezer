@@ -48,6 +48,8 @@ pub struct User {
     #[serde(rename = "USER_ID")]
     // TODO : replace with UserId
     pub id: NonZeroU64,
+    #[serde(rename = "BLOG_NAME")]
+    pub name: String,
     #[serde(rename = "OPTIONS")]
     pub options: Options,
     #[serde(rename = "AUDIO_SETTINGS")]
@@ -144,5 +146,5 @@ pub struct Gatekeeps {
 pub struct Gain {
     #[serde(rename = "TARGET")]
     #[serde_as(as = "DisplayFromStr")]
-    pub target: f32,
+    pub target: i8,
 }

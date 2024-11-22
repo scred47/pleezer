@@ -56,6 +56,10 @@ struct Args {
     #[arg(long, default_value_t = false, env = "PLEEZER_NO_INTERRUPTIONS")]
     no_interruptions: bool,
 
+    /// Script to execute when events occur
+    #[arg(long, value_hint = ValueHint::ExecutablePath, env = "PLEEZER_HOOK")]
+    hook: Option<String>,
+
     /// Suppress all output except warnings and errors
     #[arg(short, long, default_value_t = false, group = ARGS_GROUP_LOGGING, env = "PLEEZER_QUIET")]
     quiet: bool,
@@ -277,6 +281,7 @@ async fn run(args: Args) -> Result<()> {
             device_id,
 
             interruptions: !args.no_interruptions,
+            hook: args.hook,
 
             client_id,
             user_agent,

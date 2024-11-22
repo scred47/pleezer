@@ -56,7 +56,7 @@ pub struct Player {
     normalization: bool,
 
     /// The target volume to normalize to in dB.
-    gain_target_db: f32,
+    gain_target_db: i8,
 
     /// The channel to send playback events to.
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
@@ -82,7 +82,7 @@ pub struct Player {
 }
 
 /// The default target volume to normalize to in dB LUFS.
-pub const DEFAULT_GAIN_TARGET_DB: f32 = -15.0;
+pub const DEFAULT_GAIN_TARGET_DB: i8 = -15;
 
 impl Player {
     /// Creates a new `Player` with the given `Config`.
@@ -294,22 +294,29 @@ impl Player {
     }
 
     fn go_next(&mut self) {
+        let old_position = self.position;
         let repeat_mode = self.repeat_mode();
         if repeat_mode != RepeatMode::One {
             let next = self.position.saturating_add(1);
             if next < self.queue.len() {
                 // Move to the next track.
                 self.position = next;
-                self.notify_play();
             } else {
                 // Reached the end of the queue: rewind to the beginning.
                 if repeat_mode != RepeatMode::All {
-                    // Using this instead of `pause()` ensures that we only get a notification
-                    // if the player was actually playing.
-                    self.set_playing(false);
+                    self.pause();
                 };
                 self.position = 0;
             }
+        }
+
+        if self.position() != old_position {
+            self.notify(Event::TrackChanged);
+        }
+
+        // Even if we were already playing, we need to report another playback stream.
+        if self.is_playing() {
+            self.notify(Event::Play);
         }
     }
 
@@ -366,7 +373,7 @@ impl Player {
             if self.normalization {
                 match track.gain() {
                     Some(gain) => {
-                        difference = self.gain_target_db - gain;
+                        difference = f32::from(self.gain_target_db) - gain;
 
                         // Keep -1 dBTP of headroom on tracks with lossy decoding to avoid
                         // clipping due to inter-sample peaks.
@@ -470,7 +477,7 @@ impl Player {
                                 Ok(rx) => {
                                     if let Some(rx) = rx {
                                         self.current_rx = Some(rx);
-                                        self.notify_play();
+                                        self.notify(Event::TrackChanged);
                                     }
                                 }
                                 Err(e) => {
@@ -495,14 +502,10 @@ impl Player {
         }
     }
 
-    fn notify_play(&self) {
-        if self.is_playing() {
-            if let Some(track) = self.track() {
-                if let Some(event_tx) = &self.event_tx {
-                    if let Err(e) = event_tx.send(Event::Play(track.id())) {
-                        error!("failed to send track changed event: {e}");
-                    }
-                }
+    fn notify(&self, event: Event) {
+        if let Some(event_tx) = &self.event_tx {
+            if let Err(e) = event_tx.send(event) {
+                error!("failed to send event: {e}");
             }
         }
     }
@@ -512,16 +515,21 @@ impl Player {
     }
 
     pub fn play(&mut self) {
-        debug!("starting playback");
-        self.sink.play();
+        if !self.is_playing() {
+            debug!("starting playback");
+            self.sink.play();
 
-        // Playback reporting happens every time a track starts playing or is unpaused.
-        self.notify_play();
+            // Playback reporting happens every time a track starts playing or is unpaused.
+            self.notify(Event::Play);
+        }
     }
 
     pub fn pause(&mut self) {
-        debug!("pausing playback");
-        self.sink.pause();
+        if self.is_playing() {
+            debug!("pausing playback");
+            self.sink.pause();
+            self.notify(Event::Pause);
+        }
     }
 
     #[must_use]
@@ -530,12 +538,10 @@ impl Player {
     }
 
     pub fn set_playing(&mut self, should_play: bool) {
-        if self.is_playing() {
-            if !should_play {
-                self.pause();
-            }
-        } else if should_play {
+        if should_play {
             self.play();
+        } else {
+            self.pause();
         }
     }
 
@@ -706,7 +712,7 @@ impl Player {
         self.normalization = normalization;
     }
 
-    pub fn set_gain_target_db(&mut self, gain_target_db: f32) {
+    pub fn set_gain_target_db(&mut self, gain_target_db: i8) {
         self.gain_target_db = gain_target_db;
     }
 
@@ -730,7 +736,7 @@ impl Player {
     }
 
     #[must_use]
-    pub fn gain_target_db(&self) -> f32 {
+    pub fn gain_target_db(&self) -> i8 {
         self.gain_target_db
     }
 }

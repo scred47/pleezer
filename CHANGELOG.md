@@ -11,6 +11,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [main] Support for configuring all command-line options via environment variables with `PLEEZER_` prefix
 - [proxy] HTTPS proxy support via the `HTTPS_PROXY` environment variable
 - [remote] Websocket monitoring mode for Deezer Connect protocol analysis
+- [remote] Hook script support to execute commands on playback and connection events
 
 ### Changed
 - [docs] Enhanced documentation clarity and consistency across all policy documents
@@ -26,8 +27,6 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Security
 - [arl] Prevent ARL token exposure in debug logs
-
-[Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.1.0...HEAD
 
 ## [0.1.0] - 2024-02-20
 

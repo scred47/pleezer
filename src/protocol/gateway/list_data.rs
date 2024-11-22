@@ -25,6 +25,10 @@ pub struct ListData {
     pub track_id: TrackId,
     #[serde(rename = "ART_NAME")]
     pub artist: String,
+    #[serde(rename = "ALB_TITLE")]
+    pub album_title: String,
+    #[serde(rename = "ALB_PICTURE")]
+    pub album_cover: String,
     #[serde_as(as = "DurationSeconds<String>")]
     pub duration: Duration,
     #[serde(rename = "SNG_TITLE")]

@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ops::ControlFlow, pin::Pin, time::Duration};
+use std::{collections::HashSet, ops::ControlFlow, pin::Pin, process::Command, time::Duration};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use log::Level;
@@ -29,6 +29,7 @@ use crate::{
     track::{Track, TrackId},
 };
 
+/// A client on the Deezer Connect protocol.
 pub struct Client {
     device_id: DeviceId,
     device_name: String,
@@ -52,7 +53,9 @@ pub struct Client {
 
     discovery_state: DiscoveryState,
     connection_offers: LruCache<String, DeviceId>,
+
     interruptions: bool,
+    hook: Option<String>,
 
     player: Player,
     reporting_timer: Pin<Box<tokio::time::Sleep>>,
@@ -162,7 +165,9 @@ impl Client {
 
             discovery_state: DiscoveryState::Available,
             connection_offers,
+
             interruptions: config.interruptions,
+            hook: config.hook.clone(),
 
             queue: None,
             deferred_position: None,
@@ -218,7 +223,7 @@ impl Client {
 
         let normalization = self.gateway.normalization().unwrap_or_default();
         let gain_target_db = self.gateway.target_gain().unwrap_or(DEFAULT_GAIN_TARGET_DB);
-        info!("volume normalization to {gain_target_db:.0} dB: {normalization}");
+        info!("volume normalization to {gain_target_db} dB: {normalization}");
         self.player.set_gain_target_db(gain_target_db);
         self.player.set_normalization(normalization);
 
@@ -363,31 +368,89 @@ impl Client {
     }
 
     async fn handle_event(&mut self, event: Event) {
+        let mut command = self.hook.as_ref().map(Command::new);
+        let track_id = self.player.track().map(Track::id);
+
+        debug!("handling event: {event:?}");
+
         match event {
-            Event::Play(track) => {
-                // Report playback progress without waiting for the next
-                // reporting interval, so the UI refreshes immediately.
-                let _ = self.report_playback_progress().await;
+            Event::Play => {
+                if let Some(track_id) = track_id {
+                    // Report playback progress without waiting for the next
+                    // reporting interval, so the UI refreshes immediately.
+                    let _ = self.report_playback_progress().await;
 
-                // Report the playback stream.
-                if let Err(e) = self.report_playback(track).await {
-                    error!("error streaming {track}: {e}");
-                }
+                    // Report the playback stream.
+                    if let Err(e) = self.report_playback(track_id).await {
+                        error!("error streaming {track_id}: {e}");
+                    }
 
-                if self.is_flow() {
-                    // Extend the queue if the player is near the end.
-                    if self
-                        .queue
-                        .as_ref()
-                        .map_or(0, |queue| queue.tracks.len())
-                        .saturating_sub(self.player.position())
-                        <= 2
-                    {
-                        if let Err(e) = self.extend_queue().await {
-                            error!("error extending queue: {e}");
+                    if self.is_flow() {
+                        // Extend the queue if the player is near the end.
+                        if self
+                            .queue
+                            .as_ref()
+                            .map_or(0, |queue| queue.tracks.len())
+                            .saturating_sub(self.player.position())
+                            <= 2
+                        {
+                            if let Err(e) = self.extend_queue().await {
+                                error!("error extending queue: {e}");
+                            }
                         }
                     }
+
+                    if let Some(command) = command.as_mut() {
+                        command
+                            .env("EVENT", "playing")
+                            .env("TRACK_ID", shell_escape(&track_id.to_string()));
+                    }
                 }
+            }
+
+            Event::Pause => {
+                if let Some(command) = command.as_mut() {
+                    command.env("EVENT", "paused");
+                }
+            }
+
+            Event::TrackChanged => {
+                if let Some(track) = self.player.track() {
+                    if let Some(command) = command.as_mut() {
+                        command
+                            .env("EVENT", "track_changed")
+                            .env("TRACK_ID", shell_escape(&track.id().to_string()))
+                            .env("TITLE", shell_escape(track.title()))
+                            .env("ARTIST", shell_escape(track.artist()))
+                            .env("ALBUM_TITLE", shell_escape(track.album_title()))
+                            .env("ALBUM_COVER", shell_escape(track.album_cover()))
+                            .env(
+                                "DURATION",
+                                shell_escape(&track.duration().as_secs().to_string()),
+                            );
+                    }
+                }
+            }
+
+            Event::Connected => {
+                if let Some(command) = command.as_mut() {
+                    command
+                        .env("EVENT", "connected")
+                        .env("USER_ID", shell_escape(&self.user_id().to_string()))
+                        .env("USER_NAME", shell_escape(self.gateway.user_name()));
+                }
+            }
+
+            Event::Disconnected => {
+                if let Some(command) = command.as_mut() {
+                    command.env("EVENT", "disconnected");
+                }
+            }
+        }
+
+        if let Some(command) = command.as_mut() {
+            if let Err(e) = command.spawn() {
+                error!("failed to spawn hook script: {e}");
             }
         }
     }
@@ -1213,4 +1276,8 @@ impl Client {
             ident,
         }
     }
+}
+
+fn shell_escape(s: &str) -> String {
+    shell_escape::escape(s.into()).to_string()
 }

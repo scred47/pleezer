@@ -14,6 +14,7 @@
   - [Command-Line Arguments](#command-line-arguments)
   - [Environment Variables](#environment-variables)
   - [Proxy Configuration](#proxy-configuration)
+  - [Hook Scripts](#hook-scripts)
   - [Stateless Configuration](#stateless-configuration)
   - [Configuring the Secrets File](#configuring-the-secrets-file)
 - [Troubleshooting](#troubleshooting)
@@ -140,6 +141,12 @@ Your music will start playing on the selected device.
     pleezer --no-interruptions
     ```
 
+- `--hook`: Specify a script to execute when events occur (see [Hook Scripts](#hook-scripts) for details). Example:
+    ```bash
+    pleezer --hook /path/to/script.sh
+    ```
+    **Note:** The script must be executable and have a shebang line.
+
 - `-q` or `--quiet`: Suppresses all output except warnings and errors. Example:
     ```bash
     pleezer -q
@@ -190,24 +197,80 @@ Command-line arguments take precedence over environment variables if both are se
 
 ### Proxy Configuration
 
-**pleezer** supports proxy connections through the `HTTPS_PROXY` environment variable. he value must include either the `http://` or `https://` schema prefix.
+**pleezer** supports proxy connections through the `HTTPS_PROXY` environment variable. The value must include either the `http://` or `https://` schema prefix. HTTPS can be tunneled over either HTTP or HTTPS proxies.
 
 Examples:
 
 ```bash
 # Linux/macOS
-export HTTPS_PROXY="http://proxy.example.com:8080"
-export HTTPS_PROXY="https://proxy.example.com:8080"
-
+export HTTPS_PROXY="http://proxy.example.com:8080"   # HTTPS over HTTP proxy
+export HTTPS_PROXY="https://proxy.example.com:8080"  # HTTPS over HTTPS proxy
 
 # Windows (Command Prompt)
-set HTTPS_PROXY=https://proxy.company.com:8080
+set HTTPS_PROXY=https://proxy.example.com:8080
 
 # Windows (PowerShell)
-$env:HTTPS_PROXY="https://proxy.company.com:8080"
+$env:HTTPS_PROXY="https://proxy.example.com:8080"
 ```
 
 The proxy settings will be automatically detected and used for all Deezer Connect connections.
+
+### Hook Scripts
+
+You can use the `--hook` option to specify a script that will be executed when certain events occur. The script receives event information through environment variables.
+
+For all events, the `EVENT` variable contains the event name. Additional variables depend on the specific event:
+
+`playing`
+    Emitted when playback starts
+    Variables:
+    - `TRACK_ID`: The ID of the track being played
+
+`paused`
+    Emitted when playback is paused
+    No additional variables
+
+`track_changed`
+    Emitted when the track changes
+    Variables:
+    - `TRACK_ID`: The ID of the track
+    - `TITLE`: The track title
+    - `ARTIST`: The main artist name
+    - `ALBUM_TITLE`: The album title
+    - `ALBUM_COVER`: The album cover ID, which can be used to construct image URLs:
+        ```
+        https://e-cdns-images.dzcdn.net/images/cover/{album_cover}/{resolution}x{resolution}.{format}
+        ```
+        where `{resolution}` is the desired resolution in pixels (up to 1920) and
+        `{format}` is either `jpg` (smaller file size) or `png` (higher quality).
+        Deezer's default is 500x500.jpg
+    - `DURATION`: Track duration in seconds
+
+`connected`
+    Emitted when a Deezer client connects to control playback
+    Variables:
+    - `USER_ID`: The Deezer user ID
+    - `USER_NAME`: The Deezer account name
+
+`disconnected`
+    Emitted when the controlling Deezer client disconnects
+    No additional variables
+
+All string values are properly escaped for shell safety. Example usage:
+
+```bash
+#!/bin/bash
+# example-hook.sh
+echo "Event: $EVENT"
+case "$EVENT" in
+  "track_changed")
+    echo "Track changed to: $TITLE by $ARTIST"
+    ;;
+  "connected")
+    echo "Connected as: $USER_NAME"
+    ;;
+esac
+```
 
 ### Stateless Configuration
 

@@ -31,6 +31,8 @@ pub struct Track {
     track_token: String,
     title: String,
     artist: String,
+    album_title: String,
+    album_cover: String,
     gain: Option<f32>,
     expiry: SystemTime,
     quality: AudioQuality,
@@ -73,6 +75,39 @@ impl Track {
     #[must_use]
     pub fn artist(&self) -> &str {
         &self.artist
+    }
+
+    #[must_use]
+    pub fn album_title(&self) -> &str {
+        &self.album_title
+    }
+
+    /// The ID of the album cover image.
+    ///
+    /// This ID can be used to construct a URL for retrieving the album cover image.
+    /// Album covers are always square and available in various resolutions up to 1920x1920.
+    ///
+    /// # URL Format
+    /// ```text
+    /// https://e-cdns-images.dzcdn.net/images/cover/{album_cover}/{resolution}x{resolution}.{format}
+    /// ```
+    /// where:
+    /// - `{album_cover}` is the ID returned by this method
+    /// - `{resolution}` is the desired resolution in pixels (e.g., 500)
+    /// - `{format}` is either `jpg` or `png`
+    ///
+    /// # Recommended Usage
+    /// - Default resolution: 500x500
+    /// - Default format: `jpg` (smaller file size)
+    /// - Alternative: `png` (higher quality but larger file size)
+    ///
+    /// # Example
+    /// ```text
+    /// https://e-cdns-images.dzcdn.net/images/cover/f286f9e7dc818e181c37b944e2461101/500x500.jpg
+    /// ```
+    #[must_use]
+    pub fn album_cover(&self) -> &str {
+        &self.album_cover
     }
 
     #[must_use]
@@ -438,6 +473,8 @@ impl From<gateway::ListData> for Track {
             track_token: item.track_token,
             title: item.title,
             artist: item.artist,
+            album_title: item.album_title,
+            album_cover: item.album_cover,
             duration: item.duration,
             gain: item.gain,
             expiry: item.expiry,
