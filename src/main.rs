@@ -26,54 +26,52 @@ const BUILD_PROFILE: &str = "release";
 const ARGS_GROUP_LOGGING: &str = "logging";
 
 /// Command line arguments as parsed by `clap`.
+// TODO : add env support
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Secrets file
+    /// Path to the secrets file
     ///
-    /// Ensure that the this file is kept secure and not shared publicly, as it
-    /// contains sensitive information that can grant access to your Deezer
-    /// account.
+    /// Keep this file secure and private, as it contains sensitive information
+    /// that can grant access to your Deezer account.
     #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath, default_value_t = String::from("secrets.toml"))]
     secrets_file: String,
 
-    /// Player's name
+    /// Set the player's name as shown to Deezer clients
     ///
-    /// Set the player's name as it appears to Deezer clients.
-    ///
-    /// [default: system hostname]
+    /// If not specified, uses the system hostname.
     #[arg(short, long, value_hint = ValueHint::Hostname)]
     name: Option<String>,
 
-    /// The output device
+    /// Select the audio output device
     ///
-    /// Use "?" to list available devices. If omitted, the system's default
-    /// output device is used.
+    /// Format: [<host>][:<device>][:<sample rate>][:<sample format>]
+    /// Use "?" to list available devices.
+    /// If omitted, uses the system default output device.
     #[arg(short, long, default_value = "")]
     device: String,
 
-    /// Prevent session interruptions
+    /// Prevent other clients from taking over the connection
     ///
-    /// Prevent other clients from taking over the connection after pleezer has
-    /// connected.
+    /// By default, other clients can interrupt and take control of playback.
     #[arg(long, default_value_t = false)]
     no_interruptions: bool,
 
-    /// Suppresses all output except warnings and errors.
+    /// Suppress all output except warnings and errors
     #[arg(short, long, default_value_t = false, group = ARGS_GROUP_LOGGING)]
     quiet: bool,
 
     /// Enable verbose logging
     ///
-    /// Specify twice for trace logging.
+    /// Use -v for debug logging
+    /// Use -vv for trace logging
     #[arg(short, long, action = clap::ArgAction::Count, group = ARGS_GROUP_LOGGING)]
     verbose: u8,
 
-    /// Eavesdrop on the Deezer Connect websocket
+    /// Monitor the Deezer Connect websocket without participating
     ///
-    /// This option disables connections to this player and instead listens to
-    /// the Deezer Connect websocket. This is useful for development purposes,
-    /// and only makes sense together with the `-vv` option (trace logging).
+    /// A development tool that observes websocket traffic. Requires verbose
+    /// logging (-v or -vv). For best results, use trace logging (-vv).
     #[arg(long, default_value_t = false, requires = "verbose")]
     eavesdrop: bool,
 }

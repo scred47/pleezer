@@ -321,6 +321,7 @@ impl Player {
     /// This value is equal to what Spotify uses.
     const AGC_RELEASE_TIME: Duration = Duration::from_millis(100);
 
+    // TODO : consider controlflow
     async fn load_track(
         &mut self,
         position: usize,
