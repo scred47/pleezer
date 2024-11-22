@@ -26,7 +26,6 @@ const BUILD_PROFILE: &str = "release";
 const ARGS_GROUP_LOGGING: &str = "logging";
 
 /// Command line arguments as parsed by `clap`.
-// TODO : add env support
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -34,13 +33,13 @@ struct Args {
     ///
     /// Keep this file secure and private, as it contains sensitive information
     /// that can grant access to your Deezer account.
-    #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath, default_value_t = String::from("secrets.toml"))]
+    #[arg(short, long, value_name = "FILE", value_hint = ValueHint::FilePath, default_value_t = String::from("secrets.toml"), env = "PLEEZER_SECRETS_FILE")]
     secrets_file: String,
 
     /// Set the player's name as shown to Deezer clients
     ///
     /// If not specified, uses the system hostname.
-    #[arg(short, long, value_hint = ValueHint::Hostname)]
+    #[arg(short, long, value_hint = ValueHint::Hostname, env = "PLEEZER_NAME")]
     name: Option<String>,
 
     /// Select the audio output device
@@ -48,31 +47,36 @@ struct Args {
     /// Format: [<host>][:<device>][:<sample rate>][:<sample format>]
     /// Use "?" to list available devices.
     /// If omitted, uses the system default output device.
-    #[arg(short, long, default_value = "")]
-    device: String,
+    #[arg(short, long, default_value = None, env = "PLEEZER_DEVICE")]
+    device: Option<String>,
 
     /// Prevent other clients from taking over the connection
     ///
     /// By default, other clients can interrupt and take control of playback.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = false, env = "PLEEZER_NO_INTERRUPTIONS")]
     no_interruptions: bool,
 
     /// Suppress all output except warnings and errors
-    #[arg(short, long, default_value_t = false, group = ARGS_GROUP_LOGGING)]
+    #[arg(short, long, default_value_t = false, group = ARGS_GROUP_LOGGING, env = "PLEEZER_QUIET")]
     quiet: bool,
 
     /// Enable verbose logging
     ///
     /// Use -v for debug logging
     /// Use -vv for trace logging
-    #[arg(short, long, action = clap::ArgAction::Count, group = ARGS_GROUP_LOGGING)]
+    #[arg(short, long, action = clap::ArgAction::Count, group = ARGS_GROUP_LOGGING, env = "PLEEZER_VERBOSE")]
     verbose: u8,
 
     /// Monitor the Deezer Connect websocket without participating
     ///
     /// A development tool that observes websocket traffic. Requires verbose
     /// logging (-v or -vv). For best results, use trace logging (-vv).
-    #[arg(long, default_value_t = false, requires = "verbose")]
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "verbose",
+        env = "PLEEZER_EAVESDROP"
+    )]
     eavesdrop: bool,
 }
 
@@ -157,7 +161,7 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
 /// This function returns `Err` when an error occurs. This could be due to the
 /// user interrupting the application or an unrecoverable network error.
 async fn run(args: Args) -> Result<()> {
-    if args.device == "?" {
+    if args.device.as_ref().is_some_and(|device| device == "?") {
         // List available devices and exit.
         let devices = Player::enumerate_devices();
         if devices.is_empty() {
@@ -284,7 +288,7 @@ async fn run(args: Args) -> Result<()> {
         }
     };
 
-    let player = Player::new(&config, &args.device).await?;
+    let player = Player::new(&config, args.device.as_deref().unwrap_or_default()).await?;
     let mut client = remote::Client::new(&config, player)?;
 
     // Restart after sleeping some duration to prevent accidental denial of

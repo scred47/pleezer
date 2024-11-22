@@ -11,6 +11,11 @@
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
+  - [Command-Line Arguments](#command-line-arguments)
+  - [Environment Variables](#environment-variables)
+  - [Proxy Configuration](#proxy-configuration)
+  - [Stateless Configuration](#stateless-configuration)
+  - [Configuring the Secrets File](#configuring-the-secrets-file)
 - [Troubleshooting](#troubleshooting)
 - [Setting Up Your Build Environment](#setting-up-your-build-environment)
 - [Contributing](#contributing)
@@ -168,15 +173,32 @@ Your music will start playing on the selected device.
     pleezer --version
     ```
 
+### Environment Variables
+
+All command-line options can be set using environment variables by prefixing `PLEEZER_` to the option name in SCREAMING_SNAKE_CASE. For example:
+
+```bash
+# Using environment variables
+export PLEEZER_NAME="Living Room"
+export PLEEZER_NO_INTERRUPTIONS=true
+
+# Command-line arguments override environment variables
+pleezer --name "Kitchen"  # Will use "Kitchen" instead
+```
+
+Command-line arguments take precedence over environment variables if both are set.
+
 ### Proxy Configuration
 
-**pleezer** supports proxy connections through the `HTTPS_PROXY` environment variable. The value must include the `https://` schema prefix.
+**pleezer** supports proxy connections through the `HTTPS_PROXY` environment variable. he value must include either the `http://` or `https://` schema prefix.
 
 Examples:
 
 ```bash
 # Linux/macOS
-export HTTPS_PROXY="https://proxy.company.com:8080"
+export HTTPS_PROXY="http://proxy.example.com:8080"
+export HTTPS_PROXY="https://proxy.example.com:8080"
+
 
 # Windows (Command Prompt)
 set HTTPS_PROXY=https://proxy.company.com:8080

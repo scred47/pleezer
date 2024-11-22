@@ -8,23 +8,24 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
-- [proxy] Proxy support using `HTTPS_PROXY` environment variable
-- [remote] Eavesdropping on the Deezer Connect websocket
+- [main] Support for configuring all command-line options via environment variables with `PLEEZER_` prefix
+- [proxy] HTTPS proxy support via the `HTTPS_PROXY` environment variable
+- [remote] Websocket monitoring mode for Deezer Connect protocol analysis
 
 ### Changed
-- [docs] Improve consistency and readability of the README, Code of Conduct, Contributing guidelines, and Security Policy
-- [main] Improve command-line argument help text
-- [player] Store tracks to skip in a `HashSet`
+- [docs] Enhanced documentation clarity and consistency across all policy documents
+- [main] Improved command-line argument descriptions and examples
+- [player] Optimized track skipping using `HashSet` for better performance
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
-- [protocol] Deserialize `connect` messages without `offer_id`
+- [protocol] Correctly handle `connect` messages missing the `offer_id` field
 
 ### Security
-- [arl] Redact ARL from logs
+- [arl] Prevent ARL token exposure in debug logs
 
 [Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.1.0...HEAD
 
