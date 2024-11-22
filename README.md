@@ -238,7 +238,7 @@ Emitted when the track changes
 Variables:
 - `TRACK_ID`: The ID of the track
 - `TITLE`: The track title
-- `ARTIST`: The artist name
+- `ARTIST`: The main artist name
 - `ALBUM_TITLE`: The album title
 - `ALBUM_COVER`: The album cover ID, which can be used to construct image URLs:
   ```
