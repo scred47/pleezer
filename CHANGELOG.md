@@ -5,7 +5,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
-## [Unreleased]
+## [0.2.0] - 2024-11-23
 
 ### Added
 - [main] Support for configuring all command-line options via environment variables with `PLEEZER_` prefix
@@ -20,17 +20,13 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [player] Optimized track skipping using `HashSet` for better performance
 - [track] Get the media URL programmatically instead of hardcoding it
 
-### Deprecated
-
-### Removed
-
 ### Fixed
 - [protocol] Correctly handle `connect` messages missing the `offer_id` field
 
 ### Security
 - [arl] Prevent ARL token exposure in debug logs
 
-## [0.1.0] - 2024-02-20
+## [0.1.0] - 2024-11-20
 
 Initial release of pleezer, a headless streaming player for the Deezer Connect protocol.
 
@@ -46,5 +42,5 @@ Initial release of pleezer, a headless streaming player for the Deezer Connect p
 - Debug and trace logging capabilities
 - Command-line interface with various configuration options
 
-[Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.2.0
 [0.1.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.1.0
