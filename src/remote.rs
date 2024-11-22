@@ -230,6 +230,10 @@ impl Client {
         if let Some(license_token) = self.gateway.license_token() {
             self.player.set_license_token(license_token);
         }
+
+        if let Some(media_url) = self.gateway.media_url() {
+            self.player.set_media_url(media_url);
+        }
     }
 
     /// TODO
@@ -437,7 +441,10 @@ impl Client {
                     command
                         .env("EVENT", "connected")
                         .env("USER_ID", shell_escape(&self.user_id().to_string()))
-                        .env("USER_NAME", shell_escape(self.gateway.user_name()));
+                        .env(
+                            "USER_NAME",
+                            shell_escape(self.gateway.user_name().unwrap_or_default()),
+                        );
                 }
             }
 

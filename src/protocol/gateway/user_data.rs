@@ -38,7 +38,7 @@ pub struct UserData {
     #[serde(rename = "__DZR_GATEKEEPS__")]
     pub gatekeeps: Gatekeeps,
     #[serde(rename = "URL_MEDIA")]
-    media_url: String,
+    pub media_url: String,
     #[serde(rename = "GAIN")]
     pub gain: Gain,
 }

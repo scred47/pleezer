@@ -279,11 +279,13 @@ impl Gateway {
     }
 
     /// The user's account name.
-    pub fn user_name(&self) -> &str {
-        self.user_data
-            .as_ref()
-            .map(|data| data.user.name.as_str())
-            .unwrap_or_default()
+    pub fn user_name(&self) -> Option<&str> {
+        self.user_data.as_ref().map(|data| data.user.name.as_str())
+    }
+
+    // The URL to use for media requests.
+    pub fn media_url(&self) -> Option<&str> {
+        self.user_data.as_ref().map(|data| data.media_url.as_str())
     }
 
     /// Converts a list of tracks from the Deezer API to a [`Queue`].

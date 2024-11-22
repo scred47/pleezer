@@ -79,10 +79,16 @@ pub struct Player {
     /// The audio output stream. Although not used directly, this field must be retained to keep
     /// the sink alive.
     _stream: rodio::OutputStream,
+
+    /// The URL to use for media requests.
+    media_url: String,
 }
 
 /// The default target volume to normalize to in dB LUFS.
 pub const DEFAULT_GAIN_TARGET_DB: i8 = -15;
+
+/// The default media URL to use for media requests.
+const DEFAULT_MEDIA_URL: &str = "https://media.deezer.com";
 
 impl Player {
     /// Creates a new `Player` with the given `Config`.
@@ -119,6 +125,7 @@ impl Player {
             audio_quality: AudioQuality::default(),
             client,
             license_token: String::new(),
+            media_url: DEFAULT_MEDIA_URL.to_string(),
             bf_secret,
             repeat_mode: RepeatMode::default(),
             shuffle: false,
@@ -342,7 +349,12 @@ impl Player {
             let download = tokio::time::timeout(Duration::from_secs(1), async {
                 // Start downloading the track.
                 let medium = track
-                    .get_medium(&self.client, self.audio_quality, self.license_token.clone())
+                    .get_medium(
+                        &self.client,
+                        &self.media_url,
+                        self.audio_quality,
+                        self.license_token.clone(),
+                    )
                     .await?;
 
                 // Return `None` on success to indicate that the track is not yet appended
@@ -738,5 +750,9 @@ impl Player {
     #[must_use]
     pub fn gain_target_db(&self) -> i8 {
         self.gain_target_db
+    }
+
+    pub fn set_media_url(&mut self, url: &str) {
+        self.media_url = url.to_string();
     }
 }

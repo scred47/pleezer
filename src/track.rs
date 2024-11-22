@@ -194,7 +194,8 @@ impl Track {
         Self::BF_CBC_STRIPE_MP3_MISC,
     ];
 
-    const MEDIA_GET_URL: &'static str = "https://media.deezer.com/v1/get_url";
+    /// The endpoint for obtaining media sources.
+    const MEDIA_ENDPOINT: &'static str = "/v1/get_url";
 
     /// Get a HTTP media source for the track.
     ///
@@ -215,6 +216,7 @@ impl Track {
     pub async fn get_medium(
         &self,
         client: &http::Client,
+        media_url: &str,
         quality: AudioQuality,
         license_token: impl Into<String>,
     ) -> Result<Medium> {
@@ -246,7 +248,7 @@ impl Track {
 
         // Do not use `client.unlimited` but instead apply rate limiting.
         // This is to prevent hammering the Deezer API in case of deserialize errors.
-        let get_url = Self::MEDIA_GET_URL.parse::<reqwest::Url>()?;
+        let get_url = format!("{media_url}{}", Self::MEDIA_ENDPOINT).parse::<reqwest::Url>()?;
         let body = serde_json::to_string(&request)?;
         let request = client.post(get_url, body);
         let response = client.execute(request).await?;

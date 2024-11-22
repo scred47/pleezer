@@ -18,6 +18,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [main] Improved command-line argument descriptions and examples
 - [main] Made command-line parsing dependency (`clap`) optional and binary-only
 - [player] Optimized track skipping using `HashSet` for better performance
+- [track] Get the media URL programmatically instead of hardcoding it
 
 ### Deprecated
 
