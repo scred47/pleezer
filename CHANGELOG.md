@@ -12,6 +12,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Changed
 - [docs] Improve consistency and readability of the README, Code of Conduct, Contributing guidelines, and Security Policy
+- [main] Improve command-line argument help text
 - [player] Store tracks to skip in a `HashSet`
 
 ### Deprecated
