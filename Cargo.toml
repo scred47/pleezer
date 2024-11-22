@@ -15,6 +15,10 @@ exclude = ["secrets.toml"]
 [badges]
 maintenance = { status = "actively-developed" }
 
+[features]
+default = ["binary"]
+binary = ["dep:clap"]
+
 [dependencies]
 base64 = "0.22"
 blowfish = "0.9"
