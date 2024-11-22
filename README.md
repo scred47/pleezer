@@ -221,42 +221,48 @@ You can use the `--hook` option to specify a script that will be executed when c
 
 For all events, the `EVENT` variable contains the event name. Additional variables depend on the specific event:
 
-`playing`
-    Emitted when playback starts
-    Variables:
-    - `TRACK_ID`: The ID of the track being played
+#### `playing`
+Emitted when playback starts
 
-`paused`
-    Emitted when playback is paused
-    No additional variables
+Variables:
+- `TRACK_ID`: The ID of the track being played
 
-`track_changed`
-    Emitted when the track changes
-    Variables:
-    - `TRACK_ID`: The ID of the track
-    - `TITLE`: The track title
-    - `ARTIST`: The main artist name
-    - `ALBUM_TITLE`: The album title
-    - `ALBUM_COVER`: The album cover ID, which can be used to construct image URLs:
-        ```
-        https://e-cdns-images.dzcdn.net/images/cover/{album_cover}/{resolution}x{resolution}.{format}
-        ```
-        where `{resolution}` is the desired resolution in pixels (up to 1920) and
-        `{format}` is either `jpg` (smaller file size) or `png` (higher quality).
-        Deezer's default is 500x500.jpg
-    - `DURATION`: Track duration in seconds
+#### `paused`
+Emitted when playback is paused
 
-`connected`
-    Emitted when a Deezer client connects to control playback
-    Variables:
-    - `USER_ID`: The Deezer user ID
-    - `USER_NAME`: The Deezer account name
+No additional variables
 
-`disconnected`
-    Emitted when the controlling Deezer client disconnects
-    No additional variables
+#### `track_changed`
+Emitted when the track changes
 
-All string values are properly escaped for shell safety. Example usage:
+Variables:
+- `TRACK_ID`: The ID of the track
+- `TITLE`: The track title
+- `ARTIST`: The artist name
+- `ALBUM_TITLE`: The album title
+- `ALBUM_COVER`: The album cover ID, which can be used to construct image URLs:
+  ```
+  https://e-cdns-images.dzcdn.net/images/cover/{album_cover}/{resolution}x{resolution}.{format}
+  ```
+  where `{resolution}` is the desired resolution in pixels (up to 1920) and
+  `{format}` is either `jpg` (smaller file size) or `png` (higher quality).
+  Deezer's default is 500x500.jpg
+- `DURATION`: Track duration in seconds
+
+#### `connected`
+Emitted when a Deezer client connects to control playback
+
+Variables:
+- `USER_ID`: The Deezer user ID
+- `USER_NAME`: The Deezer username
+
+#### `disconnected`
+Emitted when the controlling Deezer client disconnects
+
+No additional variables
+
+#### Example
+All string values are properly escaped for shell safety.
 
 ```bash
 #!/bin/bash
@@ -264,7 +270,7 @@ All string values are properly escaped for shell safety. Example usage:
 echo "Event: $EVENT"
 case "$EVENT" in
   "track_changed")
-    echo "Track changed to: $TITLE by $ARTIST"
+    echo "Track changed: $TITLE by $ARTIST"
     ;;
   "connected")
     echo "Connected as: $USER_NAME"
