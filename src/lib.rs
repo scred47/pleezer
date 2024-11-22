@@ -13,6 +13,7 @@ pub mod gateway;
 pub mod http;
 pub mod player;
 pub mod protocol;
+pub mod proxy;
 pub mod rand;
 pub mod remote;
 pub mod tokens;

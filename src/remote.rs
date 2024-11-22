@@ -24,6 +24,7 @@ use crate::{
         stream, Body, Channel, Contents, DeviceId, Headers, Ident, Message, Percentage, QueueItem,
         RepeatMode, Status, UserId,
     },
+    proxy,
     tokens::UserToken,
     track::{Track, TrackId},
 };
@@ -251,9 +252,8 @@ impl Client {
         let uri = format!(
             "wss://live.deezer.com/ws/{}?version={}",
             user_token, self.version
-        )
-        .parse::<http::Uri>()?;
-        let mut request = ClientRequestBuilder::new(uri);
+        );
+        let mut request = ClientRequestBuilder::new(uri.parse::<http::Uri>()?);
 
         self.user_token = Some(user_token);
 
@@ -266,7 +266,14 @@ impl Client {
             }
         }
 
-        let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
+        let (ws_stream, _) = if let Some(proxy) = proxy::Http::from_env() {
+            info!("using proxy: {proxy}");
+            let tcp_stream = proxy.connect_async(&uri).await?;
+            tokio_tungstenite::client_async_tls(request, tcp_stream).await?
+        } else {
+            tokio_tungstenite::connect_async(request).await?
+        };
+
         let (websocket_tx, mut websocket_rx) = ws_stream.split();
         self.websocket_tx = Some(websocket_tx);
 

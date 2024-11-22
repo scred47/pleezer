@@ -8,6 +8,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
+- [proxy] Proxy support using `HTTPS_PROXY` environment variable
 - [remote] Eavesdropping on the Deezer Connect websocket
 
 ### Changed

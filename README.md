@@ -34,13 +34,14 @@
 - **User MP3 Support**: Play your uploaded MP3 files alongside streamed content.
 - **Authentication Options**: Log in via Deezer email/password or ARL token.
 - **Volume Normalization**: Maintain consistent volume across all tracks while preventing clipping or distortion.
+- **Proxy Support**: Connect through HTTPS proxies using system environment variables.
 
 ### Planned Features
 
 - Shuffle support
 - Live radio and podcast integration
 - Advanced audio outputs: ASIO, JACK
-- Device registration and improved proxy support
+- Device registration
 
 ## Installation
 
@@ -166,6 +167,25 @@ Your music will start playing on the selected device.
     ```bash
     pleezer --version
     ```
+
+### Proxy Configuration
+
+**pleezer** supports proxy connections through the `HTTPS_PROXY` environment variable. The value must include the `https://` schema prefix.
+
+Examples:
+
+```bash
+# Linux/macOS
+export HTTPS_PROXY="https://proxy.company.com:8080"
+
+# Windows (Command Prompt)
+set HTTPS_PROXY=https://proxy.company.com:8080
+
+# Windows (PowerShell)
+$env:HTTPS_PROXY="https://proxy.company.com:8080"
+```
+
+The proxy settings will be automatically detected and used for all Deezer Connect connections.
 
 ### Stateless Configuration
 
