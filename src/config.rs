@@ -160,14 +160,13 @@ impl Config {
     /// # Errors
     ///
     /// Returns an error if the half key does not contain the right amount of valid characters.
-    #[expect(clippy::cast_possible_truncation)]
     fn convert_half(half: &str) -> Result<Vec<u8>> {
         let bytes: Vec<u8> = half
             .split("%2C")
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
-            .filter_map(|s| u8::from_str_radix(s.trim_start_matches("0x"), KEY_LENGTH as u32).ok())
+            .filter_map(|s| u8::from_str_radix(s.trim_start_matches("0x"), 16).ok())
             .collect();
 
         let len = bytes.len();
