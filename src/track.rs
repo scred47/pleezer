@@ -19,6 +19,7 @@ use crate::{
         gateway,
         media::{self, Cipher, CipherFormat, Data, Format, Medium},
     },
+    util::ToF32,
 };
 
 /// A unique identifier for a track. User-uploaded tracks are identified by negative IDs.
@@ -478,7 +479,7 @@ impl From<gateway::ListData> for Track {
             album_title: item.album_title,
             album_cover: item.album_cover,
             duration: item.duration,
-            gain: item.gain,
+            gain: item.gain.map(ToF32::to_f32_lossy),
             expiry: item.expiry,
             quality: AudioQuality::Standard,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),

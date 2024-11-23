@@ -20,7 +20,6 @@ use crate::{
         },
         gateway::{self, Queue, UserData},
     },
-    // TODO : move into gateway
     tokens::UserToken,
 };
 
@@ -274,8 +273,16 @@ impl Gateway {
     }
 
     /// The reference level for normalization.
+    ///
+    /// This function truncates the value to an `i8` because the API could return
+    /// a value that is out of bounds.
+    #[expect(clippy::cast_possible_truncation)]
     pub fn target_gain(&self) -> Option<i8> {
-        self.user_data.as_ref().map(|data| data.gain.target)
+        self.user_data.as_ref().map(|data| {
+            data.gain
+                .target
+                .clamp(i64::from(i8::MIN), i64::from(i8::MAX)) as i8
+        })
     }
 
     /// The user's account name.

@@ -1,6 +1,3 @@
-//! Numbers are parsed and stored in 64-bit format, because [JSON] does not
-//! distinguish between different sizes of numbers.
-
 pub mod channel;
 pub mod contents;
 pub mod messages;

@@ -20,9 +20,8 @@ use serde_with::{
 };
 use uuid::Uuid;
 
-use super::channel::Ident;
-use super::protos::queue;
-use crate::{error::Error, track::TrackId};
+use super::{channel::Ident, protos::queue};
+use crate::{error::Error, track::TrackId, util::ToF32};
 
 // Most IDs are UUIDs, but case sensitive, while Deezer Connect uses
 // uppercase on iOS and lowercase on Android. Therefore, many IDs are typed
@@ -425,9 +424,8 @@ impl Percentage {
     }
 
     #[must_use]
-    #[expect(clippy::cast_possible_truncation)]
     pub fn as_ratio_f32(&self) -> f32 {
-        self.0 as f32
+        self.0.to_f32_lossy()
     }
 
     #[must_use]
@@ -436,9 +434,8 @@ impl Percentage {
     }
 
     #[must_use]
-    #[expect(clippy::cast_possible_truncation)]
     pub fn as_percent_f32(&self) -> f32 {
-        self.0 as f32 * 100.0
+        self.0.to_f32_lossy() * 100.0
     }
 
     #[must_use]

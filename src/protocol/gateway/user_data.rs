@@ -146,5 +146,5 @@ pub struct Gatekeeps {
 pub struct Gain {
     #[serde(rename = "TARGET")]
     #[serde_as(as = "DisplayFromStr")]
-    pub target: i8,
+    pub target: i64,
 }

@@ -18,6 +18,7 @@ pub mod rand;
 pub mod remote;
 pub mod tokens;
 pub mod track;
+pub mod util;
 
 #[allow(clippy::enum_glob_use)]
 pub mod error;

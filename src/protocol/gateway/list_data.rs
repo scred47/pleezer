@@ -34,7 +34,7 @@ pub struct ListData {
     #[serde(rename = "SNG_TITLE")]
     pub title: String,
     #[serde_as(as = "Option<DisplayFromStr>")]
-    pub gain: Option<f32>,
+    pub gain: Option<f64>,
     #[redact]
     pub track_token: String,
     #[serde(rename = "TRACK_TOKEN_EXPIRE")]
