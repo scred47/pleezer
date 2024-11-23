@@ -18,6 +18,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Fixed
 - [config] Hexademical base does not correlate to key length
+- [repo] Fix pull request template format
 
 ### Security
 
