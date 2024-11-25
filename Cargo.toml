@@ -94,8 +94,16 @@ protobuf-codegen = "3"
 protoc-bin-vendored = "3"
 
 [profile.release]
-lto = true
-codegen-units = 1
+# Enable Link Time Optimization and single codegen unit for maximum
+# optimization. These are disabled by default because we consider the
+# Raspberry Pi 3B+ (1GB RAM) as minimum supported hardware, where these
+# settings cause lockups due to memory exhaustion.
+#
+# We recommend enabling these on more powerful systems for better
+# runtime performance:
+#
+# lto = true           # Enable Link Time Optimization
+# codegen-units = 1    # Optimize across the entire program
 
 [package.metadata.deb]
 copyright = "2024, Roderick van Domburg"
