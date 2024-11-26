@@ -12,6 +12,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Changed
 - [build] Document release profile optimization options
+- [docs] Improve Rustdoc of `protos`, `channel` and `contents` modules
 - [gateway] Improve error logging for response parsing failures
 - [main] Clearer log messages for secrets and logins
 - [protocol] Parse JSON as 64-bit and truncate internally

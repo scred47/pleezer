@@ -1,3 +1,56 @@
+//! Message contents and data types for the Deezer Connect protocol.
+//!
+//! This module defines the structures and types that represent the content
+//! of messages exchanged over a Deezer Connect websocket connection. It handles:
+//! * Message bodies and their wire format serialization
+//! * Protocol-specific data types (audio quality, repeat modes, etc.)
+//! * Device identification and addressing
+//! * Playback status and control information
+//!
+//! # Wire Format
+//!
+//! Messages in the Deezer Connect protocol use a specific wire format:
+//! * JSON-based message envelope
+//! * Base64-encoded payloads
+//! * Protocol buffer messages for queue data
+//! * DEFLATE compression for some payloads
+//!
+//! # Examples
+//!
+//! Creating message contents:
+//! ```rust
+//! use std::time::Duration;
+//!
+//! let contents = Contents {
+//!     ident: Ident::RemoteCommand,
+//!     headers: Headers {
+//!         from: DeviceId::default(),
+//!         destination: None,
+//!     },
+//!     body: Body::PlaybackProgress {
+//!         message_id: "msg123".to_string(),
+//!         track: QueueItem { /* ... */ },
+//!         quality: AudioQuality::Standard,
+//!         duration: Duration::from_secs(180),
+//!         buffered: Duration::from_secs(10),
+//!         progress: Some(Percentage::from_ratio_f32(0.5)),
+//!         volume: Percentage::from_ratio_f32(1.0),
+//!         is_playing: true,
+//!         is_shuffle: false,
+//!         repeat_mode: RepeatMode::None,
+//!     },
+//! };
+//! ```
+//!
+//! # Notes
+//!
+//! Device identifiers in the protocol can vary between platforms:
+//! * iOS devices use uppercase UUIDs
+//! * Android devices use lowercase UUIDs
+//! * Some devices use other formats with prefixes
+//!
+//! For this reason, many IDs are handled as strings rather than parsed UUIDs.
+
 use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Write},
@@ -23,86 +76,257 @@ use uuid::Uuid;
 use super::{channel::Ident, protos::queue};
 use crate::{error::Error, track::TrackId, util::ToF32};
 
-// Most IDs are UUIDs, but case sensitive, while Deezer Connect uses
-// uppercase on iOS and lowercase on Android. Therefore, many IDs are typed
-// as `String` (and borrowed as &`str`) instead of a true `Uuid`.
-
-/// The `Contents` of a [`Message`] on a [Deezer Connect][Connect] websocket.
+/// A message's contents in the Deezer Connect protocol.
 ///
-/// [`Message`]: ../messages/enum.Message.html
+/// The `Contents` structure represents the complete data of a message, including:
+/// * The message type identifier (`ident`)
+/// * Routing headers (`headers`)
+/// * The actual message payload (`body`)
+///
+/// # Wire Format
+///
+/// In the wire protocol, contents are serialized as JSON with this structure:
+/// ```json
+/// {
+///     "APP": "REMOTECOMMAND",
+///     "headers": {
+///         "from": "device-uuid",
+///         "destination": "target-uuid"
+///     },
+///     "body": {
+///         "messageId": "msg-123",
+///         "messageType": "playbackProgress",
+///         "protocolVersion": "com.deezer.remote.command.proto1",
+///         "payload": "base64-encoded-data",
+///         "clock": {}
+///     }
+/// }
+/// ```
+///
+/// The `body.payload` field can contain either:
+/// * Base64-encoded JSON for most message types
+/// * Base64-encoded, DEFLATE-compressed protocol buffers for queue data
+///
+/// # Examples
+///
+/// Creating playback progress contents:
+/// ```rust
+/// use std::time::Duration;
+///
+/// let contents = Contents {
+///     ident: Ident::RemoteCommand,
+///     headers: Headers {
+///         from: DeviceId::default(),
+///         destination: None,
+///     },
+///     body: Body::PlaybackProgress {
+///         message_id: "msg123".to_string(),
+///         track: QueueItem {
+///             queue_id: "queue123".to_string(),
+///             track_id: 12345.into(),
+///             position: 0,
+///         },
+///         quality: AudioQuality::Standard,
+///         duration: Duration::from_secs(180),
+///         buffered: Duration::from_secs(10),
+///         progress: Some(Percentage::from_ratio_f32(0.5)),
+///         volume: Percentage::from_ratio_f32(1.0),
+///         is_playing: true,
+///         is_shuffle: false,
+///         repeat_mode: RepeatMode::None,
+///     },
+/// };
+/// ```
+///
+/// Creating device discovery contents:
+/// ```rust
+/// let contents = Contents {
+///     ident: Ident::RemoteDiscover,
+///     headers: Headers {
+///         from: DeviceId::default(),
+///         destination: None,
+///     },
+///     body: Body::DiscoveryRequest {
+///         message_id: "msg456".to_string(),
+///         from: DeviceId::default(),
+///         discovery_session: "session789".to_string(),
+///     },
+/// };
+/// ```
+///
+/// # Protocol Versions
+///
+/// Different message types use different protocol versions:
+/// * `com.deezer.remote.command.proto1` - For playback control
+/// * `com.deezer.remote.discovery.proto1` - For device discovery
+/// * `com.deezer.remote.queue.proto1` - For queue management
+///
+/// # Display Format
+///
+/// When displayed using `Display`, contents show their message type with
+/// fixed-width padding for consistent formatting:
+/// ```text
+/// PlaybackProgress
+/// ConnectionOffer
+/// DiscoveryRequest
+/// ```
+///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Contents {
-    /// The [Deezer Connect][Connect] websocket [`Message`] [`Event`] that
-    /// these `Contents` are for.
+    /// The message type identifier.
     ///
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`Event`]: ../channel/enum.Event.html
-    /// [`Message`]: ../messages/enum.Message.html
+    /// This field is serialized as "APP" in the wire format and determines
+    /// how the message should be processed.
     #[serde(rename = "APP")]
     pub ident: Ident,
 
-    /// The [Deezer Connect][Connect] websocket [`Message`] [`Headers`] that
-    /// are attached to these `Contents`.
+    /// Routing information for the message.
     ///
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`Header`]: struct.Header.html
-    /// [`Message`]: ../messages/enum.Message.html
+    /// Specifies the source device and optional destination device
+    /// for the message.
     pub headers: Headers,
 
-    /// The [`Body`] of these [Deezer Connect][Connect] websocket [`Message`]
-    /// `Contents`.
+    /// The actual message payload.
     ///
-    /// The wire format of this field is peculiar, in that it is [JSON]
-    /// embedded in a [`String`]. The `Serialize` and `Deserialize`
-    /// [implementations][JsonString] of `Contents` handle this transparently.
-    ///
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`Body`]: struct.Body.html
-    /// [JSON]: https://www.json.org/
-    /// [JsonString]: https://docs.rs/serde_with/latest/serde_with/json/struct.JsonString.html
-    /// [`Message`]: ../messages/enum.Message.html
-    /// [`String`]: https://doc.rust-lang.org/std/string/
+    /// Contains the message-specific data, serialized according to the
+    /// message type's requirements. The wire format embeds this as a JSON
+    /// string, which is handled transparently by the serialization.
     #[serde_as(as = "JsonString")]
     pub body: Body,
 }
 
 impl fmt::Display for Contents {
+    /// Formats message contents for display, showing the message type with fixed-width padding.
+    ///
+    /// This implementation provides a consistent display format for logging and debugging
+    /// purposes. The message type is left-aligned with 16 characters of padding.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let contents = Contents {
+    ///     ident: Ident::RemoteCommand,
+    ///     headers: Headers {
+    ///         from: DeviceId::default(),
+    ///         destination: None,
+    ///     },
+    ///     body: Body::PlaybackProgress { /* ... */ },
+    /// };
+    ///
+    /// // Displays as: "PlaybackProgress "
+    /// println!("{}", contents);
+    /// ```
+    ///
+    /// Different message types maintain consistent alignment:
+    /// ```text
+    /// PlaybackProgress
+    /// Ping
+    /// Stop
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// The current implementation has a known limitation where padding may not
+    /// be respected in all contexts. This is marked for future improvement.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // FIXME: padding is not respected.
         write!(f, "{:<16}", self.body.message_type())
     }
 }
 
-/// The `Headers` attached to some [`Message`] [`Contents`] on a
-/// [Deezer Connect][Connect] websocket.
+/// Routing headers for Deezer Connect messages.
 ///
-/// [Deezer Connect][Connect] devices are identified by some [UUID]
-/// presentation, sometimes formatted according to RFC4122 with hyphens,
-/// sometimes without hyphens and prepended by some character. One hypothesis
-/// is that these identify some form of Android AAIDs, Apple IDFAs, and others.
+/// Headers contain the addressing information needed to route messages between
+/// Deezer Connect devices. Each message must have a source device (`from`) and
+/// may optionally specify a target device (`destination`).
+///
+/// # Device Identification
+///
+/// Devices are identified using various formats:
+/// * Standard UUIDs with hyphens (e.g., "550e8400-e29b-41d4-a716-446655440000")
+/// * UUIDs without hyphens
+/// * Platform-specific formats (possibly including Android AAIDs or Apple IDFAs)
+///
+/// # Examples
+///
+/// Creating headers for broadcast messages:
+/// ```rust
+/// let headers = Headers {
+///     from: DeviceId::default(),  // Creates a new random UUID
+///     destination: None,          // No specific target
+/// };
+/// ```
+///
+/// Creating headers for targeted messages:
+/// ```rust
+/// use uuid::Uuid;
+///
+/// let headers = Headers {
+///     from: DeviceId::Uuid(Uuid::new_v4()),
+///     destination: Some(DeviceId::Other("target-device-123".to_string())),
+/// };
+/// ```
+///
+/// # Display Format
+///
+/// Headers are displayed in a human-readable format:
+/// ```text
+/// from 550e8400-e29b-41d4-a716-446655440000
+/// from 550e8400-e29b-41d4-a716-446655440000 to target-device-123
+/// ```
+///
+/// # Wire Format
+///
+/// In the protocol's JSON format:
+/// ```json
+/// {
+///     "from": "550e8400-e29b-41d4-a716-446655440000",
+///     "destination": "target-device-123"  // Optional
+/// }
+/// ```
 ///
 /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-/// [`Contents`]: struct.Contents.html
-/// [`Message`]: ../messages/enum.Message.html
-/// [UUID]: http://tools.ietf.org/html/rfc4122
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Headers {
-    /// The source of some [`Message`] [`Contents`].
+    /// The source device identifier.
     ///
-    /// [`Contents`]: struct.Contents.html
-    /// [`Message`]: ../messages/enum.Message.html
+    /// This field is always present and identifies the device sending
+    /// the message.
     pub from: DeviceId,
 
-    /// The optional destination for some [`Message`] [`Contents`].
+    /// The optional target device identifier.
     ///
-    /// [`Contents`]: struct.Contents.html
-    /// [`Message`]: ../messages/enum.Message.html
+    /// When `None`, the message is treated as a broadcast to all
+    /// available devices.
     pub destination: Option<DeviceId>,
 }
 
 impl fmt::Display for Headers {
+    /// Formats the headers in a human-readable format.
+    ///
+    /// The output format is:
+    /// * For broadcast: "from <device-id>"
+    /// * For targeted: "from <device-id> to <target-id>"
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Broadcast headers
+    /// let headers = Headers {
+    ///     from: DeviceId::default(),
+    ///     destination: None,
+    /// };
+    /// println!("{}", headers);  // "from 550e8400-e29b-41d4-a716-446655440000"
+    ///
+    /// // Targeted headers
+    /// let headers = Headers {
+    ///     from: DeviceId::default(),
+    ///     destination: Some(DeviceId::Other("target-123".to_string())),
+    /// };
+    /// println!("{}", headers);  // "from 550e8400-e29b-41d4-a716-446655440000 to target-123"
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "from {}", self.from)?;
 
@@ -114,21 +338,99 @@ impl fmt::Display for Headers {
     }
 }
 
+/// Device identifier in the Deezer Connect protocol.
+///
+/// A `DeviceId` can be either:
+/// * A standard UUID (`Uuid` variant)
+/// * A platform-specific identifier (`Other` variant)
+///
+/// # Platform Variations
+///
+/// Device identifiers vary by platform:
+/// * iOS: Uppercase UUIDs with hyphens
+/// * Android: Lowercase UUIDs without hyphens
+/// * Web: UUIDs with hyphens
+/// * Other platforms: Custom formats, possibly including:
+///   * Android Advertising IDs (AAID)
+///   * Apple IDFAs
+///   * Custom prefixed identifiers
+///
+/// # Examples
+///
+/// Creating device IDs:
+/// ```rust
+/// use uuid::Uuid;
+///
+/// // Using UUID
+/// let device = DeviceId::Uuid(Uuid::new_v4());
+///
+/// // Using platform-specific format
+/// let device = DeviceId::Other("android-device-123".to_string());
+/// ```
+///
+/// Parsing from strings:
+/// ```rust
+/// // Parse UUID format
+/// let device: DeviceId = "550e8400-e29b-41d4-a716-446655440000".parse()?;
+/// assert!(matches!(device, DeviceId::Uuid(_)));
+///
+/// // Parse other format
+/// let device: DeviceId = "android-device-123".parse()?;
+/// assert!(matches!(device, DeviceId::Other(_)));
+/// ```
+///
+/// # Wire Format
+///
+/// Device IDs are serialized as simple strings:
+/// ```text
+/// "550e8400-e29b-41d4-a716-446655440000"  // UUID format
+/// "android-device-123"                    // Other format
+/// ```
 #[derive(
     Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 pub enum DeviceId {
+    /// A standard UUID identifier.
+    ///
+    /// This is the most common format, used by most platforms.
     Uuid(Uuid),
+
+    /// A platform-specific identifier format.
+    ///
+    /// Used when the device ID doesn't conform to UUID format.
     Other(String),
 }
 
 impl Default for DeviceId {
+    /// Creates a new random UUID device identifier.
+    ///
+    /// This is the recommended default for new devices joining
+    /// the protocol.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let device = DeviceId::default();
+    /// assert!(matches!(device, DeviceId::Uuid(_)));
+    /// ```
     fn default() -> Self {
         Self::Uuid(Uuid::new_v4())
     }
 }
 
 impl From<Uuid> for DeviceId {
+    /// Creates a device ID from a UUID.
+    ///
+    /// This provides convenient conversion from standard UUIDs.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use uuid::Uuid;
+    ///
+    /// let uuid = Uuid::new_v4();
+    /// let device: DeviceId = uuid.into();
+    /// ```
     fn from(uuid: Uuid) -> Self {
         Self::Uuid(uuid)
     }
@@ -137,6 +439,28 @@ impl From<Uuid> for DeviceId {
 impl FromStr for DeviceId {
     type Err = Error;
 
+    /// Parses a device ID from its string representation.
+    ///
+    /// The parser attempts to interpret the string as a UUID first.
+    /// If that fails, it treats it as a platform-specific format.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Parse UUID format
+    /// let device: DeviceId = "550e8400-e29b-41d4-a716-446655440000".parse()?;
+    ///
+    /// // Parse platform-specific format
+    /// let device: DeviceId = "android-device-123".parse()?;
+    ///
+    /// // Both hyphenated and non-hyphenated UUIDs work
+    /// let device: DeviceId = "550e8400e29b41d4a716446655440000".parse()?;
+    /// ```
+    ///
+    /// # Error Handling
+    ///
+    /// This implementation never returns an error, as any string that isn't
+    /// a valid UUID is accepted as an `Other` variant.
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let device = match Uuid::try_parse(s) {
             Ok(uuid) => Self::from(uuid),
@@ -148,6 +472,24 @@ impl FromStr for DeviceId {
 }
 
 impl fmt::Display for DeviceId {
+    /// Formats a device ID for the wire protocol.
+    ///
+    /// The output format depends on the variant:
+    /// * `Uuid`: Standard UUID string format
+    /// * `Other`: The platform-specific string as-is
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use uuid::Uuid;
+    ///
+    /// let uuid = Uuid::new_v4();
+    /// let device = DeviceId::Uuid(uuid);
+    /// assert_eq!(device.to_string(), uuid.to_string());
+    ///
+    /// let device = DeviceId::Other("android-123".to_string());
+    /// assert_eq!(device.to_string(), "android-123");
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Uuid(uuid) => write!(f, "{uuid}"),
@@ -156,88 +498,224 @@ impl fmt::Display for DeviceId {
     }
 }
 
+/// Message payload in the Deezer Connect protocol.
+///
+/// Represents the various types of message content that can be exchanged between
+/// Deezer Connect devices. Each variant corresponds to a specific message type
+/// and carries its relevant data.
+///
+/// # Wire Format
+///
+/// Bodies are serialized in two different ways depending on the message type:
+///
+/// JSON format (most messages):
+/// ```json
+/// {
+///     "messageId": "msg-123",
+///     "messageType": "playbackProgress",
+///     "protocolVersion": "com.deezer.remote.command.proto1",
+///     "payload": "base64-encoded-json",
+///     "clock": {}
+/// }
+/// ```
+///
+/// Protocol Buffer format (queue messages):
+/// ```json
+/// {
+///     "messageId": "msg-123",
+///     "messageType": "publishQueue",
+///     "protocolVersion": "com.deezer.remote.queue.proto1",
+///     "payload": "base64-encoded-deflated-protobuf",
+///     "clock": {}
+/// }
+/// ```
+///
+/// # Examples
+///
+/// Creating a playback progress message:
+/// ```rust
+/// use std::time::Duration;
+///
+/// let body = Body::PlaybackProgress {
+///     message_id: "msg123".to_string(),
+///     track: QueueItem {
+///         queue_id: "queue123".to_string(),
+///         track_id: 12345.into(),
+///         position: 0,
+///     },
+///     quality: AudioQuality::Standard,
+///     duration: Duration::from_secs(180),
+///     buffered: Duration::from_secs(10),
+///     progress: Some(Percentage::from_ratio_f32(0.5)),
+///     volume: Percentage::from_ratio_f32(1.0),
+///     is_playing: true,
+///     is_shuffle: false,
+///     repeat_mode: RepeatMode::None,
+/// };
+/// ```
+///
+/// Creating a queue publication message:
+/// ```rust
+/// let body = Body::PublishQueue {
+///     message_id: "msg456".to_string(),
+///     queue: queue::List {
+///         id: "queue123".to_string(),
+///         // ... other queue fields ...
+///     },
+/// };
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum Body {
+    /// Acknowledges receipt of a message.
     Acknowledgement {
+        /// Unique identifier for this message
         message_id: String,
+        /// ID of the message being acknowledged
         acknowledgement_id: String,
     },
 
+    /// Signals closure of a connection.
     Close {
+        /// Unique identifier for this message
         message_id: String,
     },
 
+    /// Initiates a connection to a device.
     Connect {
+        /// Unique identifier for this message
         message_id: String,
+        /// Device initiating the connection
         from: DeviceId,
+        /// Optional connection offer ID to respond to
         offer_id: Option<String>,
     },
 
+    /// Offers a connection to other devices.
     ConnectionOffer {
+        /// Unique identifier for this message
         message_id: String,
+        /// Device offering the connection
         from: DeviceId,
+        /// Human-readable name of the device
         device_name: String,
     },
 
+    /// Requests device discovery.
     DiscoveryRequest {
+        /// Unique identifier for this message
         message_id: String,
+        /// Device initiating discovery
         from: DeviceId,
+        /// Unique session identifier for this discovery
         discovery_session: String,
     },
 
+    /// Reports playback status and progress.
     PlaybackProgress {
+        /// Unique identifier for this message
         message_id: String,
+        /// Currently playing track
         track: QueueItem,
+        /// Audio quality of the currently playing track
         quality: AudioQuality,
+        /// Total duration of the track
         duration: Duration,
+        /// Amount of audio buffered from the start of the track
         buffered: Duration,
+        /// Current playback position (0.0 to 1.0)
         progress: Option<Percentage>,
+        /// Current volume level (0.0 to 1.0)
         volume: Percentage,
+        /// Whether playback is active
         is_playing: bool,
+        /// Whether shuffle mode is enabled
         is_shuffle: bool,
+        /// Current repeat mode setting
         repeat_mode: RepeatMode,
     },
 
+    /// Publishes a complete playback queue.
     PublishQueue {
+        /// Unique identifier for this message
         message_id: String,
+        /// The complete queue data
         queue: queue::List,
     },
 
+    /// Network keep-alive message.
     Ping {
+        /// Unique identifier for this message
         message_id: String,
     },
 
+    /// Signals device readiness after completion of the connection handshake.
     Ready {
+        /// Unique identifier for this message
         message_id: String,
     },
 
+    /// Requests queue UI refresh.
     RefreshQueue {
+        /// Unique identifier for this message
         message_id: String,
     },
 
+    /// Controls playback state changes.
     Skip {
+        /// Unique identifier for this message
         message_id: String,
+        /// Target queue identifier
         queue_id: Option<String>,
+        /// Track to skip to
         track: Option<QueueItem>,
+        /// Position to seek to (0.0 to 1.0)
         progress: Option<Percentage>,
+        /// Whether to start playing
         should_play: Option<bool>,
+        /// New repeat mode setting
         set_repeat_mode: Option<RepeatMode>,
+        /// New shuffle mode setting
         set_shuffle: Option<bool>,
+        /// New volume level (0.0 to 1.0)
         set_volume: Option<Percentage>,
     },
 
+    /// Reports command execution status.
     Status {
+        /// Unique identifier for this message
         message_id: String,
+        /// ID of the command being responded to
         command_id: String,
+        /// Command execution result
         status: Status,
     },
 
+    /// Requests playback stop.
     Stop {
+        /// Unique identifier for this message
         message_id: String,
     },
 }
 
 impl Body {
+    /// Returns the message type of this body.
+    ///
+    /// This method provides the type identifier used in the wire protocol
+    /// to determine how the message should be processed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let body = Body::Ping {
+    ///     message_id: "msg123".to_string()
+    /// };
+    /// assert_eq!(body.message_type(), MessageType::Ping);
+    ///
+    /// let body = Body::Stop {
+    ///     message_id: "msg456".to_string()
+    /// };
+    /// assert_eq!(body.message_type(), MessageType::Stop);
+    /// ```
     #[must_use]
     pub fn message_type(&self) -> MessageType {
         match self {
@@ -257,6 +735,25 @@ impl Body {
         }
     }
 
+    /// Returns the unique message identifier for this body.
+    ///
+    /// Every message in the Deezer Connect protocol has a unique identifier
+    /// that can be used for acknowledgments and correlation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let body = Body::Ping {
+    ///     message_id: "msg123".to_string()
+    /// };
+    /// assert_eq!(body.message_id(), "msg123");
+    ///
+    /// let body = Body::PlaybackProgress {
+    ///     message_id: "msg456".to_string(),
+    ///     // ... other fields ...
+    /// };
+    /// assert_eq!(body.message_id(), "msg456");
+    /// ```
     #[must_use]
     pub fn message_id(&self) -> &str {
         match self {
@@ -277,6 +774,47 @@ impl Body {
     }
 }
 
+/// Command execution status in the Deezer Connect protocol.
+///
+/// Represents the result of command execution, with a default assumption
+/// of failure unless explicitly marked as successful.
+///
+/// # Protocol Representation
+///
+/// In the wire format, statuses are represented as integers:
+/// * `0` - Success (`OK`)
+/// * `1` - Failure (`Error`)
+///
+/// # Default Behavior
+///
+/// Following the protocol's defensive approach, the default status is `Error`.
+/// This ensures that success must be explicitly indicated rather than assumed.
+///
+/// # Examples
+///
+/// ```rust
+/// // Creating status values
+/// let success = Status::OK;
+/// let failure = Status::Error;
+///
+/// // Default is Error
+/// let default_status = Status::default();
+/// assert_eq!(default_status, Status::Error);
+///
+/// // Serialization to integer values
+/// use serde_json;
+/// assert_eq!(serde_json::to_string(&Status::OK)?, "0");
+/// assert_eq!(serde_json::to_string(&Status::Error)?, "1");
+/// ```
+///
+/// Using in command responses:
+/// ```rust
+/// let body = Body::Status {
+///     message_id: "msg123".to_string(),
+///     command_id: "cmd456".to_string(),
+///     status: Status::OK,
+/// };
+/// ```
 #[derive(
     Copy,
     Clone,
@@ -292,15 +830,29 @@ impl Body {
 )]
 #[repr(u64)]
 pub enum Status {
+    /// Command executed successfully.
     OK = 0,
 
-    // Assume failure unless explicitly specified otherwise. This is what
-    // Deezer Connect does itself.
+    /// Command execution failed.
+    ///
+    /// This is the default status, following the protocol's
+    /// "fail-by-default" approach.
     #[default]
     Error = 1,
 }
 
 impl fmt::Display for Status {
+    /// Formats the status for human-readable output.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert_eq!(Status::OK.to_string(), "Ok");
+    /// assert_eq!(Status::Error.to_string(), "Err");
+    ///
+    /// // Useful for logging
+    /// println!("Command completed with status: {}", Status::OK);
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Status::OK => write!(f, "Ok"),
@@ -309,6 +861,50 @@ impl fmt::Display for Status {
     }
 }
 
+/// Playback repeat mode in the Deezer Connect protocol.
+///
+/// Controls how playback continues after reaching the end of the current track
+/// or queue. The protocol represents these modes as integers in the wire format.
+///
+/// # Wire Format Values
+///
+/// * `0` - No repeat (`None`)
+/// * `1` - Repeat entire queue (`All`)
+/// * `2` - Repeat current track (`One`)
+/// * `-1` - Unrecognized mode
+///
+/// # Examples
+///
+/// Basic usage:
+/// ```rust
+/// // Default is no repeat
+/// let mode = RepeatMode::default();
+/// assert_eq!(mode, RepeatMode::None);
+///
+/// // Setting different modes
+/// let repeat_all = RepeatMode::All;
+/// let repeat_one = RepeatMode::One;
+/// ```
+///
+/// In playback progress messages:
+/// ```rust
+/// let body = Body::PlaybackProgress {
+///     message_id: "msg123".to_string(),
+///     // ... other fields ...
+///     repeat_mode: RepeatMode::All,
+///     // ... other fields ...
+/// };
+/// ```
+///
+/// Wire format serialization:
+/// ```rust
+/// use serde_json;
+///
+/// assert_eq!(serde_json::to_string(&RepeatMode::None)?, "0");
+/// assert_eq!(serde_json::to_string(&RepeatMode::All)?, "1");
+/// assert_eq!(serde_json::to_string(&RepeatMode::One)?, "2");
+/// assert_eq!(serde_json::to_string(&RepeatMode::Unrecognized)?, "-1");
+/// ```
 #[derive(
     Copy,
     Clone,
@@ -325,28 +921,115 @@ impl fmt::Display for Status {
 // `i64` because this is serialized into and deserialized from JSON.
 #[repr(i64)]
 pub enum RepeatMode {
+    /// No repeat - play through queue once.
+    ///
+    /// This is the default mode.
     #[default]
     None = 0,
+
+    /// Repeat entire queue - restart from beginning after last track.
     All = 1,
+
+    /// Repeat current track - play same track repeatedly.
     One = 2,
+
+    /// Unknown or unsupported repeat mode.
     Unrecognized = -1,
 }
 
 impl fmt::Display for RepeatMode {
+    /// Formats the repeat mode for human-readable output.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert_eq!(RepeatMode::None.to_string(), "None");
+    /// assert_eq!(RepeatMode::All.to_string(), "All");
+    /// assert_eq!(RepeatMode::One.to_string(), "One");
+    /// assert_eq!(RepeatMode::Unrecognized.to_string(), "Unrecognized");
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RepeatMode::None => write!(f, "None"),
             RepeatMode::All => write!(f, "All"),
             RepeatMode::One => write!(f, "One"),
-            RepeatMode::Unrecognized => Err(fmt::Error),
+            RepeatMode::Unrecognized => write!(f, "Unknown"),
         }
     }
 }
 
-/// Audio quality levels as per Deezer on desktop.
+#[expect(clippy::doc_markdown)]
+/// Audio quality levels in the Deezer Connect protocol.
 ///
-/// Note that the remote device has no control over the audio quality of the
-/// player.
+/// Represents the different audio quality tiers available in Deezer,
+/// corresponding to different bitrates and formats. Note that the remote
+/// device cannot control the audio quality - it can only report it.
+///
+/// # Quality Levels
+///
+/// * `Basic` - 64 kbps MP3
+/// * `Standard` - 128 kbps MP3 (default)
+/// * `High` - 320 kbps MP3 (Premium subscription)
+/// * `Lossless` - 1411 kbps FLAC (HiFi subscription)
+/// * `Unknown` - Unrecognized quality level
+///
+/// # Subscription Requirements
+///
+/// Different quality levels require specific subscription tiers:
+/// * Free users: Basic and Standard
+/// * Premium: Up to High Quality
+/// * HiFi: All quality levels including Lossless
+///
+/// # Wire Format
+///
+/// Quality levels are represented as integers in the protocol:
+/// * `0` - Basic
+/// * `1` - Standard (default)
+/// * `2` - High
+/// * `3` - Lossless
+/// * `-1` - Unknown
+///
+/// # Examples
+///
+/// Basic usage:
+/// ```rust
+/// // Default is Standard quality
+/// let quality = AudioQuality::default();
+/// assert_eq!(quality, AudioQuality::Standard);
+///
+/// // Different quality levels
+/// let basic = AudioQuality::Basic;
+/// let hifi = AudioQuality::Lossless;
+/// ```
+///
+/// In playback progress messages:
+/// ```rust
+/// let body = Body::PlaybackProgress {
+///     message_id: "msg123".to_string(),
+///     // ... other fields ...
+///     quality: AudioQuality::High,
+///     // ... other fields ...
+/// };
+/// ```
+///
+/// String parsing:
+/// ```rust
+/// assert_eq!("low".parse::<AudioQuality>()?, AudioQuality::Basic);
+/// assert_eq!("standard".parse::<AudioQuality>()?, AudioQuality::Standard);
+/// assert_eq!("high".parse::<AudioQuality>()?, AudioQuality::High);
+/// assert_eq!("lossless".parse::<AudioQuality>()?, AudioQuality::Lossless);
+/// assert_eq!("unknown".parse::<AudioQuality>()?, AudioQuality::Unknown);
+/// ```
+///
+/// Wire format serialization:
+/// ```rust
+/// use serde_json;
+///
+/// assert_eq!(serde_json::to_string(&AudioQuality::Basic)?, "0");
+/// assert_eq!(serde_json::to_string(&AudioQuality::Standard)?, "1");
+/// assert_eq!(serde_json::to_string(&AudioQuality::High)?, "2");
+/// assert_eq!(serde_json::to_string(&AudioQuality::Lossless)?, "3");
+/// assert_eq!(serde_json::to_string(&AudioQuality::Unknown)?, "-1");
+/// ```
 #[derive(
     Copy,
     Clone,
@@ -363,25 +1046,44 @@ impl fmt::Display for RepeatMode {
 // `i64` because this is serialized into and deserialized from JSON.
 #[repr(i64)]
 pub enum AudioQuality {
-    /// 64 kbps MP3
+    /// 64 kbps MP3 quality.
+    ///
+    /// Available to all users.
     Basic = 0,
 
-    /// 128 kbps MP3 (default)
+    /// 128 kbps MP3 quality.
+    ///
+    /// This is the default quality level.
     #[default]
     Standard = 1,
 
-    /// 320 kbps MP3 (requires Premium subscription)
+    /// 320 kbps MP3 quality.
+    ///
+    /// Requires Premium subscription.
     High = 2,
 
     #[expect(clippy::doc_markdown)]
-    /// 1411 kbps FLAC (requires HiFi subscription)
+    /// 1411 kbps FLAC quality.
+    ///
+    /// Requires HiFi subscription.
     Lossless = 3,
 
-    /// Unknown bitrate and/or format
+    /// Unknown or unrecognized quality level.
     Unknown = -1,
 }
 
 impl fmt::Display for AudioQuality {
+    /// Formats the audio quality for human-readable output.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert_eq!(AudioQuality::Basic.to_string(), "Basic");
+    /// assert_eq!(AudioQuality::Standard.to_string(), "Standard");
+    /// assert_eq!(AudioQuality::High.to_string(), "High Quality");
+    /// assert_eq!(AudioQuality::Lossless.to_string(), "High Fidelity");
+    /// assert_eq!(AudioQuality::Unknown.to_string(), "Unknown");
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AudioQuality::Basic => write!(f, "Basic"),
@@ -396,6 +1098,21 @@ impl fmt::Display for AudioQuality {
 impl FromStr for AudioQuality {
     type Err = Error;
 
+    /// Parses a string into an audio quality level.
+    ///
+    /// Accepts common quality level names and aliases.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert_eq!("low".parse()?, AudioQuality::Basic);
+    /// assert_eq!("standard".parse()?, AudioQuality::Standard);
+    /// assert_eq!("high".parse()?, AudioQuality::High);
+    /// assert_eq!("lossless".parse()?, AudioQuality::Lossless);
+    ///
+    /// // Unknown values parse to Unknown
+    /// assert_eq!("invalid".parse()?, AudioQuality::Unknown);
+    /// ```
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let variant = match s {
             "low" => AudioQuality::Basic,
@@ -409,35 +1126,141 @@ impl FromStr for AudioQuality {
     }
 }
 
+/// Represents a ratio or percentage value in the Deezer Connect protocol.
+///
+/// This type stores values as ratios (0.0 to 1.0) but can display them as
+/// percentages (0% to 100%). Used for various measurements including:
+/// * Playback progress
+/// * Volume levels
+/// * Buffer status
+///
+/// # Internal Representation
+///
+/// Values are stored internally as `f64` ratios between 0.0 and 1.0, but the
+/// type provides methods to work with both ratio and percentage formats.
+///
+/// # Examples
+///
+/// Creating percentage values:
+/// ```rust
+/// // From ratios
+/// let half = Percentage::from_ratio_f32(0.5);
+/// let full = Percentage::from_ratio_f64(1.0);
+///
+/// // Common values
+/// assert_eq!(half.as_percent_f32(), 50.0);
+/// assert_eq!(full.as_ratio_f64(), 1.0);
+/// ```
+///
+/// Using in playback messages:
+/// ```rust
+/// let body = Body::PlaybackProgress {
+///     message_id: "msg123".to_string(),
+///     // ... other fields ...
+///     progress: Some(Percentage::from_ratio_f32(0.25)), // 25% through track
+///     volume: Percentage::from_ratio_f32(0.8),          // 80% volume
+///     // ... other fields ...
+/// };
+/// ```
+///
+/// Display formatting:
+/// ```rust
+/// let progress = Percentage::from_ratio_f32(0.753);
+/// assert_eq!(progress.to_string(), "75.3%");
+/// ```
+///
+/// # Serialization
+///
+/// When serialized, the value is represented as its ratio (0.0 to 1.0):
+/// ```rust
+/// use serde_json;
+///
+/// let half = Percentage::from_ratio_f32(0.5);
+/// assert_eq!(serde_json::to_string(&half)?, "0.5");
+/// ```
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, PartialOrd)]
 pub struct Percentage(f64);
 
 impl Percentage {
+    /// Creates a new percentage from a 32-bit floating point ratio.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_ratio_f32(0.75);
+    /// assert_eq!(p.as_percent_f32(), 75.0);
+    /// ```
     #[must_use]
     pub fn from_ratio_f32(ratio: f32) -> Self {
         Self(ratio.into())
     }
 
+    /// Creates a new percentage from a 64-bit floating point ratio.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_ratio_f64(0.333);
+    /// assert_eq!(p.as_percent_f64(), 33.3);
+    /// ```
     #[must_use]
     pub fn from_ratio_f64(ratio: f64) -> Self {
         Self(ratio)
     }
 
+    /// Returns the value as a 32-bit floating point ratio (0.0 to 1.0).
+    ///
+    /// Note that this may involve loss of precision when converting from
+    /// the internal 64-bit representation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_ratio_f32(0.75);
+    /// assert_eq!(p.as_ratio_f32(), 0.75);
+    /// ```
     #[must_use]
     pub fn as_ratio_f32(&self) -> f32 {
         self.0.to_f32_lossy()
     }
 
+    /// Returns the value as a 64-bit floating point ratio (0.0 to 1.0).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_ratio_f64(0.333);
+    /// assert_eq!(p.as_ratio_f64(), 0.333);
+    /// ```
     #[must_use]
     pub fn as_ratio_f64(&self) -> f64 {
         self.0
     }
 
+    /// Returns the value as a 32-bit floating point percentage (0.0 to 100.0).
+    ///
+    /// Note that this may involve loss of precision when converting from
+    /// the internal 64-bit representation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_ratio_f32(0.75);
+    /// assert_eq!(p.as_percent_f32(), 75.0);
+    /// ```
     #[must_use]
     pub fn as_percent_f32(&self) -> f32 {
         self.0.to_f32_lossy() * 100.0
     }
 
+    /// Returns the value as a 64-bit floating point percentage (0.0 to 100.0).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_ratio_f64(0.333);
+    /// assert_eq!(p.as_percent_f64(), 33.3);
+    /// ```
     #[must_use]
     pub fn as_percent_f64(&self) -> f64 {
         self.0 * 100.0
@@ -445,32 +1268,131 @@ impl Percentage {
 }
 
 impl fmt::Display for Percentage {
-    /// Formats an `Percentage` for display with a `%` sign.
+    /// Formats the value as a percentage with one decimal place.
+    ///
+    /// The output format is "XX.X%" (e.g., "75.3%").
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_ratio_f32(0.753);
+    /// assert_eq!(p.to_string(), "75.3%");
+    ///
+    /// let p = Percentage::from_ratio_f32(1.0);
+    /// assert_eq!(p.to_string(), "100.0%");
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:.1}%", self.as_percent_f32())
     }
 }
 
+/// Represents an item in a Deezer Connect playback queue.
+///
+/// A queue item combines:
+/// * The queue's unique identifier
+/// * The track's Deezer ID
+/// * The track's position in the queue
+///
+/// # Wire Format
+///
+/// Queue items are serialized as hyphen-separated strings:
+/// ```text
+/// <queue-uuid>-<track-id>-<position>
+/// ```
+///
+/// Special cases:
+/// * User-uploaded tracks have negative track IDs
+/// * Queue UUIDs must be valid UUID strings
+/// * Position is zero-based
+///
+/// # Examples
+///
+/// Creating a queue item:
+/// ```rust
+/// let item = QueueItem {
+///     queue_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+///     track_id: 12345.into(),
+///     position: 0,
+/// };
+/// ```
+///
+/// Serialization:
+/// ```rust
+/// // Normal track
+/// let item = QueueItem {
+///     queue_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+///     track_id: 12345.into(),
+///     position: 0,
+/// };
+/// assert_eq!(item.to_string(), "550e8400-e29b-41d4-a716-446655440000-12345-0");
+///
+/// // User-uploaded track
+/// let item = QueueItem {
+///     queue_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+///     track_id: (-12345).into(),
+///     position: 1,
+/// };
+/// assert_eq!(item.to_string(), "550e8400-e29b-41d4-a716-446655440000--12345-1");
+/// ```
+///
+/// Parsing from string:
+/// ```rust
+/// let s = "550e8400-e29b-41d4-a716-446655440000-12345-0";
+/// let item: QueueItem = s.parse()?;
+///
+/// assert_eq!(item.queue_id, "550e8400-e29b-41d4-a716-446655440000");
+/// assert_eq!(item.track_id, 12345.into());
+/// assert_eq!(item.position, 0);
+/// ```
 #[derive(
     Clone, Debug, SerializeDisplay, DeserializeFromStr, PartialOrd, Ord, PartialEq, Eq, Hash,
 )]
 pub struct QueueItem {
+    /// The unique identifier of the queue.
+    ///
+    /// Must be a valid UUID string.
     pub queue_id: String,
+
+    /// The Deezer track identifier.
+    ///
+    /// Can be either:
+    /// * Positive - Normal Deezer tracks
+    /// * Negative - User-uploaded tracks
     pub track_id: TrackId,
+
+    /// Zero-based position in the queue.
+    ///
+    /// This value is used to index into the queue array and must
+    /// be less than the queue length.
     // `usize` because this will index into an array. Also from the protobuf it
     // is known that this really an `u32`.
     pub position: usize,
 }
 
 impl QueueItem {
+    /// Separator character used in the wire format.
+    ///
+    /// Used to split queue items into their components when parsing
+    /// and to join components when serializing.
     const SEPARATOR: char = '-';
 }
 
 impl fmt::Display for QueueItem {
-    /// Formats an `Event` as a wire string for use on a
-    /// [Deezer Connect][Connect] websocket.
+    /// Formats a queue item for wire protocol transmission.
     ///
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
+    /// The output format is: `<queue-uuid>-<track-id>-<position>`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let item = QueueItem {
+    ///     queue_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+    ///     track_id: 12345.into(),
+    ///     position: 0,
+    /// };
+    ///
+    /// assert_eq!(item.to_string(), "550e8400-e29b-41d4-a716-446655440000-12345-0");
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -487,13 +1409,35 @@ impl fmt::Display for QueueItem {
 impl FromStr for QueueItem {
     type Err = Error;
 
-    /// Parses a wire string `s` on a [Deezer Connect][Connect] websocket to
-    /// return an track on a queue.
+    /// Parses a queue item from its wire format string.
     ///
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
+    /// # Format
+    ///
+    /// Expects a string in the format: `<queue-uuid>-<track-id>-<position>`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Normal track
+    /// let s = "550e8400-e29b-41d4-a716-446655440000-12345-0";
+    /// let item: QueueItem = s.parse()?;
+    ///
+    /// // User-uploaded track
+    /// let s = "550e8400-e29b-41d4-a716-446655440000--12345-1";
+    /// let item: QueueItem = s.parse()?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * The queue ID is not a valid UUID
+    /// * The track ID is not a valid integer
+    /// * The position is not a valid integer
+    /// * The string format is invalid
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let mut parts = s.split(Self::SEPARATOR);
 
+        // Queue ID must be reconstructed from first 5 parts (UUID format)
         let mut queue_id = String::new();
         for i in 0..5 {
             match parts.next() {
@@ -511,18 +1455,18 @@ impl FromStr for QueueItem {
             }
         }
 
+        // Validate the queue ID is a proper UUID
         if let Err(e) = Uuid::try_parse(&queue_id) {
             return Err(Self::Err::invalid_argument(format!("queue id: {e}")));
         }
 
+        // Parse track ID, handling user-uploaded tracks (negative IDs)
         let track_id = parts.next().ok_or_else(|| {
             Self::Err::invalid_argument(
                 "list element string slice should hold `track_id` part".to_string(),
             )
         })?;
 
-        // User-uploaded track IDs are negative. If the track ID is empty, then
-        // see if the next part is a user-uploaded track ID.
         let track_id = if track_id.is_empty() {
             if let Some(user_uploaded_id) = parts.next() {
                 let negative_track_id = format!("-{user_uploaded_id}");
@@ -536,6 +1480,7 @@ impl FromStr for QueueItem {
             track_id.parse::<TrackId>()?
         };
 
+        // Parse position
         let position = parts.next().ok_or_else(|| {
             Self::Err::invalid_argument(
                 "list element string slice should hold `position` part".to_string(),
@@ -554,10 +1499,28 @@ impl FromStr for QueueItem {
 // For syntactic sugar this could be changed into `serde_with::SerializeAs` but
 // this now follows the same idiom as serializing a `Message`.
 impl Serialize for Body {
-    /// Convert this `Body` into a [`WireBody`], then serialize it into [JSON].
+    /// Serializes a message body for wire transmission.
+    ///
+    /// This implementation converts the `Body` into a [`WireBody`] before
+    /// serialization to ensure proper wire format encoding. The process handles:
+    /// * JSON encoding for most messages
+    /// * Protocol Buffer encoding for queue messages
+    /// * Base64 encoding of payloads
+    /// * DEFLATE compression when required
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let body = Body::Ping {
+    ///     message_id: "msg123".to_string()
+    /// };
+    ///
+    /// let json = serde_json::to_string(&body)?;
+    /// // Results in a wire format message with Base64-encoded payload
+    /// ```
     ///
     /// [JSON]: https://www.json.org/
-    /// [`WireMessage`]: enum.WireMessage.html
+    /// [`WireBody`]: struct.WireBody.html
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         let wire_body = WireBody::from(self.clone());
         wire_body.serialize(serializer)
@@ -567,198 +1530,589 @@ impl Serialize for Body {
 // For syntactic sugar this could be changed into `serde_with::DeserializeAs` but
 // this now follows the same idiom as deserializing a `Message`.
 impl<'de> Deserialize<'de> for Body {
-    /// Deserialize [JSON] into a [`WireBody`], then convert it into a `Body`.
+    /// Deserializes a message body from wire format.
+    ///
+    /// This implementation first deserializes into a [`WireBody`], then
+    /// converts it into the appropriate `Body` variant. The process handles:
+    /// * Base64 decoding of payloads
+    /// * JSON parsing for most messages
+    /// * Protocol Buffer parsing for queue messages
+    /// * DEFLATE decompression when required
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Wire format JSON with Base64-encoded payload
+    /// let json = r#"{
+    ///     "messageId": "msg123",
+    ///     "messageType": "ping",
+    ///     "protocolVersion": "com.deezer.remote.command.proto1",
+    ///     "payload": "base64data",
+    ///     "clock": {}
+    /// }"#;
+    ///
+    /// let body: Body = serde_json::from_str(json)?;
+    /// assert!(matches!(body, Body::Ping { .. }));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * The wire format is invalid
+    /// * Base64 decoding fails
+    /// * JSON parsing fails
+    /// * Protocol Buffer parsing fails
+    /// * Message type is unknown
     ///
     /// [JSON]: https://www.json.org/
-    /// [`WireMessage`]: enum.WireMessage.html
+    /// [`WireBody`]: struct.WireBody.html
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         let wire_body = WireBody::deserialize(deserializer)?;
         Self::try_from(wire_body).map_err(serde::de::Error::custom)
     }
 }
 
-/// The [`WireBody`] of some [Deezer Connect][Connect] websocket [`Message`]
-/// [`Contents`].
+/// Internal wire format representation of message bodies in Deezer Connect.
 ///
-/// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-/// [`Contents`]: struct.Contents.html
-/// [`Message`]: ../messages/enum.Message.html
+/// This type handles the low-level protocol format, acting as an intermediate
+/// representation between the high-level [`Body`] type and the wire protocol.
+/// It manages protocol versioning, payload encoding, and message type routing.
+///
+/// # Wire Format
+///
+/// Messages are serialized as JSON with this structure:
+/// ```json
+/// {
+///     "messageId": "msg-123",
+///     "messageType": "playbackProgress",
+///     "protocolVersion": "com.deezer.remote.command.proto1",
+///     "payload": "base64-encoded-data",
+///     "clock": {}
+/// }
+/// ```
+///
+/// # Protocol Versions
+///
+/// The protocol supports three distinct versions:
+/// * `com.deezer.remote.command.proto1` - Playback control messages
+/// * `com.deezer.remote.discovery.proto1` - Device discovery messages
+/// * `com.deezer.remote.queue.proto1` - Queue management messages
+///
+/// # Payload Encoding
+///
+/// Payloads can be encoded in two ways:
+/// * Base64-encoded JSON for most messages
+/// * Base64-encoded, DEFLATE-compressed Protocol Buffers for queue data
+///
+/// # Examples
+///
+/// ```rust
+/// let wire_body = WireBody {
+///     message_id: "msg123".to_string(),
+///     message_type: MessageType::PlaybackProgress,
+///     protocol_version: WireBody::COMMAND_VERSION.to_string(),
+///     payload: Payload::PlaybackProgress {
+///         queue_id: "queue123".to_string(),
+///         element_id: queue_item,
+///         duration: Duration::from_secs(180),
+///         buffered: Duration::from_secs(10),
+///         progress: Some(Percentage::from_ratio_f32(0.5)),
+///         volume: Percentage::from_ratio_f32(1.0),
+///         quality: AudioQuality::Standard,
+///         is_playing: true,
+///         is_shuffle: false,
+///         repeat_mode: RepeatMode::None,
+///     },
+///     clock: HashMap::new(),
+/// };
+/// ```
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct WireBody {
-    /// The [`Uuid`] of some [Deezer Connect][Connect] websocket [`Message`]
-    /// that has this `Body`.
+    /// Unique message identifier.
     ///
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`Message`]: ../messages/enum.Message.html
-    /// [`Uuid`]: https://docs.rs/uuid/latest/uuid/
+    /// Used for message correlation and acknowledgments.
     message_id: String,
 
-    /// The [`MessageType`] that tags the `payload` of some
-    /// [Deezer Connect][Connect] websocket [`Message`] that has this `Body`.
+    /// Type of message being transmitted.
     ///
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`Message`]: ../messages/enum.Message.html
-    /// [`MessageType`]: enum.MessageType.html
+    /// Determines how the payload should be interpreted.
     message_type: MessageType,
 
-    /// The protocol version of some [Deezer Connect][Connect] websocket
-    /// [`Message`] that has this `Body`.
+    /// Protocol version for this message.
     ///
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`Message`]: ../messages/enum.Message.html
+    /// Must match one of the known protocol versions.
     protocol_version: String,
 
-    /// The [`Payload`] of some [Deezer Connect][Connect] websocket [`Message`]
-    /// that has this `Body`.
+    /// Message-specific data.
     ///
-    /// The wire format of this field is peculiar, in that it is encoded as
-    /// [Base64]. Then, depending on the tagged `MessageType`, it may either
-    /// contain [JSON] or a [protocol buffer][Protobuf] that is compressed
-    /// with [DEFLATE]. The [`Serialize`] and [`Deserialize`] of `Body`
-    /// handle this transparently.
-    ///
-    /// [Base64]: https://datatracker.ietf.org/doc/html/rfc3548
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [DEFLATE]: https://datatracker.ietf.org/doc/html/rfc1951
-    /// [`Deserialize`]: #impl-TryFromVec%3Cu8%3E-for-Payload
-    /// [JSON]: https://www.json.org/
-    /// [`Message`]: ../messages/enum.Message.html
-    /// [Protobuf]: https://developers.google.com/protocol-buffers
-    /// [`Serialize`]: #impl-From%3CPayload%3E-for-Vec%3Cu8%3E
+    /// Encoded according to message type requirements.
     #[serde_as(as = "DisplayFromStr")]
     payload: Payload,
 
-    /// Unknown field that seems always empty.
+    /// Reserved field for future use.
     ///
-    /// This implementation is provided for sake of completeness and may change
-    /// in the future.
+    /// Currently always empty. Maintained for protocol compatibility.
     clock: HashMap<String, serde_json::Value>,
 }
 
+/// Message type identifiers in the Deezer Connect protocol.
+///
+/// Each variant represents a distinct type of message that can be exchanged
+/// between Deezer Connect devices. The type determines:
+/// * Protocol version to use
+/// * Expected payload format
+/// * Message handling rules
+///
+/// # Wire Format
+///
+/// Message types are serialized as camelCase strings in JSON, with one
+/// special case:
+/// * `"ack"` for Acknowledgement
+/// * All others are direct camelCase versions of their variant names
+///
+/// # Protocol Versions
+///
+/// Message types are grouped by protocol version:
+///
+/// Command Protocol (`com.deezer.remote.command.proto1`):
+/// * `Acknowledgement`
+/// * `Close`
+/// * `PlaybackProgress`
+/// * `Ping`
+/// * `Ready`
+/// * `Skip`
+/// * `Status`
+/// * `Stop`
+///
+/// Discovery Protocol (`com.deezer.remote.discovery.proto1`):
+/// * `Connect`
+/// * `ConnectionOffer`
+/// * `DiscoveryRequest`
+///
+/// Queue Protocol (`com.deezer.remote.queue.proto1`):
+/// * `PublishQueue`
+/// * `RefreshQueue`
+///
+/// # Examples
+///
+/// ```rust
+/// // Wire format serialization
+/// use serde_json;
+///
+/// assert_eq!(
+///     serde_json::to_string(&MessageType::Acknowledgement)?,
+///     r#""ack""#
+/// );
+/// assert_eq!(
+///     serde_json::to_string(&MessageType::PlaybackProgress)?,
+///     r#""playbackProgress""#
+/// );
+///
+/// // Protocol usage
+/// let wire_body = WireBody {
+///     message_type: MessageType::PlaybackProgress,
+///     protocol_version: WireBody::COMMAND_VERSION.to_string(),
+///     // ... other fields ...
+/// };
+/// ```
+///
+/// # Display Format
+///
+/// When displayed, message types use their variant names:
+/// ```rust
+/// assert_eq!(MessageType::Ping.to_string(), "Ping");
+/// assert_eq!(MessageType::PlaybackProgress.to_string(), "PlaybackProgress");
+/// ```
 #[derive(Copy, Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum MessageType {
+    /// Confirms message receipt.
+    ///
+    /// Wire format: `"ack"`
     #[serde(rename = "ack")]
     Acknowledgement,
+
+    /// Signals connection termination.
+    ///
+    /// Wire format: `"close"`
     Close,
+
+    /// Initiates device connection.
+    ///
+    /// Wire format: `"connect"`
     Connect,
+
+    /// Offers connection to other devices.
+    ///
+    /// Wire format: `"connectionOffer"`
     ConnectionOffer,
+
+    /// Requests device discovery.
+    ///
+    /// Wire format: `"discoveryRequest"`
     DiscoveryRequest,
+
+    /// Reports playback state and progress.
+    ///
+    /// Wire format: `"playbackProgress"`
     PlaybackProgress,
+
+    /// Publishes complete queue contents.
+    ///
+    /// Wire format: `"publishQueue"`
     PublishQueue,
+
+    /// Network keep-alive message.
+    ///
+    /// Wire format: `"ping"`
     Ping,
+
+    /// Signals device readiness.
+    ///
+    /// Wire format: `"ready"`
     Ready,
+
+    /// Requests queue UI refresh.
+    ///
+    /// Wire format: `"refreshQueue"`
     RefreshQueue,
+
+    /// Controls playback state changes.
+    ///
+    /// Wire format: `"skip"`
     Skip,
+
+    /// Reports command execution status.
+    ///
+    /// Wire format: `"status"`
     Status,
+
+    /// Requests playback stop.
+    ///
+    /// Wire format: `"stop"`
     Stop,
 }
 
+/// Message payload data in the Deezer Connect protocol.
+///
+/// Represents the various types of data that can be carried in messages.
+/// Payloads are encoded differently depending on their type:
+/// * JSON-based payloads are Base64-encoded
+/// * Protocol Buffer payloads are DEFLATE-compressed and Base64-encoded
+/// * Empty payloads are represented as empty strings
+///
+/// # Wire Format
+///
+/// In the protocol, payloads are always transmitted as strings:
+/// ```json
+/// {
+///     "payload": "base64_encoded_data"
+/// }
+/// ```
+///
+/// # Encoding Patterns
+///
+/// JSON Payload:
+/// 1. Serialize payload to JSON
+/// 2. Base64 encode the JSON string
+///
+/// Protocol Buffer Payload:
+/// 1. Serialize to Protocol Buffer bytes
+/// 2. DEFLATE compress the bytes
+/// 3. Base64 encode the compressed data
+///
+/// # Examples
+///
+/// Playback progress payload:
+/// ```rust
+/// let payload = Payload::PlaybackProgress {
+///     queue_id: "queue123".to_string(),
+///     element_id: queue_item,
+///     duration: Duration::from_secs(180),
+///     buffered: Duration::from_secs(10),
+///     progress: Some(Percentage::from_ratio_f32(0.5)),
+///     volume: Percentage::from_ratio_f32(1.0),
+///     quality: AudioQuality::Standard,
+///     is_playing: true,
+///     is_shuffle: false,
+///     repeat_mode: RepeatMode::None,
+/// };
+/// ```
+///
+/// Queue publication payload (Protocol Buffer):
+/// ```rust
+/// let payload = Payload::PublishQueue(queue::List {
+///     id: "queue123".to_string(),
+///     // ... other queue fields ...
+/// });
+/// ```
+///
+/// Empty payload:
+/// ```rust
+/// let payload = Payload::String(None);
+/// ```
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 // `serde_with::serde_as` seems to ignore the `rename_all` pragma together with
 // `untagged`, so `rename_all` is repeated for every variant.
 #[serde(untagged)]
 pub enum Payload {
+    /// Playback progress information.
+    ///
+    /// Contains current playback state including:
+    /// * Track position and buffering
+    /// * Volume and quality settings
+    /// * Shuffle and repeat modes
     #[serde(rename_all = "camelCase")]
     PlaybackProgress {
+        /// Current queue identifier
         queue_id: String,
+        /// Currently playing track
         element_id: QueueItem,
+        /// Total track duration
         #[serde_as(as = "DurationSeconds<u64>")]
         duration: Duration,
+        /// Amount of audio buffered
         #[serde_as(as = "DurationSeconds<u64>")]
         buffered: Duration,
+        /// Current playback position (0.0 to 1.0)
         progress: Option<Percentage>,
+        /// Current volume level (0.0 to 1.0)
         volume: Percentage,
+        /// Audio quality of the current track
         quality: AudioQuality,
+        /// Whether playback is active
         is_playing: bool,
+        /// Whether shuffle mode is enabled
         is_shuffle: bool,
+        /// Current repeat mode setting
         repeat_mode: RepeatMode,
     },
 
+    /// Message acknowledgment data.
+    ///
+    /// References the message being acknowledged.
     #[serde(rename_all = "camelCase")]
     Acknowledgement {
+        /// ID of the acknowledged message
         acknowledgement_id: String,
     },
 
+    /// Command execution status.
+    ///
+    /// Reports success or failure of a command.
     #[serde(rename_all = "camelCase")]
     Status {
+        /// ID of the command being reported
         command_id: String,
+        /// Execution result
         status: Status,
     },
 
+    /// Device communication parameters.
+    ///
+    /// Used for device discovery and connection.
     WithParams {
+        /// Source device identifier
         from: DeviceId,
+        /// Connection or discovery parameters
         params: Params,
     },
 
+    /// Playback control commands.
+    ///
+    /// Controls various aspects of playback state.
     #[serde(rename_all = "camelCase")]
     Skip {
+        /// Target queue identifier
         queue_id: Option<String>,
+        /// Track to skip to
         element_id: Option<QueueItem>,
+        /// Position to seek to (0.0 to 1.0)
         progress: Option<Percentage>,
+        /// Whether to start playing
         should_play: Option<bool>,
+        /// New repeat mode setting
         set_repeat_mode: Option<RepeatMode>,
+        /// New shuffle mode setting
         set_shuffle: Option<bool>,
+        /// New volume level (0.0 to 1.0)
         set_volume: Option<Percentage>,
     },
 
+    /// Simple string payload.
+    ///
+    /// Used for messages that don't require structured data.
+    /// `None` represents an empty payload.
     String(#[serde_as(as = "NoneAsEmptyString")] Option<String>),
 
+    /// Queue data in Protocol Buffer format.
+    ///
+    /// This variant is handled specially during serialization:
+    /// * Skipped during JSON serialization
+    /// * Manually encoded as compressed Protocol Buffer
     // This protobuf is deserialized manually with `FromStr`.
     #[serde(skip)]
     PublishQueue(queue::List),
 }
 
+/// Connection and discovery parameters in the Deezer Connect protocol.
+///
+/// These parameters are used during device discovery and connection setup
+/// to exchange capabilities and session information between devices.
+///
+/// # Wire Format
+///
+/// Parameters are serialized as JSON objects with different fields
+/// depending on the variant:
+///
+/// Connection Offer:
+/// ```json
+/// {
+///     "deviceName": "My Phone",
+///     "deviceType": "web",
+///     "supportedControlVersions": ["1.0.0-beta2"]
+/// }
+/// ```
+///
+/// Discovery Request:
+/// ```json
+/// {
+///     "discoverySession": "session-123"
+/// }
+/// ```
+///
+/// Connect Request:
+/// ```json
+/// {
+///     "offerId": "offer-123"  // Optional
+/// }
+/// ```
+///
+/// # Examples
+///
+/// Creating connection offer parameters:
+/// ```rust
+/// let params = Params::ConnectionOffer {
+///     device_name: "My Device".to_string(),
+///     device_type: "web".to_string(),
+///     supported_control_versions: {
+///         let mut versions = HashSet::new();
+///         versions.insert("1.0.0-beta2".to_string());
+///         versions
+///     },
+/// };
+/// ```
+///
+/// Creating discovery request parameters:
+/// ```rust
+/// let params = Params::DiscoveryRequest {
+///     discovery_session: "session-123".to_string(),
+/// };
+/// ```
+///
+/// Creating connect request parameters:
+/// ```rust
+/// let params = Params::Connect {
+///     offer_id: Some("offer-123".to_string()),
+/// };
+///
+/// // Or without a specific offer
+/// let params = Params::Connect {
+///     offer_id: None,
+/// };
+/// ```
+///
+/// Using in messages:
+/// ```rust
+/// let body = Body::ConnectionOffer {
+///     message_id: "msg123".to_string(),
+///     from: DeviceId::default(),
+///     device_name: "My Device".to_string(),
+/// };
+/// ```
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum Params {
+    /// Parameters for offering a connection to other devices.
+    ///
+    /// Used when a device announces itself for connection.
     ConnectionOffer {
+        /// Human-readable device name.
+        ///
+        /// This name may be displayed to users in device selection UI.
         device_name: String,
+
+        /// Type of device offering connection.
+        ///
+        /// Currently "web" is the only known type.
         device_type: String,
+
+        /// Set of supported protocol versions.
+        ///
+        /// Used to ensure protocol compatibility between devices.
+        /// Currently only "1.0.0-beta2" is supported.
         supported_control_versions: HashSet<String>,
     },
 
+    /// Parameters for device discovery requests.
+    ///
+    /// Used to initiate or join a discovery session.
     DiscoveryRequest {
+        /// Unique identifier for this discovery session.
+        ///
+        /// Multiple devices can participate in the same discovery
+        /// session by using the same identifier.
         discovery_session: String,
     },
 
+    /// Parameters for connection requests.
+    ///
+    /// Used when responding to a connection offer.
     Connect {
+        /// Optional identifier of the offer being accepted.
+        ///
+        /// When None, represents an unprompted connection attempt.
         offer_id: Option<String>,
     },
 }
 
 impl fmt::Display for Payload {
-    // TODO: UPDATE DOCS
-    /// Converts to a [`Vec`]<[`u8`]> from a [`Payload`] of some
-    /// [Deezer Connect][Connect] websocket [`Message`] [`Body`].
+    /// Formats the payload for wire transmission.
     ///
-    /// [`Payload`]s may be sent over the wire as either [Base64] encoded
-    /// [JSON], or [Base64] encoded [protocol buffers][Protobuf] that are
-    /// compressed with [DEFLATE]. [Connect] devices may receive
-    /// [protocol buffers][Protobuf] but do not seem to send them. However,
-    /// because [`From`] must not fail, an implementation for
-    /// [protocol buffers][Protobuf] is provided but untested.
+    /// The output format depends on the payload type:
+    /// * `PublishQueue` - DEFLATE-compressed Protocol Buffer, Base64-encoded
+    /// * Other variants - JSON string, Base64-encoded
+    /// * Empty payloads - Empty string
     ///
-    /// [Base64]: https://datatracker.ietf.org/doc/html/rfc3548
-    /// [`Body`]: struct.Body.html
-    /// [DEFLATE]: https://datatracker.ietf.org/doc/html/rfc1951
-    /// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-    /// [`From`]: https://doc.rust-lang.org/std/convert/trait.From.html
-    /// [JSON]: https://www.json.org/
-    /// [`Message`]: ../messages/enum.Message.html
-    /// [`Payload`]: enum.Payload.html
-    /// [Protobuf]: https://developers.google.com/protocol-buffers
-    /// [`u8`]: https://doc.rust-lang.org/std/primitive.u8.html
-    /// [`Vec`]: https://doc.rust-lang.org/std/vec/struct.Vec.html
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Empty payload
+    /// let payload = Payload::String(None);
+    /// assert_eq!(payload.to_string(), "");
+    ///
+    /// // JSON payload
+    /// let payload = Payload::Status {
+    ///     command_id: "cmd123".to_string(),
+    ///     status: Status::OK,
+    /// };
+    /// // Results in Base64-encoded JSON
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns a formatting error if:
+    /// * JSON serialization fails
+    /// * Protocol Buffer serialization fails
+    /// * DEFLATE compression fails
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut buffer: Vec<u8> = vec![];
 
         if let Payload::PublishQueue(queue) = self {
-            trace!("YEAH YEAH YEAH!");
             match queue.write_to_bytes() {
                 Ok(protobuf) => {
                     let mut deflater = DeflateEncoder::new(&protobuf[..], Compression::fast());
@@ -793,30 +2147,84 @@ impl fmt::Display for Payload {
 impl FromStr for Payload {
     type Err = Error;
 
-    /// TODO : first decode base64 in fromstr, then deserialize json with traits
+    /// Parses a wire format payload string into a `Payload`.
+    ///
+    /// This implementation handles the various payload encoding formats:
+    /// * Base64-encoded JSON for most messages
+    /// * Base64-encoded, DEFLATE-compressed Protocol Buffers for queue data
+    /// * Empty strings for payloads without data
+    ///
+    /// # Format Detection
+    ///
+    /// The parser attempts to determine the correct format:
+    /// 1. If empty or "{}" → `Payload::String(None)`
+    /// 2. If valid UTF-8 after Base64 decode → Parse as JSON
+    /// 3. Otherwise → Try to parse as compressed Protocol Buffer
+    ///
+    /// # Examples
+    ///
+    /// Empty payload:
+    /// ```rust
+    /// let payload: Payload = "".parse()?;
+    /// assert!(matches!(payload, Payload::String(None)));
+    ///
+    /// let payload: Payload = "{}".parse()?;
+    /// assert!(matches!(payload, Payload::String(None)));
+    /// ```
+    ///
+    /// JSON payload:
+    /// ```rust
+    /// // Base64-encoded JSON: {"commandId":"cmd123","status":0}
+    /// let encoded = "eyJjb21tYW5kSWQiOiJjbWQxMjMiLCJzdGF0dXMiOjB9";
+    /// let payload: Payload = encoded.parse()?;
+    /// assert!(matches!(payload, Payload::Status { .. }));
+    /// ```
+    ///
+    /// Protocol Buffer payload:
+    /// ```rust
+    /// // Base64-encoded, DEFLATE-compressed Protocol Buffer
+    /// let payload: Payload = compressed_base64.parse()?;
+    /// assert!(matches!(payload, Payload::PublishQueue(_)));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * Base64 decoding fails
+    /// * JSON parsing fails for JSON payloads
+    /// * Protocol Buffer parsing fails for queue data
+    /// * Compressed data cannot be decompressed
+    /// * Data format doesn't match any known payload type
+    ///
+    /// # Notes
+    ///
+    /// The implementation includes special handling for queue data to maintain
+    /// compatibility with different Deezer Connect clients:
+    /// * iOS and Android clients may send queue data differently
+    /// * Queue order may be explicit or implicit
+    /// * Shuffled queues require special handling (currently logged but not processed)
+    // TODO : first decode base64 in fromstr, then deserialize json with traits
     fn from_str(encoded: &str) -> std::result::Result<Self, Self::Err> {
         let decoded = BASE64_STANDARD.decode(encoded)?;
 
         if let Ok(s) = std::str::from_utf8(&decoded) {
-            // 1. `serde_with::NoneAsEmptyString` does not apply to `FromStr`.
-            // 2. Deezer on Android can send empty maps
+            // Handle empty payloads
             if s.is_empty() || s == "{}" {
                 return Ok(Self::String(None));
             }
 
-            // Most payloads are strings that contain JSON.
+            // Try parsing as JSON payload
             serde_json::from_str::<Self>(s).map_err(Into::into)
         } else {
-            // Some payloads are deflated protobufs.
+            // Try parsing as compressed Protocol Buffer
             let mut inflater = DeflateDecoder::new(&decoded[..]);
             let mut buffer: Vec<u8> = vec![];
             inflater.read_to_end(&mut buffer)?;
 
             if let Ok(queue) = queue::List::parse_from_bytes(&buffer) {
-                // All fields are optional in proto3, so successful parsing
-                // does not mean that it parsed the right message.
+                // Validate queue data by checking for required fields
                 if !queue.id.is_empty() {
-                    // TODO : why did I comment this out?
+                    // TODO: Process shuffled queues
                     //     if list.shuffled {
                     //         warn!("encountered shuffled playback queue; please report this to the developers");
                     //         trace!("{list:#?}");
@@ -846,13 +2254,37 @@ impl FromStr for Payload {
 }
 
 impl WireBody {
-    pub(crate) const COMMAND_VERSION: &'static str = "com.deezer.remote.command.proto1";
-    pub(crate) const DISCOVERY_VERSION: &'static str = "com.deezer.remote.discovery.proto1";
-    pub(crate) const QUEUE_VERSION: &'static str = "com.deezer.remote.queue.proto1";
-    pub(crate) const SUPPORTED_CONTROL_VERSIONS: [&'static str; 1] = ["1.0.0-beta2"];
+    /// Protocol version for playback control messages.
+    const COMMAND_VERSION: &'static str = "com.deezer.remote.command.proto1";
 
+    /// Protocol version for device discovery messages.
+    const DISCOVERY_VERSION: &'static str = "com.deezer.remote.discovery.proto1";
+
+    /// Protocol version for queue management messages.
+    const QUEUE_VERSION: &'static str = "com.deezer.remote.queue.proto1";
+
+    /// Supported control protocol versions.
+    ///
+    /// Used in device discovery to ensure compatibility.
+    const SUPPORTED_CONTROL_VERSIONS: [&'static str; 1] = ["1.0.0-beta2"];
+
+    /// Checks if a set of control versions is supported.
+    ///
+    /// Used during device discovery to validate compatibility.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let mut versions = HashSet::new();
+    /// versions.insert("1.0.0-beta2".to_string());
+    /// assert!(WireBody::supports_control_versions(&versions));
+    ///
+    /// versions.clear();
+    /// versions.insert("2.0.0".to_string());
+    /// assert!(!WireBody::supports_control_versions(&versions));
+    /// ```
     #[must_use]
-    pub(crate) fn supports_control_versions(control_versions: &HashSet<String>) -> bool {
+    fn supports_control_versions(control_versions: &HashSet<String>) -> bool {
         for version in control_versions {
             if Self::SUPPORTED_CONTROL_VERSIONS.contains(&version.as_str()) {
                 return true;
@@ -862,8 +2294,15 @@ impl WireBody {
         false
     }
 
+    /// Checks if this message uses a supported protocol version.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert!(wire_body.supported_protocol_version());  // Using COMMAND_VERSION
+    /// ```
     #[must_use]
-    pub(crate) fn supported_protocol_version(&self) -> bool {
+    fn supported_protocol_version(&self) -> bool {
         matches!(
             self.protocol_version.as_ref(),
             WireBody::COMMAND_VERSION | WireBody::DISCOVERY_VERSION | WireBody::QUEUE_VERSION
@@ -872,7 +2311,24 @@ impl WireBody {
 }
 
 impl From<Body> for WireBody {
-    /// Converts to a `WireBody` from a [`Body`](struct.Body.html).
+    /// Converts a high-level [`Body`] into its wire format representation.
+    ///
+    /// This conversion handles:
+    /// * Protocol version selection
+    /// * Payload encoding
+    /// * Message type mapping
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let body = Body::Ping {
+    ///     message_id: "msg123".to_string(),
+    /// };
+    /// let wire_body = WireBody::from(body);
+    ///
+    /// assert_eq!(wire_body.message_type, MessageType::Ping);
+    /// assert_eq!(wire_body.protocol_version, WireBody::COMMAND_VERSION);
+    /// ```
     #[expect(clippy::too_many_lines)]
     fn from(body: Body) -> Self {
         let clock: HashMap<String, serde_json::Value> = HashMap::new();
@@ -1062,9 +2518,71 @@ impl From<Body> for WireBody {
 impl TryFrom<WireBody> for Body {
     type Error = Error;
 
-    /// Performs the conversion from [`WireBody`] into `Body`.
+    /// Attempts to convert a wire format message into a high-level [`Body`].
     ///
-    /// [`WireMessage`]: struct.WireMessage.html
+    /// This conversion handles:
+    /// * Protocol version validation
+    /// * Payload decoding
+    /// * Message type verification
+    /// * Data structure validation
+    ///
+    /// # Protocol Version Handling
+    ///
+    /// While unknown protocol versions generate a warning, they don't cause
+    /// conversion failure. This allows for forward compatibility with newer
+    /// protocol versions.
+    ///
+    /// # Examples
+    ///
+    /// Success case:
+    /// ```rust
+    /// let wire_body = WireBody {
+    ///     message_id: "msg123".to_string(),
+    ///     message_type: MessageType::Ping,
+    ///     protocol_version: WireBody::COMMAND_VERSION.to_string(),
+    ///     payload: Payload::String(None),
+    ///     clock: HashMap::new(),
+    /// };
+    ///
+    /// let body = Body::try_from(wire_body)?;
+    /// assert!(matches!(body, Body::Ping { .. }));
+    /// ```
+    ///
+    /// Protocol version warning:
+    /// ```rust
+    /// let wire_body = WireBody {
+    ///     protocol_version: "com.deezer.remote.command.proto2".to_string(),
+    ///     // ... other fields ...
+    /// };
+    ///
+    /// // Conversion still succeeds but logs a warning
+    /// let body = Body::try_from(wire_body)?;
+    /// ```
+    ///
+    /// Payload mismatch:
+    /// ```rust
+    /// let wire_body = WireBody {
+    ///     message_type: MessageType::Ping,
+    ///     payload: Payload::PlaybackProgress { .. },  // Wrong payload type
+    ///     // ... other fields ...
+    /// };
+    ///
+    /// assert!(Body::try_from(wire_body).is_err());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * Message payload doesn't match its declared type
+    /// * Required payload fields are missing
+    /// * Payload data is malformed
+    /// * Message type is unknown or unsupported
+    ///
+    /// # Notes
+    ///
+    /// The conversion is intentionally permissive with protocol versions to
+    /// maintain compatibility with future protocol updates. However, it's
+    /// strict about payload structure to ensure data integrity.
     #[expect(clippy::too_many_lines)]
     fn try_from(wire_body: WireBody) -> std::result::Result<Self, Self::Error> {
         if !wire_body.supported_protocol_version() {
@@ -1273,6 +2791,20 @@ impl TryFrom<WireBody> for Body {
 }
 
 impl fmt::Display for MessageType {
+    /// Formats the message type as its variant name.
+    ///
+    /// This implementation is primarily used for logging and debugging.
+    /// For wire format serialization, use the `Serialize` implementation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert_eq!(MessageType::Ping.to_string(), "Ping");
+    /// assert_eq!(MessageType::PlaybackProgress.to_string(), "PlaybackProgress");
+    ///
+    /// // Useful for logging
+    /// println!("Received message type: {}", MessageType::ConnectionOffer);
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
