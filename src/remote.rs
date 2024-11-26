@@ -245,8 +245,11 @@ impl Client {
     /// - sending or receiving messages failed
     pub async fn start(&mut self) -> Result<()> {
         if let Credentials::Login { email, password } = &self.credentials.clone() {
+            info!("logging in with email and password");
             // We can drop the result because the ARL is stored as a cookie.
             let _arl = self.login(email, password).await?;
+        } else {
+            info!("using ARL from secrets file");
         }
 
         let (user_token, time_to_live) = self.user_token().await?;
