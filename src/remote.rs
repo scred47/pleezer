@@ -54,6 +54,9 @@ pub struct Client {
     discovery_state: DiscoveryState,
     connection_offers: LruCache<String, DeviceId>,
 
+    event_rx: tokio::sync::mpsc::UnboundedReceiver<Event>,
+    event_tx: tokio::sync::mpsc::UnboundedSender<Event>,
+
     interruptions: bool,
     hook: Option<String>,
 
@@ -139,6 +142,7 @@ impl Client {
         let watchdog_tx = tokio::time::sleep(Duration::ZERO);
 
         let (time_to_live_tx, time_to_live_rx) = tokio::sync::mpsc::channel(1);
+        let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
 
         Ok(Self {
             device_id: config.device_id.into(),
@@ -159,6 +163,9 @@ impl Client {
             connection_state: ConnectionState::Disconnected,
             watchdog_rx: Box::pin(watchdog_rx),
             watchdog_tx: Box::pin(watchdog_tx),
+
+            event_rx,
+            event_tx,
 
             player,
             reporting_timer: Box::pin(reporting_timer),
@@ -293,8 +300,7 @@ impl Client {
         self.subscribe(Ident::RemoteDiscover).await?;
 
         // Register playback event handler.
-        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
-        self.player.register(event_tx);
+        self.player.register(self.event_tx.clone());
 
         if self.eavesdrop {
             warn!("not discoverable: eavesdropping on websocket");
@@ -363,7 +369,7 @@ impl Client {
 
                 Err(e) = self.player.run() => break Err(e),
 
-                Some(event) = event_rx.recv() => {
+                Some(event) = self.event_rx.recv() => {
                     self.handle_event(event).await;
                 }
             }
@@ -586,7 +592,7 @@ impl Client {
                 },
             };
 
-            return self.send_message(message).await;
+            self.send_message(message).await?;
         }
 
         Err(Error::failed_precondition(
@@ -745,6 +751,11 @@ impl Client {
                 };
 
                 info!("connected to {controller}");
+
+                if let Err(e) = self.event_tx.send(Event::Connected) {
+                    error!("failed to send connected event: {e}");
+                }
+
                 return Ok(());
             }
 
@@ -774,6 +785,10 @@ impl Client {
     fn reset_states(&mut self) {
         if let Some(controller) = self.controller() {
             info!("disconnected from {controller}");
+
+            if let Err(e) = self.event_tx.send(Event::Disconnected) {
+                error!("failed to send disconnected event: {e}");
+            }
         }
 
         // Force the user token to be reloaded on the next connection.

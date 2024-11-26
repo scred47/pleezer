@@ -13,6 +13,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [build] Document release profile optimization options
 - [gateway] Improve error logging for response parsing failures
+- [main] Clearer log messages for secrets and logins
 - [protocol] Parse JSON as 64-bit and truncate internally
 
 ### Deprecated
@@ -24,6 +25,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [player] Use pipe separator in device specs for ALSA compatibility
 - [player] Clean up audio device enumeration output
 - [repo] Fix pull request template format
+- [remote] Trigger connected and disconnected events
 
 ### Security
 
