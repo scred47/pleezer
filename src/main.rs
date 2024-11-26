@@ -182,13 +182,8 @@ async fn run(args: Args) -> Result<()> {
 
     let config = {
         // Get the credentials from the secrets file.
-        let secrets = match parse_secrets(args.secrets_file) {
-            Ok(secrets) => secrets,
-            Err(e) => {
-                error!("unable to parse secrets file");
-                return Err(e);
-            }
-        };
+        info!("parsing secrets from {}", args.secrets_file);
+        let secrets = parse_secrets(args.secrets_file)?;
 
         let credentials = match secrets.get("arl").and_then(|value| value.as_str()) {
             Some(arl) => {
