@@ -6,6 +6,7 @@ use crate::{
     decrypt::{Key, KEY_LENGTH},
     error::{Error, Result},
     http,
+    protocol::connect::DeviceType,
 };
 
 /// Methods that can be used to authenticate with Deezer.
@@ -25,7 +26,7 @@ pub enum Credentials {
 
 /// The configuration of pleezer.
 // TODO: implement Debug manually to avoid leaking the arl.
-#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd)]
 pub struct Config {
     /// The name of the application.
     ///
@@ -50,6 +51,11 @@ pub struct Config {
     ///
     /// By default this is equal to `app_name`.
     pub device_name: String,
+
+    /// The player's type as it appears to Deezer clients.
+    ///
+    ///By default this is equal to `DeviceType::Web`.
+    pub device_type: DeviceType,
 
     /// The ID that uniquely identifies the device.
     ///

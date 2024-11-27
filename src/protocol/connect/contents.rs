@@ -53,6 +53,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    convert::Infallible,
     fmt::{self, Write},
     io::Read,
     str::FromStr,
@@ -598,6 +599,8 @@ pub enum Body {
         from: DeviceId,
         /// Human-readable name of the device
         device_name: String,
+        /// Type of device offering the connection
+        device_type: DeviceType,
     },
 
     /// Requests device discovery.
@@ -2049,7 +2052,7 @@ pub enum Params {
         /// Type of device offering connection.
         ///
         /// Currently "web" is the only known type.
-        device_type: String,
+        device_type: DeviceType,
 
         /// Set of supported protocol versions.
         ///
@@ -2078,6 +2081,70 @@ pub enum Params {
         /// When None, represents an unprompted connection attempt.
         offer_id: Option<String>,
     },
+}
+
+/// Type of device offering a Deezer Connect connection.
+#[serde_as]
+#[derive(
+    Copy,
+    Clone,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Debug,
+    SerializeDisplay,
+    DeserializeFromStr,
+    Hash,
+)]
+pub enum DeviceType {
+    /// Desktop device type
+    ///
+    /// Note: The official Deezer desktop applications are Electron-based and identify as `Web`.
+    Desktop,
+
+    /// Mobile Deezer client (e.g., smartphone app)
+    Mobile,
+
+    /// Tablet Deezer client (e.g., iPad app)
+    Tablet,
+
+    /// Web-based Deezer client (e.g., browser player, desktop app)
+    ///
+    /// This is the default variant. Desktop applications are Electron-based and use this type.
+    #[default]
+    Web,
+
+    /// Unknown device type
+    ///
+    /// This variant catches any device types not explicitly supported.
+    Unknown,
+}
+
+impl fmt::Display for DeviceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DeviceType::Desktop => write!(f, "desktop"),
+            DeviceType::Mobile => write!(f, "mobile"),
+            DeviceType::Tablet => write!(f, "tablet"),
+            DeviceType::Web => write!(f, "web"),
+            DeviceType::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+impl FromStr for DeviceType {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "desktop" => Ok(DeviceType::Desktop),
+            "mobile" => Ok(DeviceType::Mobile),
+            "tablet" => Ok(DeviceType::Tablet),
+            "web" => Ok(DeviceType::Web),
+            _ => Ok(DeviceType::Unknown),
+        }
+    }
 }
 
 impl fmt::Display for Payload {
@@ -2372,6 +2439,7 @@ impl From<Body> for WireBody {
                 message_id,
                 from,
                 device_name,
+                device_type,
             } => WireBody {
                 message_id,
                 message_type: MessageType::ConnectionOffer,
@@ -2380,7 +2448,7 @@ impl From<Body> for WireBody {
                     from,
                     params: Params::ConnectionOffer {
                         device_name,
-                        device_type: "web".to_string(),
+                        device_type,
                         supported_control_versions: Self::SUPPORTED_CONTROL_VERSIONS
                             .into_iter()
                             .map(ToString::to_string)
@@ -2635,6 +2703,7 @@ impl TryFrom<WireBody> for Body {
                 if let Payload::WithParams { from, params } = wire_body.payload {
                     if let Params::ConnectionOffer {
                         device_name,
+                        device_type,
                         supported_control_versions,
                         ..
                     } = params
@@ -2650,6 +2719,7 @@ impl TryFrom<WireBody> for Body {
                             message_id,
                             from,
                             device_name,
+                            device_type,
                         }
                     } else {
                         trace!("{params:#?}");

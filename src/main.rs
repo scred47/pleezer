@@ -11,6 +11,7 @@ use pleezer::{
     decrypt,
     error::{Error, ErrorKind, Result},
     player::Player,
+    protocol::connect::DeviceType,
     rand::with_rng,
     remote,
 };
@@ -26,7 +27,7 @@ const BUILD_PROFILE: &str = "release";
 const ARGS_GROUP_LOGGING: &str = "logging";
 
 /// Command line arguments as parsed by `clap`.
-#[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord, Parser)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Path to the secrets file
@@ -41,6 +42,12 @@ struct Args {
     /// If not specified, uses the system hostname.
     #[arg(short, long, value_hint = ValueHint::Hostname, env = "PLEEZER_NAME")]
     name: Option<String>,
+
+    /// Set the device type to identify as to Deezer
+    ///
+    /// This affects how the device appears in Deezer apps.
+    #[arg(long, default_value_t = DeviceType::Web, env = "PLEEZER_DEVICE_TYPE")]
+    device_type: DeviceType,
 
     /// Select the audio output device
     ///
@@ -277,11 +284,12 @@ async fn run(args: Args) -> Result<()> {
             app_version,
             app_lang,
 
+            device_id,
+            device_type: args.device_type,
             device_name: args
                 .name
                 .or_else(|| sysinfo::System::host_name().clone())
                 .unwrap_or_else(|| app_name.clone()),
-            device_id,
 
             interruptions: !args.no_interruptions,
             hook: args.hook,

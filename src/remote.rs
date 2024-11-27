@@ -21,8 +21,8 @@ use crate::{
     player::{Player, DEFAULT_GAIN_TARGET_DB},
     protocol::connect::{
         queue::{self, ContainerType, MixType},
-        stream, Body, Channel, Contents, DeviceId, Headers, Ident, Message, Percentage, QueueItem,
-        RepeatMode, Status, UserId,
+        stream, Body, Channel, Contents, DeviceId, DeviceType, Headers, Ident, Message, Percentage,
+        QueueItem, RepeatMode, Status, UserId,
     },
     proxy,
     tokens::UserToken,
@@ -33,6 +33,7 @@ use crate::{
 pub struct Client {
     device_id: DeviceId,
     device_name: String,
+    device_type: DeviceType,
 
     credentials: Credentials,
     gateway: Gateway,
@@ -147,6 +148,7 @@ impl Client {
         Ok(Self {
             device_id: config.device_id.into(),
             device_name: config.device_name.clone(),
+            device_type: config.device_type,
 
             credentials: config.credentials.clone(),
             gateway: Gateway::new(config)?,
@@ -630,6 +632,7 @@ impl Client {
             message_id,
             from: self.device_id.clone(),
             device_name: self.device_name.clone(),
+            device_type: self.device_type,
         };
 
         let discover = self.discover(from, offer);
