@@ -438,7 +438,7 @@ impl From<Uuid> for DeviceId {
 }
 
 impl FromStr for DeviceId {
-    type Err = Error;
+    type Err = Infallible;
 
     /// Parses a device ID from its string representation.
     ///
@@ -1099,7 +1099,7 @@ impl fmt::Display for AudioQuality {
 }
 
 impl FromStr for AudioQuality {
-    type Err = Error;
+    type Err = Infallible;
 
     /// Parses a string into an audio quality level.
     ///
