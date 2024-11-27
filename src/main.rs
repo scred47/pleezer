@@ -46,6 +46,7 @@ struct Args {
     /// Set the device type to identify as to Deezer
     ///
     /// This affects how the device appears in Deezer apps.
+    /// Values: web, mobile, tablet, desktop
     #[arg(long, default_value_t = DeviceType::Web, env = "PLEEZER_DEVICE_TYPE")]
     device_type: DeviceType,
 

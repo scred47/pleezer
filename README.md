@@ -109,6 +109,11 @@ Your music will start playing on the selected device.
     pleezer --name "My Deezer Player"
     ```
 
+- `--device-type`: Set how the device identifies itself to Deezer clients. Affects how the device appears in Deezer apps. Options are: web (default), mobile, tablet, or desktop. Example:
+    ```bash
+    pleezer --device-type mobile
+    ```
+
 - `-d` or `--device`: Select the output device. Use `?` to list available devices. If omitted, the system default output device is used. Examples:
     ```bash
     # List available devices
