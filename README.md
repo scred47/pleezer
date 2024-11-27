@@ -412,6 +412,7 @@ There are several projects that have influenced **pleezer**. Here are a few:
 
 - [librespot](https://github.com/librespot-org/librespot): An open-source client library for Spotify with support for Spotify Connect.
 - [lms-deezer](https://github.com/philippe44/lms-deezer): A plugin for Logitech Media Server to stream music from Deezer.
+- [deezer-linux](https://github.com/aunetx/deezer-linux): An unofficial Linux port of the native Deezer Windows application, providing offline listening capabilities.
 
 ## License
 
