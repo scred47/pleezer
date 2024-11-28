@@ -52,7 +52,7 @@ impl Http {
             .ok_or(Error::invalid_argument("target host not available"))?;
         let port = target_url.port().unwrap_or(443);
         let tcp_stream = TcpStream::connect(&self.url).await?;
-        Self::tunnel(tcp_stream, host, port, &self.auth).await
+        Self::tunnel(tcp_stream, host, port, self.auth.as_ref()).await
     }
 
     /// Open a tunnel to the target host through the proxy.
@@ -68,7 +68,7 @@ impl Http {
         mut conn: TcpStream,
         host: &str,
         port: u16,
-        auth: &Option<Vec<u8>>,
+        auth: Option<&Vec<u8>>,
     ) -> Result<TcpStream> {
         let mut buf = format!(
             "\
