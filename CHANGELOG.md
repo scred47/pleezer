@@ -9,7 +9,8 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Added
 - [chore] Add Debian package metadata
-- [main] Add --device-type option to control device identification
+- [docs] Add ALSA device examples to the README
+- [main] Add `--device-type` option to control device identification
 
 ### Changed
 - [build] Document release profile optimization options

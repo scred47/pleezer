@@ -118,26 +118,42 @@ Your music will start playing on the selected device.
     ```bash
     # List available devices
     pleezer -d "?"
+    ```
 
-    # Use a specific device, formatted as:
-    # "[<host>][|<device>][|<sample rate>][|<sample format>]" (case-insensitive)
-    #
-    # All fields are optional:
-    # - If you don't specify a host, it will use the system default host.
-    # - If you don't specify a device, it will use the host default device.
-    # - If you don't specify a sample rate, it will use the device default sample rate.
-    # - If you don't specify a sample format, it will use the device default sample format.
+    Devices are specified in the format:
+    `[<host>][|<device>][|<sample rate>][|<sample format>]` (case-insensitive)
+
+    All fields are optional:
+    - If you don't specify a host, it will use the system default host.
+    - If you don't specify a device, it will use the host default device.
+    - If you don't specify a sample rate, it will use the device default sample rate.
+    - If you don't specify a sample format, it will use the device default sample format.
+
+    Sample formats use Rust naming conventions:
+    - `i16`: Signed 16-bit integer (S16 in ALSA)
+    - `i32`: Signed 32-bit integer (S32)
+    - `u16`: Unsigned 16-bit integer (U16)
+    - `u32`: Unsigned 32-bit integer (U32)
+    - `f32`: 32-bit float (FLOAT)
+
+    Examples by platform:
+    ```bash
+    # macOS examples:
     pleezer -d "CoreAudio"
     pleezer -d "CoreAudio|Yggdrasil+"
     pleezer -d "CoreAudio|Yggdrasil+|44100"
     pleezer -d "CoreAudio|Yggdrasil+|44100|f32"
 
-    # Some more advanced examples, showing you can omit fields as long as you include the pipes:
+    # Linux (ALSA) examples:
+    pleezer -d "ALSA|default:CARD=Headphones"
+    pleezer -d "ALSA|hw:CARD=sndrpihifiberry,DEV=0|44100|i16"
+
+    # Advanced examples, showing you can omit fields as long as you include the pipes:
     pleezer -d "|yggdrasil+"    # The Yggdrasil+ device (case-insensitive)
     pleezer -d "||44100"        # The first device to support 44100 Hz
     ```
 
-    Deezer streams audio at 44100 Hz exclusively. Sampling rates other than
+    **Note:** Deezer streams audio at 44100 Hz exclusively. Sampling rates other than
     44100 Hz are not recommended and provided for compatibility only.
     Resampling is done using linear interpolation.
 
@@ -417,9 +433,9 @@ Become a sponsor today at [github.com/sponsors/roderickvd](https://github.com/sp
 
 There are several projects that have influenced **pleezer**. Here are a few:
 
+- [deezer-linux](https://github.com/aunetx/deezer-linux): An unofficial Linux port of the native Deezer Windows application, providing offline listening capabilities.
 - [librespot](https://github.com/librespot-org/librespot): An open-source client library for Spotify with support for Spotify Connect.
 - [lms-deezer](https://github.com/philippe44/lms-deezer): A plugin for Logitech Media Server to stream music from Deezer.
-- [deezer-linux](https://github.com/aunetx/deezer-linux): An unofficial Linux port of the native Deezer Windows application, providing offline listening capabilities.
 
 ## License
 
