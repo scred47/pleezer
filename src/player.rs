@@ -473,7 +473,7 @@ impl Player {
                     // Check if the current track has finished playing.
                     if current_rx.try_recv().is_ok() {
                         // Save the point in time when the track finished playing.
-                        self.playing_since = self.playing_since.saturating_add(self.sink.get_pos());
+                        self.playing_since = self.sink.get_pos();
 
                         // Move the preloaded track, if any, to the current track.
                         self.current_rx = self.preload_rx.take();
@@ -516,6 +516,9 @@ impl Player {
                                     if let Some(rx) = rx {
                                         self.current_rx = Some(rx);
                                         self.notify(Event::TrackChanged);
+                                        if self.is_playing() {
+                                            self.notify(Event::Play);
+                                        }
                                     }
                                 }
                                 Err(e) => {

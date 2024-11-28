@@ -29,6 +29,8 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [gateway] Incorrect user token expiry
 - [player] Use pipe separator in device specs for ALSA compatibility
 - [player] Clean up audio device enumeration output
+- [player] Playback progress not updating correctly after third track
+- [player] Delay reporting playback progress after a track change
 - [repo] Fix pull request template format
 - [remote] Trigger connected and disconnected events
 
