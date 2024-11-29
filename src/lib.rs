@@ -98,5 +98,5 @@ pub mod tokens;
 pub mod track;
 pub mod util;
 
-#[expect(clippy::enum_glob_use)]
+#[allow(clippy::enum_glob_use)]
 pub mod error;
