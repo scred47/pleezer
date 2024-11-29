@@ -1,5 +1,38 @@
+//! Configuration and authentication for pleezer.
+//!
+//! This module handles:
+//! * Authentication methods (email/password or ARL)
+//! * Device identification and settings
+//! * Track decryption configuration
+//! * API client settings
+//!
+//! # Examples
+//!
+//! ```rust
+//! use pleezer::config::{Config, Credentials};
+//! use pleezer::arl::Arl;
+//!
+//! // Configure with ARL authentication
+//! let config = Config {
+//!     credentials: Credentials::Arl(arl),
+//!     device_name: "My Player".to_string(),
+//!     normalization: true,
+//!     // ... other settings ...
+//! };
+//!
+//! // Configure with email/password
+//! let config = Config {
+//!     credentials: Credentials::Login {
+//!         email: "user@example.com".to_string(),
+//!         password: "secret".to_string(),
+//!     },
+//!     // ... other settings ...
+//! };
+//! ```
+
 use regex_lite::Regex;
 use uuid::Uuid;
+use veil::Redact;
 
 use crate::{
     arl::Arl,
@@ -9,24 +42,48 @@ use crate::{
     protocol::connect::DeviceType,
 };
 
-/// Methods that can be used to authenticate with Deezer.
-#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+/// Authentication methods for Deezer.
+///
+/// Supports either email/password login or ARL token authentication.
+/// Email/password is preferred as these credentials can be used to
+/// obtain fresh tokens, while ARLs expire and cannot be refreshed.
+///
+/// # Security
+///
+/// Passwords and ARL tokens are automatically redacted in debug output
+/// to prevent accidental credential exposure.
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Redact)]
 pub enum Credentials {
-    /// The user's email and password.
+    /// Email and password authentication.
+    ///
+    /// Recommended method as it allows automatic token refresh.
     Login {
-        /// The user's email.
+        /// User's Deezer account email
         email: String,
-        /// The user's password.
+        /// User's Deezer account password
+        #[redact]
         password: String,
     },
 
-    /// The user's `arl` token.
+    /// Authentication Reference Link token.
+    ///
+    /// A pre-authenticated token that grants temporary access.
+    /// Will need manual replacement when it expires.
+    #[redact(all)]
     Arl(Arl),
 }
 
-/// The configuration of pleezer.
-// TODO: implement Debug manually to avoid leaking the arl.
-#[derive(Clone, Hash, PartialEq, Eq, PartialOrd)]
+/// Complete configuration for pleezer.
+///
+/// Contains all settings needed to:
+/// * Authenticate with Deezer
+/// * Identify the device
+/// * Configure playback behavior
+/// * Set up API access
+///
+/// Most settings have reasonable defaults that can be overridden
+/// as needed.
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Debug)]
 pub struct Config {
     /// The name of the application.
     ///
@@ -98,22 +155,44 @@ pub struct Config {
 }
 
 impl Config {
-    /// The checksum of the secret key used to decrypt tracks. This is *not* the actual key,
-    /// but used to verify that some supplied key is correct.
+    /// MD5 checksum of the correct Blowfish secret key.
+    ///
+    /// Used to verify that an extracted or provided key is valid.
     pub const BF_SECRET_MD5: &'static str = "7ebf40da848f4a0fb3cc56ddbe6c2d09";
 
-    /// The URL of the Deezer web player, used to retrieve the `app-web` source from which
-    /// the secret key is extracted.
+    /// URL of Deezer's web player interface.
+    ///
+    /// Used to locate and extract the app-web JavaScript that
+    /// contains the secret key.
     const WEB_PLAYER_URL: &'static str = "https://www.deezer.com/en/channels/explore/";
 
-    /// Get the decryption key from the Deezer web player.
+    /// Attempts to extract the track decryption key from Deezer's web player.
+    ///
+    /// This method:
+    /// 1. Downloads the web player HTML
+    /// 2. Locates the app-web JavaScript URL
+    /// 3. Downloads the JavaScript
+    /// 4. Extracts and assembles the key
+    /// 5. Verifies the key against `BF_SECRET_MD5`
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The web player source could not be retrieved.
-    /// - The app-web source could not be found.
-    /// - The secret key could not be found or parsed.
+    /// * Web player source cannot be retrieved
+    /// * App-web JavaScript cannot be found
+    /// * Key fragments cannot be located
+    /// * Key assembly fails
+    /// * Assembled key is invalid
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use pleezer::config::Config;
+    /// use pleezer::http;
+    ///
+    /// let client = http::Client::new();
+    /// let key = Config::try_key(&client).await?;
+    /// ```
     #[expect(clippy::missing_panics_doc)]
     pub async fn try_key(client: &http::Client) -> Result<Key> {
         // Get the web player source.
@@ -153,11 +232,14 @@ impl Config {
         key.parse()
     }
 
-    /// Get the body text of a URL.
+    /// Downloads text content from a URL.
     ///
     /// # Errors
     ///
-    /// Returns an error if the URL could not be parsed or the request failed.
+    /// Returns an error if:
+    /// * URL is invalid
+    /// * Network request fails
+    /// * Response isn't valid UTF-8 text
     async fn get_text(client: &http::Client, url: &str) -> Result<String> {
         let url = url.parse::<reqwest::Url>()?;
         let request = client.get(url, "");
@@ -165,12 +247,16 @@ impl Config {
         response.text().await.map_err(Into::into)
     }
 
-    /// Convert a half key from the `app-web` source to a format and ordering suitable for
-    /// constructing the full key.
+    /// Converts a key fragment from hex format to bytes.
+    ///
+    /// Takes a fragment like "0x61%2C0x62%2C..." and converts it
+    /// to a sequence of bytes in the correct order for key assembly.
     ///
     /// # Errors
     ///
-    /// Returns an error if the half key does not contain the right amount of valid characters.
+    /// Returns an error if:
+    /// * Fragment contains invalid hex values
+    /// * Wrong number of bytes extracted (must be 8)
     fn convert_half(half: &str) -> Result<Vec<u8>> {
         let bytes: Vec<u8> = half
             .split("%2C")

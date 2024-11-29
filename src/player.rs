@@ -1,3 +1,44 @@
+//! Audio playback and track management.
+//!
+//! This module handles:
+//! * Audio device configuration
+//! * Track playback and decryption
+//! * Queue management
+//! * Volume normalization
+//! * Event notifications
+//!
+//! # Audio Pipeline
+//!
+//! The playback pipeline consists of:
+//! 1. Track download and decryption
+//! 2. Audio format decoding (MP3/FLAC)
+//! 3. Volume normalization (optional)
+//! 4. Audio device output
+//!
+//! # Features
+//!
+//! * Track preloading for gapless playback
+//! * Volume normalization with limiter
+//! * Flexible audio device selection
+//! * Multiple audio host support
+//!
+//! # Example
+//!
+//! ```rust
+//! use pleezer::player::Player;
+//!
+//! // Create player with default audio device
+//! let mut player = Player::new(&config, "").await?;
+//!
+//! // Configure playback
+//! player.set_normalization(true);
+//! player.set_volume(volume);
+//!
+//! // Add tracks and start playback
+//! player.set_queue(tracks);
+//! player.play();
+//! ```
+
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -21,79 +62,148 @@ use crate::{
     track::{Track, TrackId},
 };
 
-/// The sample format used by the player, as determined by the decoder.
+/// Audio sample type used by the decoder.
+///
+/// This is the native format that rodio's decoder produces,
+/// used for internal audio processing.
 type SampleFormat = <rodio::decoder::Decoder<std::fs::File> as Iterator>::Item;
 
+/// Audio playback manager.
+///
+/// Handles:
+/// * Audio device management
+/// * Track downloading and decoding
+/// * Queue management
+/// * Playback control
+/// * Volume normalization
 pub struct Player {
-    /// The *preferred* audio quality. The actual quality may be lower if the
-    /// track is not available in the preferred quality.
+    /// Preferred audio quality setting.
+    ///
+    /// Actual quality may be lower if track isn't available
+    /// in the preferred quality.
     audio_quality: AudioQuality,
 
-    /// The license token to use for downloading tracks.
+    /// License token for media access.
+    ///
+    /// Required for downloading encrypted tracks.
     license_token: String,
 
-    /// The decryption key to use for decrypting tracks.
+    /// Key for track decryption.
+    ///
+    /// Used with Blowfish CBC encryption.
     bf_secret: Key,
 
-    /// The track queue, a.k.a. the playlist.
+    /// Ordered list of tracks for playback.
     queue: Vec<Track>,
 
-    /// The set of tracks to skip.
+    /// Set of track IDs to skip during playback.
+    ///
+    /// Tracks are added here when they fail to load
+    /// or become unavailable.
     skip_tracks: HashSet<TrackId>,
 
-    /// The current position in the queue.
+    /// Current position in the queue.
+    ///
+    /// May exceed queue length to prepare for
+    /// future queue updates.
     position: usize,
 
-    /// The position in the current track to seek to after it has been loaded.
+    /// Position to seek to after track loads.
+    ///
+    /// Used when seek is requested before track
+    /// is fully loaded.
     deferred_seek: Option<Duration>,
 
-    /// The HTTP client to use for downloading tracks.
+    /// HTTP client for downloading tracks.
+    ///
+    /// Uses cookie-less client as tracks don't
+    /// require authentication.
     client: http::Client,
 
-    /// The repeat mode.
+    /// Current repeat mode setting.
+    ///
+    /// Controls behavior at queue boundaries.
     repeat_mode: RepeatMode,
 
-    /// Whether the playlist should be shuffled.
+    /// Whether shuffle mode is enabled.
+    ///
+    /// Note: Not yet implemented.
     shuffle: bool,
 
-    /// Whether to normalize the audio.
+    /// Whether volume normalization is enabled.
     normalization: bool,
 
-    /// The target volume to normalize to in dB.
+    /// Target gain for volume normalization in dB.
+    ///
+    /// Used to calculate normalization ratios.
     gain_target_db: i8,
 
-    /// The channel to send playback events to.
+    /// Channel for sending playback events.
+    ///
+    /// Events include:
+    /// * Play/Pause
+    /// * Track changes
+    /// * Connection status
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
 
-    /// The audio output sink.
+    /// Audio output sink.
+    ///
+    /// Handles final audio output and volume control.
     sink: rodio::Sink,
 
-    /// The source queue with the audio data.
+    /// Queue of audio sources.
+    ///
+    /// Contains decoded and processed audio data
+    /// ready for playback.
     sources: Arc<rodio::queue::SourcesQueueInput<SampleFormat>>,
 
-    /// The point in time of the sink when the current track started playing.
+    /// When current track started playing.
+    ///
+    /// Used to calculate playback progress.
     playing_since: Duration,
 
-    /// The signal to receive when the current track has finished playing.
+    /// Completion signal for current track.
+    ///
+    /// Receiver is notified when track finishes.
     current_rx: Option<std::sync::mpsc::Receiver<()>>,
 
-    /// The signal to receive when the preloaded track will finish playing.
+    /// Completion signal for preloaded track.
+    ///
+    /// Receiver is notified when preloaded track
+    /// would finish. Used for gapless playback.
     preload_rx: Option<std::sync::mpsc::Receiver<()>>,
 
-    /// The audio output stream. Although not used directly, this field must be retained to keep
-    /// the sink alive.
+    /// Audio output stream handle.
+    ///
+    /// Must be kept alive to maintain playback.
+    /// Not used directly.
     _stream: rodio::OutputStream,
 
-    /// The URL to use for media requests.
+    /// Base URL for media content.
+    ///
+    /// Used to construct track download URLs.
     media_url: Url,
 }
 
 impl Player {
-    /// Creates a new `Player` with the given `Config`.
+    /// Creates a new player instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Player configuration including normalization settings
+    /// * `device` - Audio device specification string:
+    ///   ```text
+    ///   [<host>][|<device>][|<sample rate>][|<sample format>]
+    ///   ```
+    ///   All parts are optional. Use empty string for system default.
     ///
     /// # Errors
     ///
-    /// Will return `Err` if no HTTP client can be built from the `Config`.
+    /// Returns error if:
+    /// * Audio device cannot be opened
+    /// * Device specification is invalid
+    /// * HTTP client creation fails
+    /// * Decryption key is invalid
     pub async fn new(config: &Config, device: &str) -> Result<Self> {
         let client = http::Client::without_cookies(config)?;
 
@@ -143,6 +253,21 @@ impl Player {
         })
     }
 
+    /// Opens an audio output device.
+    ///
+    /// Parses the device specification string and configures the
+    /// audio output stream and sink accordingly.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - Device specification string (see `new()` for format)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * Device specification is invalid
+    /// * Device cannot be opened
+    /// * Sample rate/format not supported
     fn open_sink(device: &str) -> Result<(rodio::Sink, rodio::OutputStream)> {
         let (stream, handle) = {
             // The device string has the following format:
@@ -257,6 +382,20 @@ impl Player {
         44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 352_800, 384_000,
     ];
 
+    /// Lists available audio output devices.
+    ///
+    /// Returns a sorted list of device specifications in the format:
+    /// ```text
+    /// <host>|<device>|<sample rate>|<sample format>
+    /// ```
+    ///
+    /// Only includes devices supporting common sample rates:
+    /// * 44.1/48 kHz (standard)
+    /// * 88.2/96 kHz (high resolution)
+    /// * 176.4/192 kHz (studio)
+    /// * 352.8/384 kHz (ultra HD)
+    ///
+    /// Default device is marked with "(default)" suffix.
     #[must_use]
     pub fn enumerate_devices() -> Vec<String> {
         let hosts = cpal::available_hosts();
@@ -326,6 +465,17 @@ impl Player {
         result
     }
 
+    /// Advances to the next track in the queue.
+    ///
+    /// Handles:
+    /// * Repeat mode logic
+    /// * Position updates
+    /// * Event notifications
+    ///
+    /// Behavior depends on repeat mode:
+    /// * `None`: Stops at end of queue
+    /// * `One`: Stays on current track
+    /// * `All`: Loops back to start of queue
     fn go_next(&mut self) {
         let old_position = self.position;
         let repeat_mode = self.repeat_mode();
@@ -361,6 +511,24 @@ impl Player {
     /// This value is equal to what Spotify uses.
     const AGC_RELEASE_TIME: Duration = Duration::from_millis(100);
 
+    /// Loads and prepares a track for playback.
+    ///
+    /// Downloads, decrypts, and configures audio processing for a track:
+    /// 1. Downloads encrypted content
+    /// 2. Sets up decryption
+    /// 3. Configures audio decoder
+    /// 4. Applies volume normalization if enabled
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - Queue position of track to load
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * Track download fails
+    /// * Decryption fails
+    /// * Audio decoding fails
     // TODO : consider controlflow
     async fn load_track(
         &mut self,
@@ -456,16 +624,19 @@ impl Player {
         Ok(None)
     }
 
-    /// Run the player.
+    /// Main playback loop.
     ///
-    /// This function will monitor the position in the playlist and start downloading
-    /// the track if it is pending. It will then play the track and skip to the next
-    /// track when the current track is finished.
+    /// Continuously:
+    /// * Monitors current track completion
+    /// * Manages track preloading
+    /// * Handles playback transitions
+    /// * Processes track unavailability
     ///
     /// # Errors
     ///
-    /// This function may return an error if the player fails to start downloading
-    /// the track, or if the player fails to play the track.
+    /// Returns error if:
+    /// * Track loading fails critically
+    /// * Audio system fails
     pub async fn run(&mut self) -> Result<()> {
         loop {
             match self.current_rx.as_mut() {
@@ -537,12 +708,20 @@ impl Player {
         }
     }
 
+    /// Marks a track as unavailable for playback.
+    ///
+    /// Tracks marked unavailable will be skipped during playback.
+    /// Logs a warning the first time a track is marked unavailable.
     fn mark_unavailable(&mut self, track_id: TrackId) {
         if self.skip_tracks.insert(track_id) {
             warn!("marking track {track_id} as unavailable");
         }
     }
 
+    /// Sends a playback event notification.
+    ///
+    /// Events are sent through the registered channel if available.
+    /// Failures are logged but do not interrupt playback.
     fn notify(&self, event: Event) {
         if let Some(event_tx) = &self.event_tx {
             if let Err(e) = event_tx.send(event) {
@@ -551,10 +730,20 @@ impl Player {
         }
     }
 
+    /// Registers an event notification channel.
+    ///
+    /// Events sent include:
+    /// * Play/Pause state changes
+    /// * Track changes
+    /// * Connection status
     pub fn register(&mut self, event_tx: tokio::sync::mpsc::UnboundedSender<Event>) {
         self.event_tx = Some(event_tx);
     }
 
+    /// Starts or resumes playback.
+    ///
+    /// Emits a Play event if playback actually starts.
+    /// Does nothing if already playing.
     pub fn play(&mut self) {
         if !self.is_playing() {
             debug!("starting playback");
@@ -565,6 +754,10 @@ impl Player {
         }
     }
 
+    /// Pauses playback.
+    ///
+    /// Emits a Pause event if playback was actually playing.
+    /// Does nothing if already paused.
     pub fn pause(&mut self) {
         if self.is_playing() {
             debug!("pausing playback");
@@ -573,11 +766,19 @@ impl Player {
         }
     }
 
+    /// Returns whether playback is active.
+    ///
+    /// True if:
+    /// * A track is loaded
+    /// * The sink is not paused
     #[must_use]
     pub fn is_playing(&self) -> bool {
         self.current_rx.is_some() && !self.sink.is_paused()
     }
 
+    /// Sets the playback state.
+    ///
+    /// Convenience method that calls either `play()` or `pause()`.
     pub fn set_playing(&mut self, should_play: bool) {
         if should_play {
             self.play();
@@ -586,11 +787,17 @@ impl Player {
         }
     }
 
+    /// Returns the currently playing track, if any.
     #[must_use]
     pub fn track(&self) -> Option<&Track> {
         self.queue.get(self.position)
     }
 
+    /// Replaces the entire playback queue.
+    ///
+    /// * Clears current queue and playback state
+    /// * Resets position to start
+    /// * Clears skip track list
     pub fn set_queue(&mut self, tracks: Vec<Track>) {
         self.clear();
         self.position = 0;
@@ -599,14 +806,20 @@ impl Player {
         self.skip_tracks.shrink_to_fit();
     }
 
+    /// Adds tracks to the end of the queue.
+    ///
+    /// Preserves current playback position and state.
     pub fn extend_queue(&mut self, tracks: Vec<Track>) {
         self.queue.extend(tracks);
     }
 
-    /// Sets the playlist position.
+    /// Sets the current playback position in the queue.
     ///
-    /// It is allowed to set the position to a value that is greater than the length of the queue.
-    /// This is useful when the queue is not yet set, but the future position is already known.
+    /// Position can exceed queue length to prepare for
+    /// future queue updates.
+    ///
+    /// Note: Setting to current position is ignored to
+    /// prevent interrupting seeks.
     pub fn set_position(&mut self, position: usize) {
         // If the position is already set, do nothing. Deezer also sends the same position when
         // seeking, in which case we should not clear the current track.
@@ -621,6 +834,11 @@ impl Player {
         self.position = position;
     }
 
+    /// Clears the playback state.
+    ///
+    /// * Creates new empty source queue
+    /// * Resets track downloads
+    /// * Maintains playback capability
     pub fn clear(&mut self) {
         // Don't just clear the sink, because that would stop the playback. The following code
         // works around that by creating a new, empty queue of sources and skipping to it.
@@ -643,11 +861,16 @@ impl Player {
         self.preload_rx = None;
     }
 
+    /// Returns whether shuffle mode is enabled.
     #[must_use]
     pub fn shuffle(&self) -> bool {
         self.shuffle
     }
 
+    /// Sets shuffle mode for playback.
+    ///
+    /// Note: Shuffle functionality is not yet implemented.
+    /// Setting to true will log a warning.
     pub fn set_shuffle(&mut self, shuffle: bool) {
         info!("setting shuffle to {shuffle}");
         self.shuffle = shuffle;
@@ -658,11 +881,17 @@ impl Player {
         }
     }
 
+    /// Returns the current repeat mode.
     #[must_use]
     pub fn repeat_mode(&self) -> RepeatMode {
         self.repeat_mode
     }
 
+    /// Sets the repeat mode for playback.
+    ///
+    /// When setting to `RepeatMode::One`:
+    /// * Clears preloaded track
+    /// * Disables track preloading
     pub fn set_repeat_mode(&mut self, repeat_mode: RepeatMode) {
         info!("setting repeat mode to {repeat_mode}");
         self.repeat_mode = repeat_mode;
@@ -674,12 +903,22 @@ impl Player {
         }
     }
 
+    /// Returns current volume as a percentage.
+    ///
+    /// Returns a value between 0.0 (muted) and 1.0 (full volume).
     #[must_use]
     pub fn volume(&self) -> Percentage {
         let ratio = self.sink.volume();
         Percentage::from_ratio_f32(ratio)
     }
 
+    /// Sets playback volume.
+    ///
+    /// No effect if new volume equals current volume.
+    ///
+    /// # Arguments
+    ///
+    /// * `volume` - Target volume (0.0 to 1.0)
     pub fn set_volume(&mut self, volume: Percentage) {
         if volume == self.volume() {
             return;
@@ -690,6 +929,13 @@ impl Player {
         self.sink.set_volume(ratio);
     }
 
+    /// Returns current playback progress.
+    ///
+    /// Returns None if no track is playing.
+    /// Progress is calculated as:
+    /// * Current sink position
+    /// * Minus track start time
+    /// * Divided by track duration
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
         // The progress is the difference between the current position of the sink, which is the
@@ -702,10 +948,19 @@ impl Player {
         })
     }
 
+    /// Sets playback position within current track.
+    ///
+    /// # Behavior
+    ///
+    /// * If progress < 1.0: Seeks within track
+    /// * If progress >= 1.0: Skips to next track
+    /// * If track not loaded: Defers seek
+    ///
     /// # Errors
     ///
-    /// Will return `Err` if:
-    /// - there is no active track
+    /// Returns error if:
+    /// * No track is playing
+    /// * Seek operation fails
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
         if let Some(track) = self.track() {
             info!("setting track progress to {progress}");
@@ -740,19 +995,29 @@ impl Player {
         Ok(())
     }
 
+    /// Returns current position in the queue.
     #[must_use]
     pub fn position(&self) -> usize {
         self.position
     }
 
+    /// Sets the license token for media access.
     pub fn set_license_token(&mut self, license_token: impl Into<String>) {
         self.license_token = license_token.into();
     }
 
+    /// Enables or disables volume normalization.
     pub fn set_normalization(&mut self, normalization: bool) {
         self.normalization = normalization;
     }
 
+    /// Sets target gain for volume normalization.
+    ///
+    /// Logs info message if normalization is enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `gain_target_db` - Target gain in decibels
     pub fn set_gain_target_db(&mut self, gain_target_db: i8) {
         if self.normalization {
             info!("normalizing volume to {gain_target_db} dB");
@@ -760,30 +1025,39 @@ impl Player {
         self.gain_target_db = gain_target_db;
     }
 
+    /// Sets preferred audio quality for playback.
+    ///
+    /// Note: Actual quality may be lower if track is not
+    /// available in requested quality.
     pub fn set_audio_quality(&mut self, quality: AudioQuality) {
         self.audio_quality = quality;
     }
 
+    /// Returns whether volume normalization is enabled.
     #[must_use]
     pub fn normalization(&self) -> bool {
         self.normalization
     }
 
+    /// Returns current license token.
     #[must_use]
     pub fn license_token(&self) -> &str {
         &self.license_token
     }
 
+    /// Returns current preferred audio quality setting.
     #[must_use]
     pub fn audio_quality(&self) -> AudioQuality {
         self.audio_quality
     }
 
+    /// Returns current normalization target gain.
     #[must_use]
     pub fn gain_target_db(&self) -> i8 {
         self.gain_target_db
     }
 
+    /// Sets the media content URL.
     pub fn set_media_url(&mut self, url: Url) {
         self.media_url = url;
     }

@@ -1,3 +1,49 @@
+//! Message types and routing for the Deezer Connect protocol.
+//!
+//! This module provides message abstractions for communication over [`Channel`]s:
+//! * [`Message`] - High-level message representation
+//! * [`WireMessage`] - Wire format handling
+//! * [`Stanza`] - Message direction indicators
+//!
+//! Messages flow through channels in specific directions:
+//! * `Send`/`Receive` - Regular message content
+//! * `StreamSend`/`StreamReceive` - Playback reporting
+//! * `Subscribe`/`Unsubscribe` - Channel management
+//!
+//! # Message Structure
+//!
+//! Messages in the Deezer Connect protocol follow a specific structure:
+//! ```json
+//! [
+//!     "<stanza>",          // Message type (send/receive/sub/unsub)
+//!     "<channel>",         // Channel identifier
+//!     { "payload": ... }   // Optional payload (for content messages)
+//! ]
+//! ```
+//!
+//! # Usage
+//!
+//! Application code should use the [`Message`] type, which provides a
+//! strongly-typed interface:
+//!
+//! ```rust
+//! use deezer::{Channel, Contents, Ident, Message};
+//!
+//! // Create a message to send
+//! let msg = Message::Send {
+//!     channel: Channel::new(Ident::RemoteCommand),
+//!     contents: Contents { /* ... */ },
+//! };
+//!
+//! // Create a subscription
+//! let sub = Message::Subscribe {
+//!     channel: Channel::new(Ident::RemoteCommand),
+//! };
+//! ```
+//!
+//! The lower-level wire format types ([`WireMessage`], [`Stanza`]) are handled
+//! automatically during serialization/deserialization.
+
 use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -5,60 +51,134 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use super::{stream, Channel, Contents};
 use crate::error::Error;
 
-/// A list of messages on a [Deezer Connect][Connect] websocket.
+/// Primary message type for the Deezer Connect protocol.
 ///
-/// The aim of this implementation is to provide an ergonomic and strongly
-/// typed abstraction for those messages that are used to furnish remote
-/// control capabilities. For example, [Connect] has messages for UX tracking,
-/// but `Message` has no such variant.
+/// This enum provides a strongly-typed interface for messages exchanged over Deezer Connect
+/// websockets, focusing specifically on remote control functionality. It deliberately omits
+/// auxiliary protocol messages (like UX tracking) that aren't relevant to remote control.
 ///
-/// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
+/// # Message Categories
+///
+/// Messages fall into three categories:
+/// * Regular content messages ([`Send`](Self::Send)/[`Receive`](Self::Receive))
+/// * Stream reporting messages ([`StreamSend`](Self::StreamSend)/[`StreamReceive`](Self::StreamReceive))
+/// * Channel subscriptions ([`Subscribe`](Self::Subscribe)/[`Unsubscribe`](Self::Unsubscribe))
+///
+/// # Wire Format
+///
+/// While this type provides a Rust-friendly interface, messages are serialized to JSON arrays:
+/// ```json
+/// ["send", "channel_name", {"payload": "data"}]  // Content message
+/// ["sub", "channel_name"]                        // Subscription
+/// ```
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::{Channel, Contents, Ident, Message};
+///
+/// // Sending content
+/// let msg = Message::Send {
+///     channel: Channel::new(Ident::RemoteCommand),
+///     contents: Contents { /* ... */ },
+/// };
+///
+/// // Managing subscriptions
+/// let msg = Message::Subscribe {
+///     channel: Channel::new(Ident::RemoteCommand),
+/// };
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum Message {
-    /// A message with [`Contents`] to send into a [`Channel`].
+    /// Send content to a channel.
     ///
-    /// [`Channel`]: struct.Channel.html
-    /// [`Contents`]: struct.Contents.html
+    /// This variant represents an outgoing message carrying [`Contents`] data
+    /// to be sent over a [`Channel`].
     Send {
+        /// Target channel for the message
         channel: Channel,
+        /// Content data to send
         contents: Contents,
     },
 
-    /// A message with [`Contents`] received over a [`Channel`].
+    /// Receive content from a channel.
     ///
-    /// [`Channel`]: struct.Channel.html
-    /// [`Contents`]: struct.Contents.html
+    /// This variant represents an incoming message carrying [`Contents`] data
+    /// received from a [`Channel`].
     Receive {
+        /// Channel that received the message
         channel: Channel,
+        /// Content data received
         contents: Contents,
     },
 
-    /// A message with [`stream::Contents`] to send into a [`Channel`].
+    /// Send playback stream report to a channel.
     ///
-    /// [`Channel`]: struct.Channel.html
-    /// [`stream::Contents`]: ../stream/struct.stream::Contents.html
+    /// This variant represents an outgoing message reporting [`stream::Contents`]
+    /// status to a [`Channel`]. Used to inform other devices about active
+    /// playback streams.
     StreamSend {
+        /// Target channel for the report
         channel: Channel,
+        /// Stream status to report
         contents: stream::Contents,
     },
 
-    /// A message with [`stream::Contents`] received over a [`Channel`].
+    /// Receive playback stream report from a channel.
     ///
-    /// [`Channel`]: struct.Channel.html
-    /// [`stream::Contents`]: ../stream/struct.stream::Contents.html
+    /// This variant represents an incoming message containing [`stream::Contents`]
+    /// status from a [`Channel`]. Used to receive information about other
+    /// devices' active playback streams.
     StreamReceive {
+        /// Channel that received the report
         channel: Channel,
+        /// Stream status received
         contents: stream::Contents,
     },
 
-    /// A subscription to a [`Channel`](struct.Channel.html).
-    Subscribe { channel: Channel },
+    /// Subscribe to a channel.
+    ///
+    /// This variant represents a request to start receiving messages from
+    /// the specified [`Channel`].
+    Subscribe {
+        /// Channel to subscribe to
+        channel: Channel,
+    },
 
-    /// An unsubscription from a [`Channel`](struct.Channel.html).
-    Unsubscribe { channel: Channel },
+    /// Unsubscribe from a channel.
+    ///
+    /// This variant represents a request to stop receiving messages from
+    /// the specified [`Channel`].
+    Unsubscribe {
+        /// Channel to unsubscribe from
+        channel: Channel,
+    },
 }
 
 impl fmt::Display for Message {
+    /// Formats a message for display, showing direction and contents.
+    ///
+    /// The output format depends on the message type:
+    /// * Content/Stream messages: `"{channel} {direction} {contents}"`
+    /// * Subscriptions: `"subscribing to {channel}"`/`"unsubscribing from {channel}"`
+    ///
+    /// The channel identifier is padded to 14 characters for alignment.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let msg = Message::Send { /* ... */ };
+    /// // Prints: "RemoteCommand  -> PlaybackProgress"
+    /// println!("{msg}");
+    ///
+    /// let msg = Message::Subscribe { /* ... */ };
+    /// // Prints: "subscribing to RemoteCommand"
+    /// println!("{msg}");
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// Currently has a known limitation where padding is not respected.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // FIXME: padding is not respected.
         match self {
@@ -81,11 +201,25 @@ impl fmt::Display for Message {
 }
 
 impl Serialize for Message {
-    /// Convert this `Message` into a [`WireMessage`], then serialize it into
-    /// [JSON].
+    /// Serializes a message into its wire format representation.
     ///
-    /// [JSON]: https://www.json.org/
-    /// [`WireMessage`]: enum.WireMessage.html
+    /// This implementation:
+    /// 1. Converts the `Message` into a [`WireMessage`]
+    /// 2. Serializes the `WireMessage` to JSON
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let msg = Message::Send { /* ... */ };
+    /// let json = serde_json::to_string(&msg)?;
+    /// // Results in: ["send", "channel", {...}]
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * Channel and content identifiers don't match
+    /// * JSON serialization fails
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let wire_message =
             WireMessage::try_from(self.clone()).map_err(serde::ser::Error::custom)?;
@@ -94,99 +228,206 @@ impl Serialize for Message {
 }
 
 impl<'de> Deserialize<'de> for Message {
-    /// Deserialize [JSON] into a [`WireMessage`], then convert it into a
-    /// `Message`.
+    /// Deserializes a message from its wire format representation.
     ///
-    /// [JSON]: https://www.json.org/
-    /// [`WireMessage`]: enum.WireMessage.html
+    /// This implementation:
+    /// 1. Deserializes JSON into a [`WireMessage`]
+    /// 2. Converts the `WireMessage` into a `Message`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Wire format: ["send", "channel", {...}]
+    /// let msg: Message = serde_json::from_str(json)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * JSON is malformed
+    /// * Channel and content identifiers don't match
+    /// * Message format is invalid
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let wire_message = WireMessage::deserialize(deserializer)?;
         Self::try_from(wire_message).map_err(serde::de::Error::custom)
     }
 }
 
-/// A list of messages on a [Deezer Connect][Connect] websocket in their [JSON]
-/// wire formats.
+/// Internal wire format representation of Deezer Connect protocol messages.
 ///
-/// The [`Message`] enum provides an ergonomic abstraction over this wire
-/// format that should be used instead.
+/// This type represents messages in their raw JSON array format, serving as an
+/// intermediate representation between [`Message`] and the wire protocol.
 ///
-/// The aim of this implementation is to provide an ergonomic and strongly
-/// typed abstraction for those messages that are used to furnish remote
-/// control capabilities. For example, [Connect] has messages for UX tracking,
-/// but `WireMessage` has no such variant.
+/// # Wire Format Rules
 ///
-/// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-/// [JSON]: https://www.json.org/
-/// [`Message`]: struct.Message.html
+/// Messages must follow these rules:
+///
+/// Content messages (3 elements):
+/// ```json
+/// [
+///     "<stanza>",          // Must be "msg" or "send"
+///     "<channel>",         // Must be valid channel string
+///     {                    // Must be valid Contents or stream::Contents
+///         "payload": {}    // Message-specific payload
+///     }
+/// ]
+/// ```
+///
+/// Subscription messages (2 elements):
+/// ```json
+/// [
+///     "<stanza>",    // Must be "sub" or "unsub"
+///     "<channel>"    // Must be valid channel string
+/// ]
+/// ```
+///
+/// # Validation Rules
+///
+/// The following is enforced during parsing:
+/// * Array must have exactly 2 or 3 elements
+/// * First element (stanza) must match message type:
+///   - "msg"/"send" for content messages
+///   - "sub"/"unsub" for subscriptions
+/// * Channel identifiers must match between channel and contents
+/// * Content messages must have valid JSON payloads
+///
+/// # Examples
+///
+/// Valid messages:
+/// ```rust
+/// use serde_json::json;
+///
+/// // Content message
+/// let valid = json!([
+///     "send",
+///     "12345_-1_REMOTECOMMAND",
+///     {
+///         "APP": "REMOTECOMMAND",
+///         "headers": {
+///             "from": "device-123",
+///             "destination": null
+///         },
+///         "body": {
+///             "messageId": "msg-123",
+///             "messageType": "ping"
+///         }
+///     }
+/// ]);
+/// assert!(serde_json::from_value::<WireMessage>(valid).is_ok());
+///
+/// // Subscription
+/// let valid = json!([
+///     "sub",
+///     "12345_-1_REMOTECOMMAND"
+/// ]);
+/// assert!(serde_json::from_value::<WireMessage>(valid).is_ok());
+/// ```
+///
+/// Error cases:
+/// ```rust
+/// use serde_json::json;
+///
+/// // Wrong number of elements
+/// let invalid = json!(["send", "channel"]);
+/// assert!(serde_json::from_value::<WireMessage>(invalid).is_err());
+///
+/// // Mismatched stanza and content
+/// let invalid = json!([
+///     "sub",  // Subscription stanza
+///     "12345_-1_REMOTECOMMAND",
+///     { "payload": {} }  // Should not have content
+/// ]);
+/// assert!(serde_json::from_value::<WireMessage>(invalid).is_err());
+///
+/// // Invalid channel format
+/// let invalid = json!([
+///     "send",
+///     "invalid_channel",  // Missing components
+///     { "payload": {} }
+/// ]);
+/// assert!(serde_json::from_value::<WireMessage>(invalid).is_err());
+///
+/// // Mismatched identifiers
+/// let invalid = json!([
+///     "send",
+///     "12345_-1_REMOTECOMMAND",
+///     {
+///         "APP": "STREAM",  // Should match channel
+///         "headers": {},
+///         "body": {}
+///     }
+/// ]);
+/// assert!(serde_json::from_value::<WireMessage>(invalid).is_err());
+/// ```
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 enum WireMessage {
-    /// A sequence to send or receive message [`Contents`] over a [`Channel`].
-    /// On the wire this is a three-element [JSON] array composed of two
-    /// strings followed by a map.
+    /// Content message sequence.
     ///
-    /// [`Channel`]: struct.Channel.html
-    /// [`Contents`]: struct.Contents.html
-    /// [JSON]: https://www.json.org/
+    /// Represents a three-element array containing:
+    /// 1. Stanza (`"msg"` or `"send"`)
+    /// 2. Channel identifier
+    /// 3. Message contents
     WithContents(Stanza, Channel, Contents),
 
-    /// A sequence to send or receive message [`Contents`] over a [`Stream`]
-    /// [`Channel`]. On the wire this is a three-element [JSON] array composed
-    /// of two strings followed by a map.
+    /// Stream report message sequence.
     ///
-    /// [`Channel`]: struct.Channel.html
-    /// [`Contents`]: struct.Contents.html
-    /// [`Stream`]: ../channel/enum.Channel.html#variant.Stream
-    /// [JSON]: https://www.json.org/
+    /// Represents a three-element array containing:
+    /// 1. Stanza (`"msg"` or `"send"`)
+    /// 2. Channel identifier
+    /// 3. Stream status contents
     WithStreamContents(Stanza, Channel, stream::Contents),
 
-    /// A sequence to subscribe to or unsubscribe from a [`Channel`]. On the
-    /// wire this is a two-element [JSON] array composed of two strings.
+    /// Subscription message sequence.
     ///
-    /// [`Channel`]: struct.Channel.html
-    /// [`Contents`]: struct.Contents.html
-    /// [JSON]: https://www.json.org/
-    //
-    // Has to be last, or it would match for each `WireMessage`.
+    /// Represents a two-element array containing:
+    /// 1. Stanza (`"sub"` or `"unsub"`)
+    /// 2. Channel identifier
+    ///
+    // Note: This variant must be last to prevent it from matching three-element arrays.
     Subscription(Stanza, Channel),
 }
 
-/// A list of message stanzas on a [Deezer Connect][Connect] websocket.
+/// Message type indicator in the Deezer Connect protocol.
 ///
-/// The [`Message`] enum provides an ergonomic abstraction over these stanzas
-/// that should be used instead.
+/// A stanza is the first element in a message array and indicates how to interpret
+/// the message. It determines both the message's direction (incoming/outgoing) and
+/// its purpose (content/subscription).
 ///
-/// The aim of this implementation is to provide an ergonomic and strongly
-/// typed abstraction for those messages that are used to furnish remote
-/// control capabilities. For example, [Connect] has a stanza for UX tracking,
-/// but `Stanza` has no such variant.
+/// # Wire Format
 ///
-/// [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
-
+/// Stanzas are serialized as specific strings:
+/// * `"msg"` - [`Receive`](Self::Receive) (incoming message)
+/// * `"send"` - [`Send`](Self::Send) (outgoing message)
+/// * `"sub"` - [`Subscribe`](Self::Subscribe) (channel subscription)
+/// * `"unsub"` - [`Unsubscribe`](Self::Unsubscribe) (channel unsubscription)
 #[derive(Copy, Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 enum Stanza {
-    /// A stanza marking that the message elements that follow were received
-    /// over a [`Channel`](struct.Channel.html).
+    /// Marks an incoming message received over a channel.
     #[serde(rename = "msg")]
     Receive,
 
-    /// A stanza marking that the message elements that follow are to be sent
-    /// into a [`Channel`](struct.Channel.html).
+    /// Marks an outgoing message to be sent to a channel.
     #[serde(rename = "send")]
     Send,
 
-    /// A stanza marking that the message elements that follow are to subscribe
-    /// to a [`Channel`](struct.Channel.html).
+    /// Marks a request to subscribe to a channel.
     #[serde(rename = "sub")]
     Subscribe,
 
-    /// A stanza marking that the message elements that follow are to
-    /// unsubscribe from a [`Channel`](struct.Channel.html).
+    /// Marks a request to unsubscribe from a channel.
     #[serde(rename = "unsub")]
     Unsubscribe,
 }
 
+/// Formats the stanza for display using its variant name.
+///
+/// # Examples
+///
+/// ```rust
+/// assert_eq!(Stanza::Receive.to_string(), "Receive");
+/// assert_eq!(Stanza::Send.to_string(), "Send");
+/// ```
 impl fmt::Display for Stanza {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
@@ -196,9 +437,22 @@ impl fmt::Display for Stanza {
 impl TryFrom<Message> for WireMessage {
     type Error = Error;
 
-    /// Performs the conversion from [`Message`] into `WireMessage`.
+    /// Converts a [`Message`] into its wire format representation.
     ///
-    /// [`Message`]: struct.Message.html
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * Channel identifier doesn't match content identifier in content messages
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let msg = Message::Send {
+    ///     channel: Channel::new(Ident::RemoteCommand),
+    ///     contents: Contents { /* ... */ },
+    /// };
+    /// let wire_msg = WireMessage::try_from(msg)?;
+    /// ```
     fn try_from(message: Message) -> Result<Self, Self::Error> {
         let wire_message = match message {
             Message::Receive { channel, contents } => {
@@ -245,9 +499,24 @@ impl TryFrom<Message> for WireMessage {
 impl TryFrom<WireMessage> for Message {
     type Error = Error;
 
-    /// Performs the conversion from [`WireMessage`] into `Message`.
+    /// Converts a wire format message into a [`Message`].
     ///
-    /// [`WireMessage`]: struct.WireMessage.html
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * Channel identifier doesn't match content identifier in content messages
+    /// * Stanza type doesn't match message format (e.g., `Subscribe` stanza with contents)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let wire_msg = WireMessage::WithContents(
+    ///     Stanza::Send,
+    ///     Channel::new(Ident::RemoteCommand),
+    ///     Contents { /* ... */ },
+    /// );
+    /// let msg = Message::try_from(wire_msg)?;
+    /// ```
     fn try_from(wire_message: WireMessage) -> Result<Self, Self::Error> {
         let message = match wire_message {
             WireMessage::WithContents(stanza, channel, contents) => {

@@ -1,33 +1,59 @@
-//! Protocol Buffer definitions for the [Deezer Connect][Connect] protocol.
+//! Protocol Buffer definitions for queue management in Deezer Connect.
 //!
-//! This module contains the auto-generated Rust code from Protocol Buffer definitions
-//! that describe the message formats used in Deezer Connect communication.
+//! This module contains auto-generated Rust code from Protocol Buffer definitions,
+//! primarily handling queue data structures in the Deezer Connect protocol.
 //!
-//! # Structure
+//! # Queue Data Format
 //!
-//! The Protocol Buffer definitions are compiled into Rust code at build time
-//! and included in this module. The generated code provides:
-//! * Message type definitions
-//! * Serialization/deserialization implementations
-//! * Helper methods for working with the protocol messages
+//! Queue messages use Protocol Buffers for efficient serialization and
+//! versioning. The data is:
+//! 1. Serialized to Protocol Buffer format
+//! 2. DEFLATE compressed
+//! 3. Base64 encoded for transmission
 //!
-//! # Generation
-//!
-//! The Rust code is generated during the build process using:
-//! * The `protobuf-codegen` Protocol Buffer compiler
-//! * Source `.proto` files in the project's `protos` directory
-//! * Build configuration in `build.rs`
-//!
-//! # Usage
-//!
-//! The generated types can be used directly from this module:
-//! ```rust,no_run
-//! use connect::protos::SomeGeneratedMessage;
-//!
-//! let msg = SomeGeneratedMessage::new();
+//! Example wire format:
+//! ```json
+//! {
+//!     "messageId": "msg123",
+//!     "messageType": "publishQueue",
+//!     "protocolVersion": "com.deezer.remote.queue.proto1",
+//!     "payload": "base64-encoded-deflated-protobuf"
+//! }
 //! ```
 //!
-//! [Connect]: https://en.deezercommunity.com/product-updates/try-our-remote-control-and-let-us-know-how-it-works-70079
+//! # Generated Types
+//!
+//! Key message types include:
+//! * `queue::List` - Complete queue contents
+//! * `queue::Track` - Individual track information
+//! * `queue::Order` - Track ordering/shuffle state
+//!
+//! # Usage Example
+//!
+//! ```rust,no_run
+//! use connect::protos::queue;
+//!
+//! // Create a queue publication message
+//! let queue = queue::List {
+//!     id: "queue123".to_string(),
+//!     tracks: vec![/* track data */],
+//!     tracks_order: vec![/* track positions */],
+//!     // ... other fields ...
+//! };
+//!
+//! // Serialize for transmission
+//! let bytes = queue.write_to_bytes()?;
+//! ```
+//!
+//! # Code Generation
+//!
+//! The Rust code is generated during build using:
+//! * `protobuf-codegen` compiler
+//! * `.proto` source files in `protos/`
+//! * Build configuration in `build.rs`
+//!
+//! Note: The generated code allows pedantic lints to avoid
+//! warnings from the auto-generated implementations.
 
 // Allow pedantic lints in generated code
 #![allow(clippy::pedantic)]

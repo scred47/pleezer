@@ -84,6 +84,9 @@ name = "pleezer"
 path = "src/main.rs"
 required-features = ["binary"]
 
+[lib]
+doctest = false
+
 [dependencies.clap]
 version = "4.0"
 features = ["cargo", "derive", "env", "wrap_help"]
@@ -136,8 +139,3 @@ extended-description = """\
 A headless streaming player built around the Deezer Connect protocol. \
 Enables streaming from Deezer to any Linux system without a graphical interface, \
 making it ideal for DIY setups, server-based systems, or custom integrations."""
-
-[package.metadata.docs.rs]
-# Disable documentation build on docs.rs
-# Remove this section when ready to publish documentation
-private = true

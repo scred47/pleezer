@@ -1,3 +1,28 @@
+//! Main application entry point and runtime management.
+//!
+//! This module handles:
+//! * Command line argument parsing
+//! * Logging configuration
+//! * Configuration loading
+//! * Application lifecycle
+//! * Connection retry logic with jitter
+//!
+//! # Runtime Behavior
+//!
+//! The application:
+//! 1. Loads and validates configuration
+//! 2. Establishes Deezer connection
+//! 3. Maintains connection with automatic retry
+//! 4. Handles graceful shutdown
+//!
+//! # Error Handling
+//!
+//! Errors are handled at different levels:
+//! * Configuration errors terminate immediately
+//! * Authentication errors terminate immediately
+//! * Network errors trigger automatic retry
+//! * Other errors are logged and may trigger retry
+
 use std::{env, fs, path::Path, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
@@ -16,17 +41,34 @@ use pleezer::{
     remote,
 };
 
-/// Profile to display when not built in release mode.
+/// Build profile for logging.
+///
+/// Shows "debug" when built without optimizations.
 #[cfg(debug_assertions)]
 const BUILD_PROFILE: &str = "debug";
-/// Profile to display when not built release mode.
+
+/// Build profile for logging.
+///
+/// Shows "release" when built with optimizations.
 #[cfg(not(debug_assertions))]
 const BUILD_PROFILE: &str = "release";
 
 /// Group name for mutually exclusive logging options.
+///
+/// Used by clap to ensure -q and -v aren't used together.
 const ARGS_GROUP_LOGGING: &str = "logging";
 
 /// Command line arguments as parsed by `clap`.
+///
+/// Provides configuration options for:
+/// * Authentication (secrets file)
+/// * Device identification (name, type)
+/// * Audio settings (device, normalization)
+/// * Connection behavior (interruptions)
+/// * Debug features (logging, eavesdropping)
+///
+/// All options can be set via environment variables with
+/// the `PLEEZER_` prefix.
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -98,21 +140,22 @@ struct Args {
     eavesdrop: bool,
 }
 
-/// Initializes the logger facade.
+/// Initialize logging system.
 ///
-/// The logging level is determined as follows, in order of precedence from
-/// highest to lowest:
-/// 1. Command line arguments
-/// 2. `RUST_LOG` environment variable
-/// 3. Hard-coded default
+/// Configures logging based on command line arguments and environment:
+/// * `-q` sets Warning level
+/// * `-v` sets Debug level
+/// * `-vv` sets Trace level
+/// * `RUST_LOG` environment variable provides defaults
+/// * External crates are limited to Warning level
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - `config`: a `&Args` with the command line arguments.
+/// * `config` - Command line arguments containing logging options
 ///
 /// # Panics
 ///
-/// Panics when a logger facade is already initialized.
+/// Panics if logger is already initialized.
 fn init_logger(config: &Args) {
     let mut logger = env_logger::Builder::from_env(
         // Note: if you change the default logging level here, then you should
@@ -144,7 +187,26 @@ fn init_logger(config: &Args) {
     logger.init();
 }
 
-/// Parse the secrets file into a `toml::Value`.
+/// Parse the secrets file into a configuration value.
+///
+/// # Security
+///
+/// To prevent resource exhaustion:
+/// * File size is limited to 1024 bytes
+/// * Contents must be valid UTF-8
+/// * Must be valid TOML format
+///
+/// # Arguments
+///
+/// * `secrets_file` - Path to the secrets file
+///
+/// # Errors
+///
+/// Returns error if:
+/// * File cannot be read
+/// * File is too large
+/// * Content isn't valid UTF-8
+/// * Content isn't valid TOML
 fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
     // Prevent out-of-memory condition: secrets file should be small.
     let attributes = fs::metadata(&secrets_file)?;
@@ -166,19 +228,25 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
 
 /// Main application loop.
 ///
-/// # Parameters
+/// Handles the core application lifecycle:
+/// 1. Loads configuration
+/// 2. Sets up player and client
+/// 3. Manages connection lifecycle
+/// 4. Implements retry with jitter
 ///
-/// - `args`: a `Args` with the command line arguments.
+/// # Arguments
 ///
-/// # Returns
-///
-/// - `Ok`: a `()` when the application exits successfully.
-/// - `Err`: a `Box<dyn Error>` when an error occurs.
+/// * `args` - Parsed command line arguments
 ///
 /// # Errors
 ///
-/// This function returns `Err` when an error occurs. This could be due to the
-/// user interrupting the application or an unrecoverable network error.
+/// Returns error if:
+/// * Configuration is invalid
+/// * Authentication fails
+/// * Device initialization fails
+/// * Unrecoverable network error occurs
+///
+/// Network errors that might be temporary will trigger retry instead.
 async fn run(args: Args) -> Result<()> {
     if args.device.as_ref().is_some_and(|device| device == "?") {
         // List available devices and exit.
@@ -372,10 +440,15 @@ async fn run(args: Args) -> Result<()> {
     }
 }
 
-/// Main entry point of the application.
+/// Application entry point.
 ///
-/// This function initializes the logger facade, parses the command line
-/// arguments, and starts the main application loop.
+/// Sets up the environment and starts the main loop:
+/// 1. Parses command line arguments
+/// 2. Initializes logging
+/// 3. Runs main loop
+/// 4. Handles shutdown
+///
+/// Exits with status code 1 if an error occurs.
 #[tokio::main]
 async fn main() {
     // `clap` handles our command line arguments and help text.

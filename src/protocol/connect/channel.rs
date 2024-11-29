@@ -1,20 +1,26 @@
-//! Channel and message routing types for the Deezer Connect protocol.
+//! Message contents and data types for the Deezer Connect protocol.
 //!
-//! This module defines the routing components used in Deezer Connect communication:
-//! * `Channel` - Defines message routing between users
-//! * `UserId` - Identifies Deezer users or broadcast targets
-//! * `Ident` - Specifies message types and their purposes
+//! This module defines the structures exchanged through [`Channel`]s, including:
+//! * Message identification and routing ([`Headers`], [`DeviceId`])
+//! * Audio configuration ([`AudioQuality`], [`RepeatMode`])
+//! * Playback control ([`Body`], [`QueueItem`])
+//! * Status reporting ([`Status`], [`Percentage`])
 //!
 //! # Wire Format
 //!
-//! Channels in the protocol are represented as string triplets:
-//! ```text
-//! <from>_<to>_<ident>
+//! Messages use a consistent JSON envelope:
+//! ```json
+//! {
+//!     "APP": "REMOTECOMMAND",
+//!     "headers": {
+//!         "from": "device-uuid",
+//!         "destination": "target-uuid"
+//!     },
+//!     "body": {
+//!         // Message-specific content
+//!     }
+//! }
 //! ```
-//! Where:
-//! * `from`: Sender's user ID or `-1` for unspecified
-//! * `to`: Recipient's user ID or `-1` for unspecified
-//! * `ident`: Message type identifier (e.g., "REMOTECOMMAND", "STREAM")
 //!
 //! # Examples
 //!

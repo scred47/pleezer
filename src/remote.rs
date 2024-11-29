@@ -1,3 +1,61 @@
+//! Remote control protocol implementation for Deezer Connect.
+//!
+//! This module implements the client side of the Deezer Connect protocol,
+//! enabling remote control functionality between devices. It handles:
+//! * Device discovery and connection
+//! * Authentication and session management
+//! * Command processing
+//! * Queue synchronization
+//! * Playback reporting
+//! * Event notifications
+//!
+//! # Protocol Flow
+//!
+//! 1. Connection Establishment
+//!    * Client connects to Deezer websocket
+//!    * Authenticates with user token
+//!    * Subscribes to required channels
+//!
+//! 2. Device Discovery
+//!    * Client announces availability
+//!    * Controllers send discovery requests
+//!    * Client responds with connection offers
+//!
+//! 3. Control Session
+//!    * Controller initiates connection
+//!    * Client accepts and establishes session
+//!    * Commands flow between devices
+//!    * Playback state synchronized
+//!
+//! # Connection States
+//!
+//! A client progresses through several states:
+//! * Disconnected - Initial state
+//! * Available - Ready for discovery
+//! * Connecting - Accepting controller
+//! * Connected - Active control session
+//! * Taken - Connection locked (if interruptions disabled)
+//!
+//! # Message Types
+//!
+//! The protocol uses several message types:
+//! * Discovery - Device detection
+//! * Command - Playback control
+//! * Queue - Content management
+//! * Stream - Playback reporting
+//! * Status - Command acknowledgement
+//!
+//! # Example
+//!
+//! ```rust
+//! use pleezer::remote::Client;
+//!
+//! let mut client = Client::new(&config, player)?;
+//!
+//! // Start client and handle control messages
+//! client.start().await?;
+//! ```
+
 use std::{collections::HashSet, ops::ControlFlow, pin::Pin, process::Command, time::Duration};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
@@ -31,76 +89,158 @@ use crate::{
 
 /// A client on the Deezer Connect protocol.
 pub struct Client {
+    /// Unique identifier for this device
     device_id: DeviceId,
+
+    /// Human-readable device name shown in discovery
     device_name: String,
+
+    /// Device type identifier (mobile, desktop, etc)
     device_type: DeviceType,
 
+    /// User authentication credentials
     credentials: Credentials,
+
+    /// Gateway API client
     gateway: Gateway,
 
+    /// Current user authentication token
     user_token: Option<UserToken>,
+
+    /// Channel for token lifetime updates
     time_to_live_tx: tokio::sync::mpsc::Sender<Duration>,
+
+    /// Receiver for token lifetime updates
     time_to_live_rx: tokio::sync::mpsc::Receiver<Duration>,
 
+    /// Protocol version string
     version: String,
+
+    /// Websocket message sender
     websocket_tx:
         Option<SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, WebsocketMessage>>,
 
+    /// Active channel subscriptions
     subscriptions: HashSet<Ident>,
 
+    /// Current connection state
     connection_state: ConnectionState,
+
+    /// Timer for receiving controller heartbeats
     watchdog_rx: Pin<Box<tokio::time::Sleep>>,
+
+    /// Timer for sending heartbeats
     watchdog_tx: Pin<Box<tokio::time::Sleep>>,
 
+    /// Current discovery state
     discovery_state: DiscoveryState,
+
+    /// Cache of pending connection offers
     connection_offers: LruCache<String, DeviceId>,
 
+    /// Channel for receiving player and control events
     event_rx: tokio::sync::mpsc::UnboundedReceiver<Event>,
+
+    /// Channel for sending player and control events
     event_tx: tokio::sync::mpsc::UnboundedSender<Event>,
 
+    /// Whether to allow connection interruptions
     interruptions: bool,
+
+    /// Optional hook script for events
     hook: Option<String>,
 
+    /// Audio playback manager
     player: Player,
+
+    /// Timer for playback progress reports
     reporting_timer: Pin<Box<tokio::time::Sleep>>,
 
+    /// Current playback queue
     queue: Option<queue::List>,
+
+    /// Position to set when queue arrives
     deferred_position: Option<usize>,
 
+    /// Whether to monitor all websocket traffic
     eavesdrop: bool,
 }
 
-#[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
+/// Device discovery state.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum DiscoveryState {
+    /// Available for discovery
     Available,
+
+    /// Accepting connection from controller
     Connecting {
+        /// Controller device ID
         controller: DeviceId,
+
+        /// ID of ready message
         ready_message_id: String,
     },
+
+    /// Not available for discovery
     Taken,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// Connection state with controller.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ConnectionState {
+    /// No active connection
     Disconnected,
+
+    /// Connected to controller
     Connected {
+        /// Controller device ID
         controller: DeviceId,
+
+        /// Unique session identifier
         session_id: Uuid,
     },
 }
 
+/// Calculates a future time instant by adding seconds to now.
+///
+/// # Arguments
+///
+/// * `seconds` - Duration to add to current time
+///
+/// # Returns
+///
+/// * Some(Instant) - Future time if addition succeeds
+/// * None - If addition would overflow
 #[must_use]
 fn from_now(seconds: Duration) -> Option<tokio::time::Instant> {
     tokio::time::Instant::now().checked_add(seconds)
 }
 
+/// Client implementation of Deezer Connect protocol.
+///
+/// Handles:
+/// * Device discovery and connections
+/// * Command processing
+/// * Queue management
+/// * Playback state synchronization
+/// * Event notifications
 impl Client {
+    /// Time before network operations timeout.
     const NETWORK_TIMEOUT: Duration = Duration::from_secs(2);
+
+    /// Buffer before token refresh to prevent expiration during requests.
     const TOKEN_EXPIRATION_THRESHOLD: Duration = Duration::from_secs(60);
+
+    /// How often to report playback progress to controller.
     const REPORTING_INTERVAL: Duration = Duration::from_secs(3);
+
+    /// Maximum time to wait for controller heartbeat.
     const WATCHDOG_RX_TIMEOUT: Duration = Duration::from_secs(10);
+
+    /// Maximum time between sending heartbeats.
     const WATCHDOG_TX_TIMEOUT: Duration = Duration::from_secs(5);
 
+    /// Maximum allowed websocket message size in bytes.
     const MESSAGE_SIZE_MAX: usize = 8192;
 
     /// TODO
@@ -185,6 +325,23 @@ impl Client {
         })
     }
 
+    /// Attempts to login using email and password credentials.
+    ///
+    /// # Arguments
+    ///
+    /// * `email` - User's email address
+    /// * `password` - User's password
+    ///
+    /// # Returns
+    ///
+    /// An ARL token for future authentication.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * Login credentials are invalid
+    /// * Network request fails
+    /// * Gateway response is invalid
     async fn login(&mut self, email: &str, password: &str) -> Result<Arl> {
         let arl = self.gateway.login(email, password).await?;
 
@@ -194,6 +351,22 @@ impl Client {
         Ok(arl)
     }
 
+    /// Retrieves a valid user token from the gateway.
+    ///
+    /// Repeatedly attempts to get a token that expires after the threshold.
+    /// Returns both the token and its time-to-live for expiration tracking.
+    ///
+    /// # Returns
+    ///
+    /// Tuple containing:
+    /// * `UserToken` - Valid authentication token
+    /// * Duration - Time until token expires
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * Gateway request fails
+    /// * Token cannot be retrieved
     async fn user_token(&mut self) -> Result<(UserToken, Duration)> {
         // Loop until a user token is supplied that expires after the
         // threshold. If rate limiting is necessary, then that should be done
@@ -225,6 +398,13 @@ impl Client {
         }
     }
 
+    /// Configures player settings from user preferences.
+    ///
+    /// Updates:
+    /// * Audio quality
+    /// * Volume normalization
+    /// * License token
+    /// * Media URL
     fn set_player_settings(&mut self) {
         let audio_quality = self.gateway.audio_quality();
         info!("user casting quality: {audio_quality}");
@@ -377,6 +557,20 @@ impl Client {
         loop_result
     }
 
+    /// Processes received events.
+    ///
+    /// Handles:
+    /// * Play - Track started
+    /// * Pause - Playback paused
+    /// * `TrackChanged` - New track active
+    /// * Connected - Controller connected
+    /// * Disconnected - Controller disconnected
+    ///
+    /// Executes hook script if configured.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - Event to process
     async fn handle_event(&mut self, event: Event) {
         let mut command = self.hook.as_ref().map(Command::new);
         let track_id = self.player.track().map(Track::id);
@@ -468,6 +662,18 @@ impl Client {
         }
     }
 
+    /// Extends Flow queue with additional tracks.
+    ///
+    /// Fetches more personalized recommendations when:
+    /// * Current queue is Flow
+    /// * Near end of current tracks
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active queue
+    /// * Track fetch fails
+    /// * Queue refresh fails
     async fn extend_queue(&mut self) -> Result<()> {
         let user_id = self.user_id();
 
@@ -507,6 +713,9 @@ impl Client {
         }
     }
 
+    /// Checks if current queue is Flow (personalized radio).
+    ///
+    /// Examines queue context for Flow indicators.
     fn is_flow(&self) -> bool {
         self.queue.as_ref().is_some_and(|queue| {
             queue
@@ -521,18 +730,29 @@ impl Client {
         })
     }
 
+    /// Resets receive watchdog timer.
+    ///
+    /// Called when messages are received from controller to
+    /// prevent connection timeout.
     fn reset_watchdog_rx(&mut self) {
         if let Some(deadline) = from_now(Self::WATCHDOG_RX_TIMEOUT) {
             self.watchdog_rx.as_mut().reset(deadline);
         }
     }
 
+    /// Resets transmit watchdog timer.
+    ///
+    /// Called when messages are sent to controller to
+    /// maintain heartbeat timing.
     fn reset_watchdog_tx(&mut self) {
         if let Some(deadline) = from_now(Self::WATCHDOG_TX_TIMEOUT) {
             self.watchdog_tx.as_mut().reset(deadline);
         }
     }
 
+    /// Resets the playback reporting timer.
+    ///
+    /// Schedules next progress report according to reporting interval.
     fn reset_reporting_timer(&mut self) {
         if let Some(deadline) = from_now(Self::REPORTING_INTERVAL) {
             self.reporting_timer.as_mut().reset(deadline);
@@ -561,6 +781,17 @@ impl Client {
         }
     }
 
+    /// Creates a message targeted at a specific device.
+    ///
+    /// # Arguments
+    ///
+    /// * `destination` - Target device ID
+    /// * `channel` - Message channel
+    /// * `body` - Message content
+    ///
+    /// # Returns
+    ///
+    /// Formatted message ready for sending.
     fn message(&self, destination: DeviceId, channel: Channel, body: Body) -> Message {
         let contents = Contents {
             ident: channel.ident,
@@ -574,16 +805,43 @@ impl Client {
         Message::Send { channel, contents }
     }
 
+    /// Creates a command message for a device.
+    ///
+    /// Convenience wrapper around `message()` for command channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `destination` - Target device ID
+    /// * `body` - Command content
     fn command(&self, destination: DeviceId, body: Body) -> Message {
         let remote_command = self.channel(Ident::RemoteCommand);
         self.message(destination, remote_command, body)
     }
 
+    /// Creates a discovery message for a device.
+    ///
+    /// Convenience wrapper around `message()` for discovery channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `destination` - Target device ID
+    /// * `body` - Discovery content
     fn discover(&self, destination: DeviceId, body: Body) -> Message {
         let remote_discover = self.channel(Ident::RemoteDiscover);
         self.message(destination, remote_discover, body)
     }
 
+    /// Reports track playback to Deezer.
+    ///
+    /// # Arguments
+    ///
+    /// * `track_id` - ID of track being played
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active connection
+    /// * Message send fails
     async fn report_playback(&mut self, track_id: TrackId) -> Result<()> {
         if let ConnectionState::Connected { session_id, .. } = &self.connection_state {
             let message = Message::StreamSend {
@@ -625,6 +883,18 @@ impl Client {
         ))
     }
 
+    /// Handles device discovery request from a controller.
+    ///
+    /// Creates and caches a connection offer, then sends it to the
+    /// requesting controller.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - ID of requesting controller
+    ///
+    /// # Errors
+    ///
+    /// Returns error if message send fails.
     async fn handle_discovery_request(&mut self, from: DeviceId) -> Result<()> {
         // Controllers keep sending discovery requests about every two seconds
         // until it accepts some offer. `connection_offers` implements a LRU
@@ -644,6 +914,25 @@ impl Client {
         self.send_message(discover).await
     }
 
+    /// Handles connection request from a controller.
+    ///
+    /// Validates connection offer and establishes control session if:
+    /// * Offer is valid and matches requesting controller
+    /// * Client is available for connections
+    /// * Required channel subscriptions succeed
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - ID of connecting controller
+    /// * `offer_id` - ID of previous connection offer
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * Offer validation fails
+    /// * Client is not available
+    /// * Channel subscription fails
+    /// * Message send fails
     async fn handle_connect(&mut self, from: DeviceId, offer_id: Option<String>) -> Result<()> {
         let controller = offer_id
             .and_then(|offer_id| self.connection_offers.remove(&offer_id))
@@ -686,6 +975,12 @@ impl Client {
         Ok(())
     }
 
+    /// Checks if client has active controller connection.
+    ///
+    /// # Returns
+    ///
+    /// * true - Connected to controller
+    /// * false - Not connected
     #[must_use]
     fn is_connected(&self) -> bool {
         if let ConnectionState::Connected { .. } = &self.connection_state {
@@ -695,6 +990,12 @@ impl Client {
         false
     }
 
+    /// Returns ID of currently connected controller if any.
+    ///
+    /// # Returns
+    ///
+    /// * Some(DeviceId) - ID of connected controller
+    /// * None - No controller connected
     fn controller(&self) -> Option<DeviceId> {
         if let ConnectionState::Connected { controller, .. } = &self.connection_state {
             return Some(controller.clone());
@@ -707,6 +1008,23 @@ impl Client {
         None
     }
 
+    /// Handles status message from controller.
+    ///
+    /// Processes command status and updates connection state.
+    /// During connection handshake, establishes full connection.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - Controller device ID
+    /// * `command_id` - ID of command being acknowledged
+    /// * `status` - Command status
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * Status indicates command failure
+    /// * Connection state transition invalid
+    /// * Message send fails
     async fn handle_status(
         &mut self,
         from: DeviceId,
@@ -776,6 +1094,15 @@ impl Client {
         Ok(())
     }
 
+    /// Handles close request from controller.
+    ///
+    /// Cleans up connection state and subscriptions.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller
+    /// * Unsubscribe fails
     async fn handle_close(&mut self) -> Result<()> {
         if self.controller().is_some() {
             self.unsubscribe(Ident::RemoteQueue).await?;
@@ -790,6 +1117,14 @@ impl Client {
         ))
     }
 
+    /// Resets connection and discovery state.
+    ///
+    /// Called when connection terminates to:
+    /// * Clear controller association
+    /// * Reset connection state
+    /// * Reset discovery state
+    /// * Flush cached tokens
+    /// * Emit disconnect event
     fn reset_states(&mut self) {
         if let Some(controller) = self.controller() {
             info!("disconnected from {controller}");
@@ -806,6 +1141,25 @@ impl Client {
         self.discovery_state = DiscoveryState::Available;
     }
 
+    /// Handles queue publication from controller.
+    ///
+    /// Updates local queue and configures player:
+    /// * Stores queue metadata
+    /// * Resolves track information
+    /// * Updates player queue
+    /// * Handles deferred position
+    /// * Extends Flow queues
+    ///
+    /// # Arguments
+    ///
+    /// * `list` - Published queue content
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller
+    /// * Queue resolution fails
+    /// * Flow extension fails
     async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
         // TODO : does it really matter whether there's an active connection?
         if self.controller().is_some() {
@@ -856,6 +1210,15 @@ impl Client {
         ))
     }
 
+    /// Sends ping message to controller.
+    ///
+    /// Part of connection keepalive mechanism.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller
+    /// * Message send fails
     async fn send_ping(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let ping = Body::Ping {
@@ -871,6 +1234,16 @@ impl Client {
         ))
     }
 
+    /// Requests controller to refresh its queue display.
+    ///
+    /// Used after modifying queue content to update UI.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller
+    /// * No active queue
+    /// * Message send fails
     async fn handle_refresh_queue(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             if let Some(ref queue) = self.queue {
@@ -904,6 +1277,17 @@ impl Client {
         }
     }
 
+    /// Sends acknowledgement for a command.
+    ///
+    /// # Arguments
+    ///
+    /// * `acknowledgement_id` - ID of command to acknowledge
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller
+    /// * Message send fails
     async fn send_acknowledgement(&mut self, acknowledgement_id: &str) -> Result<()> {
         if let Some(controller) = self.controller() {
             let acknowledgement = Body::Acknowledgement {
@@ -920,6 +1304,33 @@ impl Client {
         ))
     }
 
+    /// Handles skip command from controller.
+    ///
+    /// Updates player state according to skip parameters:
+    /// * Queue position
+    /// * Playback progress
+    /// * Playback state
+    /// * Shuffle mode
+    /// * Repeat mode
+    /// * Volume
+    ///
+    /// # Arguments
+    ///
+    /// * `message_id` - Command ID for acknowledgement
+    /// * `queue_id` - Target queue identifier
+    /// * `item` - Target track and position
+    /// * `progress` - Playback progress
+    /// * `should_play` - Whether to start playback
+    /// * `set_shuffle` - New shuffle mode
+    /// * `set_repeat_mode` - New repeat mode
+    /// * `set_volume` - New volume level
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller
+    /// * Player state update fails
+    /// * Message send fails
     #[expect(clippy::too_many_arguments)]
     async fn handle_skip(
         &mut self,
@@ -967,11 +1378,31 @@ impl Client {
         }
     }
 
+    /// Updates player state based on controller commands.
+    ///
+    /// Applies changes to:
+    /// * Queue position
+    /// * Playback progress
+    /// * Playback state
+    /// * Shuffle mode
+    /// * Repeat mode
+    /// * Volume level
+    ///
+    /// # Arguments
+    ///
+    /// * `queue_id` - Target queue identifier
+    /// * `item` - Target track and position
+    /// * `progress` - Playback progress
+    /// * `should_play` - Whether to start playback
+    /// * `set_shuffle` - New shuffle mode
+    /// * `set_repeat_mode` - New repeat mode
+    /// * `set_volume` - New volume level
+    ///
     /// # Errors
     ///
-    /// Will return `Err` if:
-    /// - `progress` could not be set
-    /// - playback progress could not be reported
+    /// Returns error if:
+    /// * Progress setting fails
+    /// * Progress reporting fails
     #[expect(clippy::too_many_arguments)]
     pub async fn set_player_state(
         &mut self,
@@ -1022,6 +1453,18 @@ impl Client {
         self.report_playback_progress().await
     }
 
+    /// Sends command status to controller.
+    ///
+    /// # Arguments
+    ///
+    /// * `command_id` - ID of command being acknowledged
+    /// * `status` - Command completion status
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller
+    /// * Message send fails
     async fn send_status(&mut self, command_id: &str, status: Status) -> Result<()> {
         if let Some(controller) = self.controller() {
             let status = Body::Status {
@@ -1039,6 +1482,23 @@ impl Client {
         ))
     }
 
+    /// Reports current playback state to controller.
+    ///
+    /// Sends current:
+    /// * Track information
+    /// * Playback progress
+    /// * Buffer status
+    /// * Volume level
+    /// * Playback state
+    /// * Shuffle/repeat modes
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller
+    /// * No active queue
+    /// * No current track
+    /// * Message send fails
     async fn report_playback_progress(&mut self) -> Result<()> {
         // Reset the timer regardless of success or failure, to prevent getting
         // stuck in a reporting state.
@@ -1083,6 +1543,21 @@ impl Client {
         }
     }
 
+    /// Handles incoming websocket messages.
+    ///
+    /// Processes:
+    /// * Text messages (JSON protocol messages)
+    /// * Ping frames (RFC 6455 compliance)
+    /// * Close frames (connection termination)
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Incoming websocket message
+    ///
+    /// # Returns
+    ///
+    /// * Continue - Message handled successfully
+    /// * Break(Error) - Fatal error occurred
     async fn handle_message(&mut self, message: &WebsocketMessage) -> ControlFlow<Error, ()> {
         match message {
             WebsocketMessage::Text(message) => {
@@ -1176,6 +1651,27 @@ impl Client {
         ControlFlow::Continue(())
     }
 
+    /// Dispatches protocol messages to appropriate handlers.
+    ///
+    /// Routes messages based on body type:
+    /// * Acknowledgement - Command completion
+    /// * Close - Connection termination
+    /// * Connect - Connection establishment
+    /// * Discovery - Device discovery
+    /// * Ping - Connection keepalive
+    /// * Queue - Content management
+    /// * Skip - Playback control
+    /// * Status - Command status
+    /// * Stop - Playback control
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - Source device ID
+    /// * `body` - Message content
+    ///
+    /// # Errors
+    ///
+    /// Returns error if message handler fails
     async fn dispatch(&mut self, from: DeviceId, body: Body) -> Result<()> {
         match body {
             // TODO - Think about maintaining a queue of message IDs to be
@@ -1236,6 +1732,17 @@ impl Client {
         }
     }
 
+    /// Sends a websocket frame.
+    ///
+    /// # Arguments
+    ///
+    /// * `frame` - Frame to send
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No websocket connection
+    /// * Send operation fails
     async fn send_frame(&mut self, frame: WebsocketMessage) -> Result<()> {
         match &mut self.websocket_tx {
             Some(tx) => tx.send(frame).await.map_err(Into::into),
@@ -1245,6 +1752,20 @@ impl Client {
         }
     }
 
+    /// Sends a protocol message.
+    ///
+    /// Serializes message to JSON and sends as text frame.
+    /// Resets watchdog timer on success.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - Protocol message to send
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * JSON serialization fails
+    /// * Frame send fails
     async fn send_message(&mut self, message: Message) -> Result<()> {
         // Reset the timer regardless of success or failure, to prevent getting
         // stuck in a reporting state.
@@ -1261,6 +1782,17 @@ impl Client {
         self.send_frame(frame).await
     }
 
+    /// Subscribes to a protocol channel.
+    ///
+    /// Only subscribes if not already subscribed.
+    ///
+    /// # Arguments
+    ///
+    /// * `ident` - Channel identifier
+    ///
+    /// # Errors
+    ///
+    /// Returns error if subscription message fails
     async fn subscribe(&mut self, ident: Ident) -> Result<()> {
         if !self.subscriptions.contains(&ident) {
             let channel = self.channel(ident);
@@ -1274,6 +1806,17 @@ impl Client {
         Ok(())
     }
 
+    /// Unsubscribes from a protocol channel.
+    ///
+    /// Only unsubscribes if currently subscribed.
+    ///
+    /// # Arguments
+    ///
+    /// * `ident` - Channel identifier
+    ///
+    /// # Errors
+    ///
+    /// Returns error if unsubscribe message fails
     async fn unsubscribe(&mut self, ident: Ident) -> Result<()> {
         if self.subscriptions.contains(&ident) {
             let channel = self.channel(ident);
@@ -1287,6 +1830,9 @@ impl Client {
         Ok(())
     }
 
+    /// Returns current user ID.
+    ///
+    /// Returns unspecified ID if no user token available.
     #[must_use]
     fn user_id(&self) -> UserId {
         self.user_token
@@ -1294,6 +1840,19 @@ impl Client {
             .map_or(UserId::Unspecified, |token| token.user_id)
     }
 
+    /// Creates channel descriptor for given identifier.
+    ///
+    /// Sets source and destination based on:
+    /// * Channel type
+    /// * Current user ID
+    ///
+    /// # Arguments
+    ///
+    /// * `ident` - Channel identifier
+    ///
+    /// # Returns
+    ///
+    /// Channel descriptor for protocol messages
     #[must_use]
     fn channel(&self, ident: Ident) -> Channel {
         let user_id = self.user_id();
@@ -1311,6 +1870,17 @@ impl Client {
     }
 }
 
+/// Escapes a string for use in shell commands.
+///
+/// Wraps shell-escape crate's functionality for string escaping.
+///
+/// # Arguments
+///
+/// * `s` - String to escape
+///
+/// # Returns
+///
+/// Shell-safe escaped string
 fn shell_escape(s: &str) -> String {
     shell_escape::escape(s.into()).to_string()
 }

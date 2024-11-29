@@ -1,5 +1,29 @@
 // Adapted from https://chuxi.github.io/posts/websocket/ by chuxi
 
+//! HTTP proxy support for HTTPS connections.
+//!
+//! This module provides HTTP(S) proxy functionality with:
+//! * Environment-based configuration
+//! * Basic authentication support
+//! * CONNECT tunneling for HTTPS
+//!
+//! Adapted from <https://chuxi.github.io/posts/websocket>/ by chuxi
+//!
+//! # Example
+//!
+//! ```rust
+//! use pleezer::proxy::Http;
+//!
+//! // From environment
+//! if let Some(proxy) = Http::from_env() {
+//!     // Connect through proxy
+//!     let stream = proxy.connect_async("https://api.deezer.com").await?;
+//! }
+//!
+//! // Manual configuration
+//! let proxy: Http = "http://user:pass@proxy:8080".parse()?;
+//! ```
+
 use std::{env, fmt::Display, str::FromStr};
 
 use base64::prelude::*;
@@ -12,22 +36,49 @@ use veil::Redact;
 
 use crate::error::{Error, Result};
 
-/// The configuration for an HTTP proxy.
+/// HTTP proxy configuration and connection handling.
+///
+/// Supports:
+/// * HTTP and HTTPS proxies
+/// * Basic authentication
+/// * Environment configuration
+/// * CONNECT tunneling
+///
+/// # Security
+///
+/// Authentication credentials are:
+/// * Redacted in debug output
+/// * Base64 encoded for transmission
+/// * Only sent over encrypted connections
 #[derive(Redact, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Http {
-    /// The authentication credentials for the proxy.
+    /// Basic auth credentials.
+    ///
+    /// Format: `Basic base64(username:password)`
+    /// Redacted in debug output.
     #[redact]
     auth: Option<Vec<u8>>,
 
-    /// The URL of the proxy.
+    /// Proxy server address.
+    ///
+    /// Format: `schema://host:port`
+    // TODO: change into a `Url` type
     url: String,
 }
 
 impl Http {
-    /// Create a new HTTP proxy configuration from the `HTTPS_PROXY` environment variable.
+    /// Creates proxy configuration from environment.
     ///
-    /// This function will return `None` if the environment variable is not set or the proxy URL
-    /// could not be parsed.
+    /// Checks for proxy URL in:
+    /// 1. `HTTPS_PROXY`
+    /// 2. `https_proxy`
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// std::env::set_var("HTTPS_PROXY", "http://proxy:8080");
+    /// let proxy = Http::from_env();
+    /// ```
     #[must_use]
     pub fn from_env() -> Option<Self> {
         let proxy = env::var("HTTPS_PROXY")
@@ -37,14 +88,21 @@ impl Http {
         proxy.and_then(|proxy| proxy.parse().ok())
     }
 
-    /// Connect to a target host through the proxy.
+    /// Establishes connection to target through proxy.
+    ///
+    /// Creates HTTPS tunnel using HTTP CONNECT method.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - Target URL to connect to
     ///
     /// # Errors
     ///
-    /// Will return `Err` if:
-    /// - the target URL could not be parsed
-    /// - the TCP stream to the proxy could not be established
-    /// - the tunnel to the target host could not be established
+    /// Returns error if:
+    /// * Target URL is invalid
+    /// * Proxy connection fails
+    /// * Tunnel establishment fails
+    /// * Authentication fails
     pub async fn connect_async(&self, target: &str) -> Result<TcpStream> {
         let target_url = Url::parse(target)?;
         let host = target_url
@@ -55,15 +113,28 @@ impl Http {
         Self::tunnel(tcp_stream, host, port, self.auth.as_ref()).await
     }
 
-    /// Open a tunnel to the target host through the proxy.
+    /// Creates HTTPS tunnel through proxy.
+    ///
+    /// Protocol:
+    /// 1. Sends CONNECT request
+    /// 2. Adds authentication if present
+    /// 3. Verifies successful response
+    /// 4. Returns established tunnel
+    ///
+    /// # Arguments
+    ///
+    /// * `conn` - TCP connection to proxy
+    /// * `host` - Target hostname
+    /// * `port` - Target port
+    /// * `auth` - Optional authentication header
     ///
     /// # Errors
     ///
-    /// Will return `Err` if:
-    /// - the connection to the proxy could not be established
-    /// - the authentication to the proxy failed
-    /// - the response from the proxy could not be read
-    /// - the response from the target host could not be read
+    /// Returns error if:
+    /// * Connection fails
+    /// * Authentication fails (407)
+    /// * Invalid response
+    /// * Response too large
     async fn tunnel(
         mut conn: TcpStream,
         host: &str,
@@ -117,7 +188,26 @@ impl Http {
 impl FromStr for Http {
     type Err = Error;
 
-    /// Create a new `HttpProxy` from a string.
+    /// Parses proxy configuration from URL string.
+    ///
+    /// Format: `[http|https]://[user:pass@]host:port`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// // Simple proxy
+    /// let proxy: Http = "http://proxy:8080".parse()?;
+    ///
+    /// // With authentication
+    /// let proxy: Http = "http://user:pass@proxy:8080".parse()?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * URL is invalid
+    /// * Scheme is not http/https
+    /// * Required components missing
     fn from_str(proxy_str: &str) -> std::result::Result<Self, Self::Err> {
         let url = Url::parse(proxy_str)?;
         let addr = &url[Position::BeforeHost..Position::AfterPort];
@@ -148,7 +238,10 @@ impl FromStr for Http {
 }
 
 impl Display for Http {
-    /// Format the `HttpProxy` as a string.
+    /// Formats proxy as `host:port` string.
+    ///
+    /// Note: Authentication credentials are not included
+    /// in the output for security.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.url)
     }

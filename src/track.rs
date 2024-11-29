@@ -1,3 +1,60 @@
+//! Track management and playback preparation.
+//!
+//! This module handles Deezer track operations including:
+//! * Track metadata management
+//! * Media source retrieval
+//! * Download management
+//! * Format handling
+//! * Encryption detection
+//!
+//! # Track Lifecycle
+//!
+//! 1. Creation
+//!    * From gateway API response
+//!    * Contains metadata and tokens
+//!
+//! 2. Media Source Resolution
+//!    * Retrieves download URLs
+//!    * Negotiates quality/format
+//!    * Validates availability
+//!
+//! 3. Download Management
+//!    * Background downloading
+//!    * Progress tracking
+//!    * Buffer management
+//!
+//! # Quality Fallback
+//!
+//! When requested quality isn't available, the system attempts fallback in order:
+//! * FLAC → MP3 320 → MP3 128 → MP3 64
+//! * MP3 320 → MP3 128 → MP3 64
+//! * MP3 128 → MP3 64
+//!
+//! # Integration
+//!
+//! Works with:
+//! * [`player`](crate::player) - For playback management
+//! * [`gateway`](crate::gateway) - For track metadata
+//! * [`decrypt`](crate::decrypt) - For encrypted content
+//!
+//! # Example
+//!
+//! ```rust
+//! use pleezer::track::Track;
+//!
+//! // Create track from gateway data
+//! let mut track = Track::from(track_data);
+//!
+//! // Get media source
+//! let medium = track.get_medium(&client, &media_url, quality, license_token).await?;
+//!
+//! // Start download
+//! track.start_download(&client, &medium).await?;
+//!
+//! // Monitor progress
+//! println!("Downloaded: {:?} of {:?}", track.buffered(), track.duration());
+//! ```
+
 use std::{
     fmt,
     num::NonZeroI64,
@@ -23,62 +80,134 @@ use crate::{
     util::ToF32,
 };
 
-/// A unique identifier for a track. User-uploaded tracks are identified by negative IDs.
+/// A unique identifier for a track.
+///
+/// * Positive IDs: Regular Deezer tracks
+/// * Negative IDs: User-uploaded tracks
 #[expect(clippy::module_name_repetitions)]
 pub type TrackId = NonZeroI64;
 
+/// Represents a Deezer track with metadata and download state.
+///
+/// Combines track metadata (title, artist, etc) with download management
+/// functionality including quality settings, buffering state, and
+/// encryption information.
+///
+/// # Example
+///
+/// ```rust
+/// use pleezer::track::Track;
+///
+/// let track = Track::from(track_data);
+/// println!("Track: {} by {}", track.title(), track.artist());
+/// println!("Duration: {:?}", track.duration());
+/// ```
 #[derive(Debug)]
 pub struct Track {
+    /// Unique identifier for the track.
+    /// Negative values indicate user-uploaded content.
     id: TrackId,
+
+    /// Authentication token specific to this track.
+    /// Required for media access requests.
     track_token: String,
+
+    /// Title of the track.
     title: String,
+
+    /// Main artist name.
     artist: String,
+
+    /// Title of the album containing this track.
     album_title: String,
+
+    /// Identifier for the album's cover artwork.
+    /// Used to construct cover image URLs.
     album_cover: String,
+
+    /// Replay gain value in decibels.
+    /// Used for volume normalization if available.
     gain: Option<f32>,
+
+    /// When this track's access token expires.
+    /// After this time, new tokens must be requested.
     expiry: SystemTime,
+
+    /// Current audio quality setting.
+    /// May be lower than requested if higher quality unavailable.
     quality: AudioQuality,
+
+    /// Total duration of the track.
     duration: Duration,
+
+    /// Amount of audio data downloaded and available for playback.
+    /// Protected by mutex for concurrent access from download task.
     buffered: Arc<Mutex<Duration>>,
+
+    /// Total size of the audio file in bytes.
+    /// Available only after download begins.
     file_size: Option<u64>,
+
+    /// Encryption cipher used for this track.
+    /// `Cipher::NONE` represents unencrypted content.
     cipher: Cipher,
+
+    /// Handle to active download if any.
+    /// None if download hasn't started or was reset.
     handle: Option<StreamHandle>,
 }
 
 impl Track {
-    /// Amount of seconds to audio to buffer before the track can be read from.
+    /// Amount of audio to buffer before playback can start.
+    ///
+    /// This helps prevent playback interruptions by ensuring
+    /// enough audio data is available.
     const PREFETCH_LENGTH: Duration = Duration::from_secs(3);
 
-    /// The default amount of bytes to prefetch before the track can be read
-    /// from. This is used when the track does not provide a `Content-Length`
-    /// header, and is equal to what the official Deezer client uses.
+    /// Default prefetch size in bytes when Content-Length is unknown.
+    ///
+    /// Used when server doesn't provide file size. Value matches
+    /// official Deezer client behavior.
     const PREFETCH_DEFAULT: usize = 60 * 1024;
 
+    /// Returns the track's unique identifier.
     #[must_use]
     pub fn id(&self) -> TrackId {
         self.id
     }
 
+    /// Returns the track duration.
+    ///
+    /// The duration represents the total playback time of the track.
     #[must_use]
     pub fn duration(&self) -> Duration {
         self.duration
     }
 
+    /// Returns the track's replay gain value if available.
+    ///
+    /// Replay gain is used for volume normalization:
+    /// * Positive values indicate track is quieter than reference
+    /// * Negative values indicate track is louder than reference
+    /// * None indicates no gain information available
     #[must_use]
     pub fn gain(&self) -> Option<f32> {
         self.gain
     }
 
+    /// Returns the track title.
     #[must_use]
     pub fn title(&self) -> &str {
         &self.title
     }
 
+    /// Returns the track artist name.
     #[must_use]
     pub fn artist(&self) -> &str {
         &self.artist
     }
 
+    /// Returns the album title for this track.
     #[must_use]
     pub fn album_title(&self) -> &str {
         &self.album_title
@@ -112,12 +241,23 @@ impl Track {
         &self.album_cover
     }
 
+    /// Returns the track's expiration time.
+    ///
+    /// After this time, the track becomes unavailable for download
+    /// and may need token refresh.
     #[must_use]
     pub fn expiry(&self) -> SystemTime {
         self.expiry
     }
 
-    /// The duration of the track that has been buffered.
+    /// Returns the duration of audio data currently buffered.
+    ///
+    /// This represents how much of the track has been downloaded and
+    /// is available for playback.
+    ///
+    /// # Panics
+    ///
+    /// Returns last known value if lock is poisoned due to download task panic.
     #[must_use]
     pub fn buffered(&self) -> Duration {
         // Return the buffered duration, or when the lock is poisoned because
@@ -127,60 +267,76 @@ impl Track {
         *self.buffered.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Returns the track's audio quality.
     #[must_use]
     pub fn quality(&self) -> AudioQuality {
         self.quality
     }
 
+    /// Returns the encryption cipher used for this track.
     #[must_use]
     pub fn cipher(&self) -> Cipher {
         self.cipher
     }
 
+    /// Returns whether the track is encrypted.
+    ///
+    /// True if the track uses any cipher other than NONE.
     #[must_use]
     pub fn is_encrypted(&self) -> bool {
         self.cipher != Cipher::NONE
     }
 
+    /// Returns whether this track uses lossless audio encoding.
+    ///
+    /// True only for FLAC encoded tracks.
     #[must_use]
     pub fn is_lossless(&self) -> bool {
         self.quality == AudioQuality::Lossless
     }
 
+    /// Cipher format for 64kbps MP3 files using Blowfish CBC stripe encryption.
     const BF_CBC_STRIPE_MP3_64: CipherFormat = CipherFormat {
         cipher: Cipher::BF_CBC_STRIPE,
         format: Format::MP3_64,
     };
 
+    /// Cipher format for 128kbps MP3 files using Blowfish CBC stripe encryption.
     const BF_CBC_STRIPE_MP3_128: CipherFormat = CipherFormat {
         cipher: Cipher::BF_CBC_STRIPE,
         format: Format::MP3_128,
     };
 
+    /// Cipher format for 320kbps MP3 files using Blowfish CBC stripe encryption.
     const BF_CBC_STRIPE_MP3_320: CipherFormat = CipherFormat {
         cipher: Cipher::BF_CBC_STRIPE,
         format: Format::MP3_320,
     };
 
+    /// Cipher format for MP3 files with unknown bitrate using Blowfish CBC stripe encryption.
     const BF_CBC_STRIPE_MP3_MISC: CipherFormat = CipherFormat {
         cipher: Cipher::BF_CBC_STRIPE,
         format: Format::MP3_MISC,
     };
 
+    /// Cipher format for FLAC files using Blowfish CBC stripe encryption.
     const BF_CBC_STRIPE_FLAC: CipherFormat = CipherFormat {
         cipher: Cipher::BF_CBC_STRIPE,
         format: Format::FLAC,
     };
 
+    /// Available cipher formats for basic quality.
     const CIPHER_FORMATS_MP3_64: [CipherFormat; 2] =
         [Self::BF_CBC_STRIPE_MP3_64, Self::BF_CBC_STRIPE_MP3_MISC];
 
+    /// Available cipher formats for standard quality.
     const CIPHER_FORMATS_MP3_128: [CipherFormat; 3] = [
         Self::BF_CBC_STRIPE_MP3_128,
         Self::BF_CBC_STRIPE_MP3_64,
         Self::BF_CBC_STRIPE_MP3_MISC,
     ];
 
+    /// Available cipher formats for high quality.
     const CIPHER_FORMATS_MP3_320: [CipherFormat; 4] = [
         Self::BF_CBC_STRIPE_MP3_320,
         Self::BF_CBC_STRIPE_MP3_128,
@@ -188,6 +344,7 @@ impl Track {
         Self::BF_CBC_STRIPE_MP3_MISC,
     ];
 
+    /// Available cipher formats for lossless quality.
     const CIPHER_FORMATS_FLAC: [CipherFormat; 5] = [
         Self::BF_CBC_STRIPE_FLAC,
         Self::BF_CBC_STRIPE_MP3_320,
@@ -196,25 +353,35 @@ impl Track {
         Self::BF_CBC_STRIPE_MP3_MISC,
     ];
 
-    /// The endpoint for obtaining media sources.
+    /// API endpoint for retrieving media sources.
     const MEDIA_ENDPOINT: &'static str = "v1/get_url";
 
-    /// Get a HTTP media source for the track.
+    /// Retrieves a media source for the track.
     ///
-    /// # Parameters
+    /// Attempts to get download URLs for the requested quality level,
+    /// falling back to lower qualities if necessary.
     ///
-    /// - `client`: The HTTP client to use for the request.
-    /// - `quality`: The audio quality that is preferred.
-    /// - `license_token`: The license token to obtain the track with the given quality.
+    /// # Arguments
+    ///
+    /// * `client` - HTTP client for API requests
+    /// * `media_url` - Base URL for media content
+    /// * `quality` - Preferred audio quality
+    /// * `license_token` - Token authorizing media access
     ///
     /// # Errors
     ///
-    /// Returns an error if the requested audio quality is unknown, or if the
-    /// media source could not be retrieved.
+    /// Returns error if:
+    /// * Track has expired
+    /// * Quality level is unknown
+    /// * Media source unavailable
+    /// * Network request fails
     ///
-    /// # Panics
+    /// # Quality Fallback
     ///
-    /// Panics if the download state lock is poisoned.
+    /// If requested quality unavailable, attempts lower qualities in order:
+    /// * FLAC → MP3 320 → MP3 128 → MP3 64
+    /// * MP3 320 → MP3 128 → MP3 64
+    /// * MP3 128 → MP3 64
     pub async fn get_medium(
         &self,
         client: &http::Client,
@@ -288,11 +455,31 @@ impl Track {
         Ok(result)
     }
 
+    /// Returns whether this is a user-uploaded track.
+    ///
+    /// User-uploaded tracks are identified by negative IDs and may
+    /// have different availability and quality characteristics.
     #[must_use]
     pub fn is_user_uploaded(&self) -> bool {
         self.id.is_negative()
     }
 
+    /// Opens a stream for downloading the track content.
+    ///
+    /// Attempts to open the first available source URL, falling back
+    /// to alternatives if needed.
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - HTTP client for making requests
+    /// * `medium` - Media source information
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No valid sources available
+    /// * Track expired or not yet available
+    /// * Network error occurs
     async fn open_stream(
         &self,
         client: &http::Client,
@@ -351,18 +538,38 @@ impl Track {
         result
     }
 
-    /// Start downloading the track with the given `client` and from the given
-    /// `medium`. The download will be started in the background.
+    /// Starts downloading the track.
+    ///
+    /// Initiates a background download task that:
+    /// * Streams content from source
+    /// * Tracks download progress
+    /// * Updates buffer state
+    /// * Enables playback before completion
+    ///
+    /// # Arguments
+    ///
+    /// * `client` - HTTP client for download
+    /// * `medium` - Media source information
     ///
     /// # Errors
     ///
-    /// Returns an error if the no sources are found for the track, if the URL
-    /// has no host name, if the track is not available for download, or if the
-    /// download link expired.
+    /// Returns error if:
+    /// * No valid source found
+    /// * Track unavailable
+    /// * Network error occurs
+    /// * Download cannot start
+    ///
+    /// # Progress Tracking
+    ///
+    /// Download progress is tracked via:
+    /// * `buffered()` - Amount downloaded
+    /// * `is_complete()` - Download status
+    /// * `file_size()` - Total size if known
     ///
     /// # Panics
     ///
-    /// Panics if the download state lock is poisoned.
+    /// * When the buffered duration mutex is poisoned in the progress callback
+    /// * When duration calculation overflows during progress calculation
     pub async fn start_download(
         &mut self,
         client: &http::Client,
@@ -437,21 +644,31 @@ impl Track {
         Ok(download)
     }
 
-    /// Returns a handle to interact with the download of the track, if the
-    /// download has been started.
+    /// Returns a handle to the track's download if active.
+    ///
+    /// Returns None if download hasn't started.
     #[must_use]
     pub fn handle(&self) -> Option<StreamHandle> {
         self.handle.clone()
     }
 
-    /// Whether the download of the track is complete.
+    /// Returns whether the track download is complete.
+    ///
+    /// A track is complete when the buffered duration equals
+    /// the total track duration.
     #[must_use]
     pub fn is_complete(&self) -> bool {
         self.buffered().as_secs() == self.duration.as_secs()
     }
 
-    /// Reset the download progress and file size of the track. This can be
-    /// useful if the download was interrupted and needs to be restarted.
+    /// Resets the track's download state.
+    ///
+    /// Clears:
+    /// * Download handle
+    /// * File size information
+    /// * Buffer progress
+    ///
+    /// Useful when needing to restart an interrupted download.
     ///
     /// # Panics
     ///
@@ -462,8 +679,10 @@ impl Track {
         *self.buffered.lock().unwrap() = Duration::ZERO;
     }
 
-    /// Returns the file size of the track, if known after the download has
-    /// started.
+    /// Returns the total file size if known.
+    ///
+    /// Size becomes available after download starts and server
+    /// provides Content-Length.
     #[must_use]
     pub fn file_size(&self) -> Option<u64> {
         self.file_size
@@ -471,6 +690,13 @@ impl Track {
 }
 
 impl From<gateway::ListData> for Track {
+    /// Creates a Track from gateway list data.
+    ///
+    /// Initializes track with:
+    /// * Basic metadata (ID, title, artist, etc)
+    /// * Default quality (Standard)
+    /// * Default cipher (`BF_CBC_STRIPE`)
+    /// * Empty download state
     fn from(item: gateway::ListData) -> Self {
         Self {
             id: item.track_id,
@@ -492,6 +718,15 @@ impl From<gateway::ListData> for Track {
 }
 
 impl fmt::Display for Track {
+    /// Formats track for display, showing ID, artist and title.
+    ///
+    /// Format: "{id}: "{artist} - {title}""
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// 12345: "Artist Name - Track Title"
+    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}: \"{} - {}\"", self.id, self.artist, self.title)
     }

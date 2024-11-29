@@ -501,13 +501,12 @@ impl fmt::Display for DeviceId {
 
 /// Message payload in the Deezer Connect protocol.
 ///
-/// Represents the various types of message content that can be exchanged between
-/// Deezer Connect devices. Each variant corresponds to a specific message type
-/// and carries its relevant data.
+/// Represents the actual content of messages exchanged between devices. Each variant
+/// corresponds to a specific message type and carries its relevant data.
 ///
-/// # Wire Format
+/// # Wire Format Rules
 ///
-/// Bodies are serialized in two different ways depending on the message type:
+/// Messages follow one of two formats depending on type:
 ///
 /// JSON format (most messages):
 /// ```json
@@ -531,12 +530,35 @@ impl fmt::Display for DeviceId {
 /// }
 /// ```
 ///
+/// # Validation Rules
+///
+/// Common requirements for all messages:
+/// * `messageId` must be non-empty
+/// * `messageType` must match payload content
+/// * `protocolVersion` must be supported for message type
+///
+/// Payload-specific rules:
+/// * `PlaybackProgress`:
+///   - Progress must be between 0.0 and 1.0
+///   - Volume must be between 0.0 and 1.0
+///   - Duration must be non-negative
+///   - Queue ID must match track's queue
+/// * `PublishQueue`:
+///   - Queue must have valid ID
+///   - Track positions must be sequential
+///   - Track IDs must be valid
+/// * `Skip`:
+///   - Progress must be between 0.0 and 1.0 if present
+///   - Volume must be between 0.0 and 1.0 if present
+///   - Track must belong to specified queue if both present
+///
 /// # Examples
 ///
-/// Creating a playback progress message:
+/// Valid messages:
 /// ```rust
 /// use std::time::Duration;
 ///
+/// // Playback progress
 /// let body = Body::PlaybackProgress {
 ///     message_id: "msg123".to_string(),
 ///     track: QueueItem {
@@ -553,18 +575,83 @@ impl fmt::Display for DeviceId {
 ///     is_shuffle: false,
 ///     repeat_mode: RepeatMode::None,
 /// };
-/// ```
 ///
-/// Creating a queue publication message:
-/// ```rust
-/// let body = Body::PublishQueue {
+/// // Skip command
+/// let body = Body::Skip {
 ///     message_id: "msg456".to_string(),
-///     queue: queue::List {
-///         id: "queue123".to_string(),
-///         // ... other queue fields ...
-///     },
+///     queue_id: Some("queue123".to_string()),
+///     track: Some(queue_item),
+///     progress: Some(Percentage::from_ratio_f32(0.0)),
+///     should_play: Some(true),
+///     set_repeat_mode: None,
+///     set_shuffle: None,
+///     set_volume: None,
 /// };
 /// ```
+///
+/// Error cases:
+/// ```rust
+/// use serde_json::json;
+///
+/// // Invalid progress value
+/// let invalid = json!({
+///     "messageId": "msg123",
+///     "messageType": "playbackProgress",
+///     "protocolVersion": "com.deezer.remote.command.proto1",
+///     "payload": {
+///         "progress": 1.5,  // Must be <= 1.0
+///         // ... other fields ...
+///     }
+/// });
+/// assert!(serde_json::from_value::<Body>(invalid).is_err());
+///
+/// // Mismatched message type
+/// let invalid = json!({
+///     "messageId": "msg123",
+///     "messageType": "skip",
+///     "protocolVersion": "com.deezer.remote.command.proto1",
+///     "payload": {
+///         // playbackProgress payload
+///         "progress": 0.5,
+///         // ... other fields ...
+///     }
+/// });
+/// assert!(serde_json::from_value::<Body>(invalid).is_err());
+///
+/// // Invalid protocol version
+/// let invalid = json!({
+///     "messageId": "msg123",
+///     "messageType": "playbackProgress",
+///     "protocolVersion": "unknown",
+///     "payload": {}
+/// });
+/// assert!(serde_json::from_value::<Body>(invalid).is_err());
+///
+/// // Queue with invalid track positions
+/// let invalid = json!({
+///     "messageId": "msg123",
+///     "messageType": "publishQueue",
+///     "protocolVersion": "com.deezer.remote.queue.proto1",
+///     "payload": "base64-encoded-protobuf-with-gaps-in-positions"
+/// });
+/// assert!(serde_json::from_value::<Body>(invalid).is_err());
+/// ```
+///
+/// # Protocol Versions
+///
+/// Different message types require specific protocol versions:
+/// * `com.deezer.remote.command.proto1`:
+///   - `PlaybackProgress`
+///   - Skip
+///   - Status
+///   - etc.
+/// * `com.deezer.remote.discovery.proto1`:
+///   - Connect
+///   - `ConnectionOffer`
+///   - `DiscoveryRequest`
+/// * `com.deezer.remote.queue.proto1`:
+///   - `PublishQueue`
+///   - `RefreshQueue`
 #[derive(Clone, Debug, PartialEq)]
 pub enum Body {
     /// Acknowledges receipt of a message.
@@ -2084,6 +2171,28 @@ pub enum Params {
 }
 
 /// Type of device offering a Deezer Connect connection.
+///
+/// This type is used during device discovery to identify the nature of the connecting
+/// device, which can affect how it appears in device selection UIs and how other
+/// devices interact with it.
+///
+/// # Examples
+///
+/// ```rust
+/// use serde_json;
+///
+/// // Creating device types
+/// let web = DeviceType::Web;  // Default, used by desktop apps
+/// let mobile = DeviceType::Mobile;  // Used by smartphone apps
+///
+/// // Parsing from strings
+/// assert_eq!("web".parse::<DeviceType>()?, DeviceType::Web);
+/// assert_eq!("mobile".parse::<DeviceType>()?, DeviceType::Mobile);
+///
+/// // Wire format serialization
+/// assert_eq!(serde_json::to_string(&DeviceType::Web)?, r#""web""#);
+/// assert_eq!(serde_json::to_string(&DeviceType::Mobile)?, r#""mobile""#);
+/// ```
 #[serde_as]
 #[derive(
     Copy,
@@ -2117,7 +2226,8 @@ pub enum DeviceType {
 
     /// Unknown device type
     ///
-    /// This variant catches any device types not explicitly supported.
+    /// This variant catches any device types not explicitly supported,
+    /// allowing forward compatibility with new device types.
     Unknown,
 }
 

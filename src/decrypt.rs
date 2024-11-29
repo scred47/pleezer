@@ -1,3 +1,44 @@
+//! Track decryption for Deezer's protected media content.
+//!
+//! This module provides decryption of Deezer tracks while streaming:
+//! * Decrypts data in 2KB blocks as it's read
+//! * Uses temporary file storage for encrypted data
+//! * Supports Blowfish CBC encryption with striping
+//!
+//! # Encryption Format
+//!
+//! Deezer uses a striped encryption pattern:
+//! * Content is divided into 2KB blocks
+//! * Every third block is encrypted
+//! * Encryption uses Blowfish in CBC mode
+//! * A fixed IV is used
+//!
+//! # Security
+//!
+//! To comply with Deezer's Terms of Service:
+//! * No decryption keys are included in this code
+//! * Keys must be provided externally
+//!
+//! # Memory Management
+//!
+//! The implementation uses:
+//! * Temporary file storage for the encrypted stream
+//! * 2KB buffer for decrypted blocks
+//! * No additional buffering needed
+//!
+//! # Examples
+//!
+//! ```rust
+//! use pleezer::decrypt::{Decrypt, Key};
+//!
+//! // Create decryptor with track and key
+//! let decryptor = Decrypt::new(&track, download, &key)?;
+//!
+//! // Read and decrypt content
+//! let mut buffer = Vec::new();
+//! decryptor.read_to_end(&mut buffer)?;
+//! ```
+
 use std::{
     io::{self, Cursor, Read, Seek, SeekFrom},
     ops::Deref,
@@ -15,69 +56,98 @@ use crate::{
     track::{Track, TrackId},
 };
 
-/// Provides a stream of decrypted data from an encrypted track by implementing
-/// the `Read` and `Seek` traits. Decryption is done on the fly, meaning that
-/// data is decrypted as it is read from the source.
+/// Streaming decryptor for protected tracks.
 ///
-/// # On the Fly Decryption
-///
-/// On the fly decryption means that data is decrypted as it is read from the
-/// source, without saving the decrypted data to disk. This way, no DRM is
-/// bypassed, and we abide by the Deezer Terms of Service.
-///
-/// # Decryption Key
-///
-/// Again to abide by the Deezer Terms of Service, the Deezer decryption key
-/// (actually: salt) is not contained within this module. Its value must be
-/// provided by the user.
-///
-/// # Supported Encryption
-///
-/// Currently, this module only supports CBC decryption with Blowfish. This is
-/// the only encryption algorithm used by Deezer at the time of writing.
-///
-/// Tracks without encryption are not supported by this module simply have their
-/// `Read` and `Seek` implementations passed through.
+/// Provides decryption of Deezer tracks by implementing `Read` and `Seek`.
+/// Uses temporary file storage for the encrypted stream and decrypts
+/// data in 2KB blocks as it's read.
 ///
 /// # Buffering
 ///
-/// The decryption is done in blocks of 2 kB. This means that the `Read` trait
-/// will read at most 2 kB of data at a time. Therefore, it is not necessary to
-/// wrap the `Decrypt` struct in a `BufReader`.
+/// Uses 2KB blocks for decryption. No additional buffering is needed
+/// as the `Read` implementation handles blocks efficiently.
+///
+/// # Supported Encryption
+///
+/// Currently supports:
+/// * No encryption (passthrough)
+/// * Blowfish CBC with striping (every third 2KB block)
 pub struct Decrypt {
-    /// The download stream to decrypt.
+    /// Source of encrypted data using temporary file storage.
     download: StreamDownload<TempStorageProvider>,
 
-    /// The size of the download.
+    /// Total size of the track in bytes, if known.
+    ///
+    /// Used for seek operations, particularly for seeking from
+    /// the end of the track.
     file_size: Option<u64>,
 
-    /// The encryption cipher.
+    /// Encryption method used for this track.
+    ///
+    /// Either `NONE` for unencrypted tracks or `BF_CBC_STRIPE`
+    /// for Blowfish CBC encryption with striping.
     cipher: Cipher,
 
-    /// The decryption key.
+    /// Track-specific decryption key.
+    ///
+    /// Derived from the track ID and Deezer master key using
+    /// `key_for_track_id()`.
     key: Key,
 
-    /// The buffer to store the current block of decrypted data. Each block is
-    /// at most 2 kB, and can be smaller if it is the last block until the end
-    /// of the track.
+    /// Decrypted data buffer.
+    ///
+    /// Contains the current 2KB block (or smaller for the last block)
+    /// of decrypted data. Position tracks how much has been read.
     buffer: Cursor<Vec<u8>>,
 
-    /// The current block number.
+    /// Current block number being processed.
+    ///
+    /// Used to track position in the stream and determine which
+    /// blocks need decryption (every third block when using
+    /// `BF_CBC_STRIPE`).
     block: Option<u64>,
 }
 
-/// The fixed length of a decryption key.
+/// Length of decryption keys in bytes.
 pub const KEY_LENGTH: usize = 16;
 
+/// Raw key bytes.
 pub type RawKey = [u8; KEY_LENGTH];
 
-/// A decryption key with fixed length.
+/// Validated decryption key.
+///
+/// Ensures keys are the correct length and format for use
+/// with Blowfish decryption.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Key(RawKey);
 
 impl FromStr for Key {
     type Err = Error;
 
+    /// Parses a string into a decryption key.
+    ///
+    /// The string must be exactly 16 bytes long, as required by
+    /// Blowfish and Deezer's encryption format.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::OutOfRange` if the string length isn't
+    /// exactly 16 bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use pleezer::decrypt::Key;
+    ///
+    /// // Valid 16-byte key
+    /// let key: Key = "1234567890123456".parse()?;
+    ///
+    /// // Too short
+    /// assert!("12345".parse::<Key>().is_err());
+    ///
+    /// // Too long
+    /// assert!("12345678901234567".parse::<Key>().is_err());
+    /// ```
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let len = s.len();
         if len != KEY_LENGTH {
@@ -97,33 +167,55 @@ impl FromStr for Key {
 impl Deref for Key {
     type Target = RawKey;
 
+    /// Provides read-only access to the raw key bytes.
+    ///
+    /// This allows using the key with cryptographic functions
+    /// that expect byte arrays while maintaining key encapsulation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use pleezer::decrypt::Key;
+    ///
+    /// let key: Key = "1234567890123456".parse()?;
+    ///
+    /// // Access raw bytes
+    /// assert_eq!(&*key, b"1234567890123456");
+    ///
+    /// // Use with crypto functions
+    /// let cipher = Blowfish::new_from_slice(&*key)?;
+    /// ```
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl Decrypt {
-    /// The initialization vector to use for CBC decryption. Deezer uses a fixed
-    /// initialization vector of 8 bytes.
+    /// Fixed IV for CBC decryption.
     const CBC_BF_IV: &[u8; 8] = b"\x00\x01\x02\x03\x04\x05\x06\x07";
 
-    /// The size of a block. Deezer uses blocks of 2 kB.
+    /// Size of each block in bytes (2KB).
     const CBC_BLOCK_SIZE: usize = 2 * 1024;
 
-    /// For each set of blocks in a stripe, which block is encrypted. Deezer
-    /// encrypts every third block.
+    /// Number of blocks in a stripe (3).
+    ///
+    /// Every third block is encrypted.
     const CBC_STRIPE_COUNT: usize = 3;
 
-    /// The supported encryption ciphers.
+    /// Supported encryption methods.
     const SUPPORTED_CIPHERS: [Cipher; 2] = [Cipher::NONE, Cipher::BF_CBC_STRIPE];
 
-    /// Create a new decryptor for the given track and salt. The salt is the
-    /// fixed Deezer decryption key, from which the track-specific key is
-    /// calculated.
+    /// Creates a new decryptor for a track.
+    ///
+    /// # Arguments
+    ///
+    /// * `track` - Track to decrypt
+    /// * `download` - Download stream
+    /// * `salt` - Deezer decryption key (used to derive track-specific key)
     ///
     /// # Errors
     ///
-    /// Will return `Err` if the track uses an unsupported encryption algorithm.
+    /// Returns `Error::Unimplemented` if track uses unsupported encryption.
     pub fn new(
         track: &Track,
         download: StreamDownload<TempStorageProvider>,
@@ -146,8 +238,16 @@ impl Decrypt {
         })
     }
 
-    /// Calculate the decryption key for a track ID and salt. The salt is the
-    /// Deezer decryption key, from which the track-specific key is calculated.
+    /// Calculates track-specific decryption key.
+    ///
+    /// The key is derived using:
+    /// 1. MD5 hash of track ID
+    /// 2. XOR with Deezer master key
+    ///
+    /// # Arguments
+    ///
+    /// * `track_id` - Track to generate key for
+    /// * `salt` - Deezer master key
     #[must_use]
     pub fn key_for_track_id(track_id: TrackId, salt: &Key) -> Key {
         let track_hash = format!("{:x}", Md5::digest(track_id.to_string()));
@@ -172,8 +272,12 @@ impl Decrypt {
 }
 
 impl Seek for Decrypt {
-    /// Seeks to the given position in the decrypted stream. If the track is not
-    /// encrypted, this is a simple pass-through to the underlying track.
+    /// Seeks within the decrypted stream.
+    ///
+    /// Handles:
+    /// * Block boundary calculation
+    /// * Buffer management
+    /// * Decryption of new blocks
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         // If the track is not encrypted, we can seek directly.
         if self.cipher == Cipher::NONE {
@@ -282,8 +386,13 @@ impl Seek for Decrypt {
 }
 
 impl Read for Decrypt {
-    /// Reads data from the decrypted stream. If the track is not encrypted,
-    /// this is a simple pass-through to the underlying track.
+    /// Reads decrypted data from the stream.
+    ///
+    /// For unencrypted tracks, passes through directly to the
+    /// underlying stream. For encrypted tracks:
+    /// 1. Fills internal buffer if empty
+    /// 2. Decrypts blocks as needed
+    /// 3. Returns requested number of bytes
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // If the track is not encrypted, we can read directly.
         if self.cipher == Cipher::NONE {
