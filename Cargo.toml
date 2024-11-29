@@ -28,6 +28,7 @@ env_logger = { version = "0.11", default-features = false, features = [
     "auto-color",
     "humantime",
 ] }
+fastrand = "2.2"
 flate2 = "1.0"
 futures-util = { version = "0.3", default-features = false }
 governor = { version = "0.7", default-features = false, features = ["std"] }
@@ -37,7 +38,6 @@ lru_time_cache = "0.11"
 machine-uid = "0.5"
 md-5 = "0.10"
 protobuf = { version = "3.2", features = ["with-bytes"] }
-rand = { version = "0.8", features = ["small_rng"] }
 regex-lite = "0.1"
 reqwest = { version = "0.12", default-features = false, features = [
     "brotli",
@@ -76,7 +76,7 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 tokio-util = "0.7"
 toml = "0.8"
 url = { version = "2.5", features = ["serde"] }
-uuid = { version = "1.2", features = ["fast-rng", "serde", "v4", "v5"] }
+uuid = { version = "1.2", features = ["serde", "v4"] }
 veil = "0.2"
 
 [[bin]]

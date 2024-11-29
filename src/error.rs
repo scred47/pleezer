@@ -821,3 +821,10 @@ impl From<tokio::time::error::Elapsed> for Error {
         Self::deadline_exceeded(e.to_string())
     }
 }
+
+impl From<uuid::Error> for Error {
+    /// Converts UUID errors to `InvalidArgument`.
+    fn from(e: uuid::Error) -> Self {
+        Self::invalid_argument(e.to_string())
+    }
+}

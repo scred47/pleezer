@@ -693,7 +693,7 @@ impl Client {
                 .collect();
 
             // Generate a new list ID for the UI to pick up.
-            list.id = Uuid::new_v4().to_string();
+            list.id = (*crate::Uuid::fast_v4()).into();
 
             debug!(
                 "extending queue {} with {} tracks",
@@ -868,7 +868,7 @@ impl Client {
     async fn disconnect(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let close = Body::Close {
-                message_id: Uuid::new_v4().into(),
+                message_id: (*crate::Uuid::fast_v4()).into(),
             };
 
             let command = self.command(controller.clone(), close);
@@ -899,7 +899,7 @@ impl Client {
         // Controllers keep sending discovery requests about every two seconds
         // until it accepts some offer. `connection_offers` implements a LRU
         // cache to evict stale offers.
-        let message_id = Uuid::new_v4().to_string();
+        let message_id = crate::Uuid::fast_v4().to_string();
         self.connection_offers
             .insert(message_id.clone(), from.clone());
 
@@ -959,7 +959,7 @@ impl Client {
             return Err(e);
         }
 
-        let message_id = Uuid::new_v4().to_string();
+        let message_id = crate::Uuid::fast_v4().to_string();
         let ready = Body::Ready {
             message_id: message_id.clone(),
         };
@@ -1046,7 +1046,7 @@ impl Client {
                 if let ConnectionState::Connected { controller, .. } = &self.connection_state {
                     // Evict the active connection.
                     let close = Body::Close {
-                        message_id: Uuid::new_v4().into(),
+                        message_id: (*crate::Uuid::fast_v4()).into(),
                     };
 
                     let command = self.command(controller.clone(), close);
@@ -1073,7 +1073,7 @@ impl Client {
                 // The unique session ID is used when reporting playback.
                 self.connection_state = ConnectionState::Connected {
                     controller: from,
-                    session_id: Uuid::new_v4(),
+                    session_id: *crate::Uuid::fast_v4(),
                 };
 
                 info!("connected to {controller}");
@@ -1222,7 +1222,7 @@ impl Client {
     async fn send_ping(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let ping = Body::Ping {
-                message_id: Uuid::new_v4().into(),
+                message_id: (*crate::Uuid::fast_v4()).into(),
             };
 
             let command = self.command(controller.clone(), ping);
@@ -1249,7 +1249,7 @@ impl Client {
             if let Some(ref queue) = self.queue {
                 // First publish the queue to the controller.
                 let contents = Body::PublishQueue {
-                    message_id: Uuid::new_v4().into(),
+                    message_id: (*crate::Uuid::fast_v4()).into(),
                     queue: queue.clone(),
                 };
 
@@ -1259,7 +1259,7 @@ impl Client {
 
                 // Then signal the controller to refresh its UI.
                 let contents = Body::RefreshQueue {
-                    message_id: Uuid::new_v4().into(),
+                    message_id: (*crate::Uuid::fast_v4()).into(),
                 };
 
                 let refresh_queue =
@@ -1291,7 +1291,7 @@ impl Client {
     async fn send_acknowledgement(&mut self, acknowledgement_id: &str) -> Result<()> {
         if let Some(controller) = self.controller() {
             let acknowledgement = Body::Acknowledgement {
-                message_id: Uuid::new_v4().into(),
+                message_id: (*crate::Uuid::fast_v4()).into(),
                 acknowledgement_id: acknowledgement_id.to_string(),
             };
 
@@ -1468,7 +1468,7 @@ impl Client {
     async fn send_status(&mut self, command_id: &str, status: Status) -> Result<()> {
         if let Some(controller) = self.controller() {
             let status = Body::Status {
-                message_id: Uuid::new_v4().into(),
+                message_id: (*crate::Uuid::fast_v4()).into(),
                 command_id: command_id.to_string(),
                 status,
             };
@@ -1519,7 +1519,7 @@ impl Client {
                 };
 
                 let progress = Body::PlaybackProgress {
-                    message_id: Uuid::new_v4().into(),
+                    message_id: (*crate::Uuid::fast_v4()).into(),
                     track: item,
                     quality: track.quality(),
                     duration: track.duration(),

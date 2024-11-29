@@ -27,8 +27,6 @@ use std::{env, fs, path::Path, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
 use log::{debug, error, info, trace, warn, LevelFilter};
-use rand::Rng;
-use uuid::Uuid;
 
 use pleezer::{
     arl::Arl,
@@ -37,8 +35,8 @@ use pleezer::{
     error::{Error, ErrorKind, Result},
     player::Player,
     protocol::connect::DeviceType,
-    rand::with_rng,
     remote,
+    uuid::Uuid,
 };
 
 /// Build profile for logging.
@@ -306,16 +304,12 @@ async fn run(args: Args) -> Result<()> {
         let app_version = env!("CARGO_PKG_VERSION").to_owned();
         let app_lang = "en".to_owned();
 
-        let device_id = match machine_uid::get() {
-            Ok(machine_id) => {
-                let namespace = Uuid::new_v5(&Uuid::NAMESPACE_DNS, b"deezer.com");
-                Uuid::new_v5(&namespace, machine_id.as_bytes())
-            }
-            Err(e) => {
-                warn!("could not get machine id, using random device id: {e}");
-                Uuid::new_v4()
-            }
-        };
+        let device_id = *machine_uid::get()
+            .and_then(|uid| uid.parse().map_err(Into::into))
+            .unwrap_or_else(|_| {
+                warn!("could not get machine uuid, using random device id");
+                Uuid::fast_v4()
+            });
         trace!("device uuid: {device_id}");
 
         // Additional `User-Agent` string checks on top of what
@@ -355,7 +349,7 @@ async fn run(args: Args) -> Result<()> {
         trace!("user agent: {user_agent}");
 
         // Deezer on desktop uses a new `cid` on every start.
-        let client_id = with_rng(|rng| rng.gen_range(100_000_000..=999_999_999));
+        let client_id = fastrand::usize(100_000_000..=999_999_999);
         trace!("client id: {client_id}");
 
         Config {
@@ -429,7 +423,7 @@ async fn run(args: Args) -> Result<()> {
                 // Sleep with jitter to prevent thundering herds. Subsecond
                 // precision further prevents that by spreading requests
                 // when users are launching this from some crontab.
-                let duration = Duration::from_millis(with_rng(|rng| rng.gen_range(5_000..6_000)));
+                let duration = Duration::from_millis(fastrand::u64(5_000..=6_000));
                 info!("restarting in {:.1}s", duration.as_secs_f32());
                 restart_timer.as_mut().reset(tokio::time::Instant::now() + duration);
             }
