@@ -65,7 +65,8 @@ impl Uuid {
     /// let uuid = Uuid::fast_v4();
     /// println!("{}", uuid); // Prints a UUID like "550e8400-e29b-41d4-a716-446655440000"
     /// ```
-    #[must_use] pub fn fast_v4() -> Self {
+    #[must_use]
+    pub fn fast_v4() -> Self {
         let random_bytes = fastrand::u128(..).to_ne_bytes();
         let uuid = uuid::Builder::from_random_bytes(random_bytes).into_uuid();
         Self(uuid)
