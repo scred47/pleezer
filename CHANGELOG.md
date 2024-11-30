@@ -11,6 +11,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [docs] Comprehensive documentation for all public APIs and internals
 - [uuid] `uuid` module providing a fast UUID v4 generator
 
+### Changed
+- [main] Use kernel instead of distribution version on Linux systems
+
 ## [0.3.0] - 2024-11-28
 
 ### Added
