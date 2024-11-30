@@ -1,4 +1,3 @@
-//! Audio playback and track management.
 //!
 //! This module handles:
 //! * Audio device configuration
@@ -34,9 +33,15 @@
 //! player.set_normalization(true);
 //! player.set_volume(volume);
 //!
+//! // Open the audio device
+//! player.start()?;
+//!
 //! // Add tracks and start playback
 //! player.set_queue(tracks);
-//! player.play();
+//! player.play()?;
+//!
+//! // When done, close the audio device
+//! player.stop();
 //! ```
 
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -49,7 +54,7 @@ use url::Url;
 use crate::{
     config::Config,
     decrypt::{Decrypt, Key},
-    error::{Error, Result},
+    error::{Error, ErrorKind, Result},
     events::Event,
     http,
     protocol::{
@@ -76,6 +81,14 @@ type SampleFormat = <rodio::decoder::Decoder<std::fs::File> as Iterator>::Item;
 /// * Queue management
 /// * Playback control
 /// * Volume normalization
+///
+/// Audio device lifecycle:
+/// * Device is selected during construction
+/// * Device is opened with `start()`
+/// * Device is closed with `stop()`
+/// * Device state affects method behavior:
+///   - Most playback operations require an open device
+///   - Configuration can be changed when device is closed
 pub struct Player {
     /// Preferred audio quality setting.
     ///
@@ -146,16 +159,34 @@ pub struct Player {
     /// * Connection status
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
 
+    /// Selected audio output device.
+    ///
+    /// Device is chosen during construction but not opened until `start()`.
+    device: rodio::Device,
+
+    /// Audio output configuration.
+    ///
+    /// Contains sample rate, format, and buffer size settings
+    /// selected during construction.
+    device_config: rodio::SupportedStreamConfig,
+
     /// Audio output sink.
     ///
     /// Handles final audio output and volume control.
-    sink: rodio::Sink,
+    /// Only available when device is open (between `start()` and `stop()`).
+    sink: Option<rodio::Sink>,
+
+    /// Audio output stream handle.
+    ///
+    /// Must be kept alive to maintain playback.
+    /// Only available when device is open (between `start()` and `stop()`).
+    stream: Option<rodio::OutputStream>,
 
     /// Queue of audio sources.
     ///
-    /// Contains decoded and processed audio data
-    /// ready for playback.
-    sources: Arc<rodio::queue::SourcesQueueInput<SampleFormat>>,
+    /// Contains decoded and processed audio data ready for playback.
+    /// Only available when device is open (between `start()` and `stop()`).
+    sources: Option<Arc<rodio::queue::SourcesQueueInput<SampleFormat>>>,
 
     /// When current track started playing.
     ///
@@ -172,12 +203,6 @@ pub struct Player {
     /// Receiver is notified when preloaded track
     /// would finish. Used for gapless playback.
     preload_rx: Option<std::sync::mpsc::Receiver<()>>,
-
-    /// Audio output stream handle.
-    ///
-    /// Must be kept alive to maintain playback.
-    /// Not used directly.
-    _stream: rodio::OutputStream,
 
     /// Base URL for media content.
     ///
@@ -197,14 +222,18 @@ impl Player {
     ///   ```
     ///   All parts are optional. Use empty string for system default.
     ///
+    /// Note: This only selects the audio device but does not open it.
+    /// Call `start()` to open the device before playback.
+    ///
     /// # Errors
     ///
     /// Returns error if:
-    /// * Audio device cannot be opened
-    /// * Device specification is invalid
+    /// * Audio device specification is invalid
+    /// * Device is not available
     /// * HTTP client creation fails
     /// * Decryption key is invalid
     pub async fn new(config: &Config, device: &str) -> Result<Self> {
+        let (device, device_config) = Self::get_device(device)?;
         let client = http::Client::without_cookies(config)?;
 
         let bf_secret = if let Some(secret) = config.bf_secret {
@@ -217,14 +246,6 @@ impl Player {
         if format!("{:x}", Md5::digest(*bf_secret)) != Config::BF_SECRET_MD5 {
             return Err(Error::permission_denied("the bf_secret is not valid"));
         }
-
-        let (sink, stream) = Self::open_sink(device)?;
-        let (sources, output) = rodio::queue::queue(true);
-
-        // The output source will output silence when the queue is empty.
-        // That will cause the sink to start playing, so we need to pause it.
-        sink.append(output);
-        sink.pause();
 
         #[expect(clippy::cast_possible_truncation)]
         let gain_target_db = gateway::user_data::Gain::default().target as i8;
@@ -247,126 +268,184 @@ impl Player {
             deferred_seek: None,
             current_rx: None,
             preload_rx: None,
-            _stream: stream,
-            sink,
-            sources,
+            device,
+            device_config,
+            sink: None,
+            stream: None,
+            sources: None,
         })
     }
 
-    /// Opens an audio output device.
-    ///
-    /// Parses the device specification string and configures the
-    /// audio output stream and sink accordingly.
+    /// Selects and configures an audio output device.
     ///
     /// # Arguments
     ///
-    /// * `device` - Device specification string (see `new()` for format)
+    /// * `device` - Device specification string in format:
+    ///   ```text
+    ///   [<host>][|<device>][|<sample rate>][|<sample format>]
+    ///   ```
+    ///
+    /// # Returns
+    ///
+    /// Returns the selected device and its configuration.
     ///
     /// # Errors
     ///
     /// Returns error if:
-    /// * Device specification is invalid
-    /// * Device cannot be opened
-    /// * Sample rate/format not supported
-    fn open_sink(device: &str) -> Result<(rodio::Sink, rodio::OutputStream)> {
-        let (stream, handle) = {
-            // The device string has the following format:
-            // "[<host>][|<device>][|<sample rate>][|<sample format>]" (case-insensitive)
-            // From left to right, the fields are optional, but each field
-            // depends on the preceding fields being specified.
-            let mut components = device.split('|');
+    /// * Host is not found
+    /// * Device is not found
+    /// * Sample rate is invalid
+    /// * Sample format is not supported
+    fn get_device(device: &str) -> Result<(rodio::Device, rodio::SupportedStreamConfig)> {
+        // The device string has the following format:
+        // "[<host>][|<device>][|<sample rate>][|<sample format>]" (case-insensitive)
+        // From left to right, the fields are optional, but each field
+        // depends on the preceding fields being specified.
+        let mut components = device.split('|');
 
-            // The host is the first field.
-            let host = match components.next() {
-                Some("") | None => cpal::default_host(),
-                Some(name) => {
-                    let host_ids = cpal::available_hosts();
-                    host_ids
-                        .into_iter()
-                        .find_map(|host_id| {
-                            let host = cpal::host_from_id(host_id).ok()?;
-                            if host.id().name().eq_ignore_ascii_case(name) {
-                                Some(host)
-                            } else {
-                                None
-                            }
-                        })
-                        .ok_or_else(|| Error::not_found(format!("audio host {name} not found")))?
-                }
-            };
-
-            // The device is the second field.
-            let device = match components.next() {
-                Some("") | None => host.default_output_device().ok_or_else(|| {
-                    Error::not_found(format!(
-                        "default audio output device not found on {}",
-                        host.id().name()
-                    ))
-                })?,
-                Some(name) => {
-                    let mut devices = host.output_devices()?;
-                    devices
-                        .find(|device| device.name().is_ok_and(|n| n.eq_ignore_ascii_case(name)))
-                        .ok_or_else(|| {
-                            Error::not_found(format!(
-                                "audio output device {name} not found on {}",
-                                host.id().name()
-                            ))
-                        })?
-                }
-            };
-
-            let (stream, handle) = match components.next() {
-                Some("") | None => rodio::OutputStream::try_from_device(&device)?,
-                Some(rate) => {
-                    let rate = rate.parse().map_err(|_| {
-                        Error::invalid_argument(format!("invalid sample rate {rate}"))
-                    })?;
-                    let rate = cpal::SampleRate(rate);
-
-                    let format = match components.next() {
-                        Some("") | None => None,
-                        other => other,
-                    };
-
-                    let config = device
-                            .supported_output_configs()?
-                            .find_map(|config| {
-                                if format.is_none_or(|format| {
-                                    config
-                                        .sample_format()
-                                        .to_string()
-                                        .eq_ignore_ascii_case(format)
-                                }) {
-                                    config.try_with_sample_rate(rate)
-                                } else {
-                                    None
-                                }
-                            })
-                            .ok_or_else(|| {
-                                Error::unavailable(format!(
-                                    "audio output device {} does not support sample rate {} with {} sample format",
-                                    device.name().as_deref().unwrap_or("UNKNOWN"),
-                                    rate.0,
-                                    format.unwrap_or("default")
-                                ))
-                            })?;
-
-                    rodio::OutputStream::try_from_device_config(&device, config)?
-                }
-            };
-
-            info!(
-                "audio output device: {} on {}",
-                device.name().as_deref().unwrap_or("UNKNOWN"),
-                host.id().name()
-            );
-
-            (stream, handle)
+        // The host is the first field.
+        let host = match components.next() {
+            Some("") | None => cpal::default_host(),
+            Some(name) => {
+                let host_ids = cpal::available_hosts();
+                host_ids
+                    .into_iter()
+                    .find_map(|host_id| {
+                        let host = cpal::host_from_id(host_id).ok()?;
+                        if host.id().name().eq_ignore_ascii_case(name) {
+                            Some(host)
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or_else(|| Error::not_found(format!("audio host {name} not found")))?
+            }
         };
 
+        // The device is the second field.
+        let device = match components.next() {
+            Some("") | None => host.default_output_device().ok_or_else(|| {
+                Error::not_found(format!(
+                    "default audio output device not found on {}",
+                    host.id().name()
+                ))
+            })?,
+            Some(name) => {
+                let mut devices = host.output_devices()?;
+                devices
+                    .find(|device| device.name().is_ok_and(|n| n.eq_ignore_ascii_case(name)))
+                    .ok_or_else(|| {
+                        Error::not_found(format!(
+                            "audio output device {name} not found on {}",
+                            host.id().name()
+                        ))
+                    })?
+            }
+        };
+
+        let config = match components.next() {
+            Some("") | None => device.default_output_config().map_err(|e| {
+                Error::unavailable(format!("default output configuration unavailable: {e}"))
+            })?,
+            Some(rate) => {
+                let rate = rate
+                    .parse()
+                    .map_err(|_| Error::invalid_argument(format!("invalid sample rate {rate}")))?;
+                let rate = cpal::SampleRate(rate);
+
+                let format = match components.next() {
+                    Some("") | None => None,
+                    other => other,
+                };
+
+                device
+                    .supported_output_configs()?
+                    .find_map(|config| {
+                        if format.is_none_or(|format| {
+                            config
+                                .sample_format()
+                                .to_string()
+                                .eq_ignore_ascii_case(format)
+                        }) {
+                            config.try_with_sample_rate(rate)
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or_else(|| {
+                        Error::unavailable(format!(
+                            "audio output device {} does not support sample rate {} with {} sample format",
+                            device.name().as_deref().unwrap_or("UNKNOWN"),
+                            rate.0,
+                            format.unwrap_or("default")
+                        ))
+                    })?
+            }
+        };
+
+        info!(
+            "audio output device: {} on {}",
+            device.name().as_deref().unwrap_or("UNKNOWN"),
+            host.id().name()
+        );
+
+        #[expect(clippy::cast_precision_loss)]
+        let sample_rate = config.sample_rate().0 as f32 / 1000.0;
+        info!(
+            "audio output configuration: {sample_rate:.1} kHz in {}",
+            config.sample_format()
+        );
+        trace!("audio buffer size: {:#?}", config.buffer_size());
+
+        Ok((device, config))
+    }
+
+    /// Opens the audio output device for playback.
+    ///
+    /// Must be called before playback operations like `play()` or `set_progress()`.
+    /// The device remains open until `stop()` is called or the player is dropped.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * Audio device cannot be opened
+    /// * Output stream creation fails
+    /// * Sink creation fails
+    pub fn start(&mut self) -> Result<()> {
+        debug!("opening output device");
+        let (stream, handle) =
+            rodio::OutputStream::try_from_device_config(&self.device, self.device_config.clone())?;
         let sink = rodio::Sink::try_new(&handle)?;
-        Ok((sink, stream))
+
+        // The output source will output silence when the queue is empty.
+        // That will cause the sink to report as "playing", so we need to pause it.
+        let (sources, output) = rodio::queue::queue(true);
+        sink.append(output);
+        sink.pause();
+
+        self.sink = Some(sink);
+        self.sources = Some(sources);
+        self.stream = Some(stream);
+
+        Ok(())
+    }
+
+    /// Closes the audio output device and stops playback.
+    ///
+    /// Releases audio device resources and clears any queued audio.
+    /// The player can be restarted with `start()`.
+    ///
+    /// Note: This method is automatically called when the player is dropped,
+    /// ensuring proper cleanup of audio device resources.
+    pub fn stop(&mut self) {
+        debug!("closing output device");
+
+        // Don't care if the sink is already dropped: we're already "stopped".
+        let _ = self.sink_mut().map(|sink| sink.stop());
+
+        self.sink = None;
+        self.sources = None;
+        self.stream = None;
     }
 
     /// The list of supported sample rates.
@@ -487,7 +566,8 @@ impl Player {
             } else {
                 // Reached the end of the queue: rewind to the beginning.
                 if repeat_mode != RepeatMode::All {
-                    self.pause();
+                    // Don't care if the sink is already dropped: we're already "paused".
+                    let _ = self.pause();
                 };
                 self.position = 0;
             }
@@ -526,6 +606,7 @@ impl Player {
     /// # Errors
     ///
     /// Returns error if:
+    /// * Audio device is not open (no sources available)
     /// * Track download fails
     /// * Decryption fails
     /// * Audio decoding fails
@@ -538,6 +619,11 @@ impl Player {
             .queue
             .get_mut(position)
             .ok_or_else(|| Error::not_found(format!("track at position {position} not found")))?;
+
+        let sources = self
+            .sources
+            .as_mut()
+            .ok_or(Error::unavailable("audio sources not available"))?;
 
         if track.handle().is_none() {
             let download = tokio::time::timeout(Duration::from_secs(3), async {
@@ -601,7 +687,7 @@ impl Player {
                     Percentage::from_ratio_f32(ratio)
                 );
                 let attenuated = decoder.amplify(ratio);
-                self.sources.append_with_signal(attenuated)
+                sources.append_with_signal(attenuated)
             } else if ratio > 1.0 {
                 debug!(
                     "amplifying track {track} by {difference:.1} dB ({}) (with limiter)",
@@ -613,15 +699,26 @@ impl Player {
                     Self::AGC_RELEASE_TIME.as_secs_f32(),
                     difference,
                 );
-                self.sources.append_with_signal(amplified)
+                sources.append_with_signal(amplified)
             } else {
-                self.sources.append_with_signal(decoder)
+                sources.append_with_signal(decoder)
             };
 
             return Ok(Some(rx));
         }
 
         Ok(None)
+    }
+
+    /// Returns the current playback position from the sink.
+    ///
+    /// Returns `Duration::ZERO` if audio device is not open.
+    #[must_use]
+    fn get_pos(&self) -> Duration {
+        // If the sink is not available, we're not playing anything, so the position is 0.
+        self.sink
+            .as_ref()
+            .map_or(Duration::ZERO, rodio::Sink::get_pos)
     }
 
     /// Main playback loop.
@@ -631,6 +728,9 @@ impl Player {
     /// * Manages track preloading
     /// * Handles playback transitions
     /// * Processes track unavailability
+    ///
+    /// Audio playback requires calling `start()` to open the audio device,
+    /// but track loading and queue management will work without it.
     ///
     /// # Errors
     ///
@@ -644,7 +744,7 @@ impl Player {
                     // Check if the current track has finished playing.
                     if current_rx.try_recv().is_ok() {
                         // Save the point in time when the track finished playing.
-                        self.playing_since = self.sink.get_pos();
+                        self.playing_since = self.get_pos();
 
                         // Move the preloaded track, if any, to the current track.
                         self.current_rx = self.preload_rx.take();
@@ -740,50 +840,79 @@ impl Player {
         self.event_tx = Some(event_tx);
     }
 
+    /// Returns a mutable reference to the sink if available.
+    ///
+    /// # Errors
+    /// Returns error if audio device is not open.
+    fn sink_mut(&mut self) -> Result<&mut rodio::Sink> {
+        self.sink
+            .as_mut()
+            .ok_or(Error::unavailable("audio sink not available"))
+    }
+
     /// Starts or resumes playback.
     ///
     /// Emits a Play event if playback actually starts.
     /// Does nothing if already playing.
-    pub fn play(&mut self) {
+    ///
+    /// # Errors
+    ///
+    /// Returns error if audio device is not open.
+    pub fn play(&mut self) -> Result<()> {
         if !self.is_playing() {
             debug!("starting playback");
-            self.sink.play();
+            self.sink_mut()?.play();
 
             // Playback reporting happens every time a track starts playing or is unpaused.
             self.notify(Event::Play);
         }
+
+        Ok(())
     }
 
     /// Pauses playback.
     ///
     /// Emits a Pause event if playback was actually playing.
     /// Does nothing if already paused.
-    pub fn pause(&mut self) {
+    ///
+    /// # Errors
+    ///
+    /// Returns error if audio device is not open.
+    pub fn pause(&mut self) -> Result<()> {
         if self.is_playing() {
             debug!("pausing playback");
-            self.sink.pause();
+            // Don't care if the sink is already dropped: we're already "paused".
+            let _ = self.sink_mut().map(|sink| sink.pause());
             self.notify(Event::Pause);
         }
+        Ok(())
     }
 
     /// Returns whether playback is active.
     ///
     /// True if:
-    /// * A track is loaded
-    /// * The sink is not paused
+    /// * A track is loaded (`current_rx` is Some)
+    /// * Audio device is open and sink is not paused
+    ///
+    /// Note: Will return false if audio device is not open,
+    /// even if a track is loaded and ready to play.
     #[must_use]
     pub fn is_playing(&self) -> bool {
-        self.current_rx.is_some() && !self.sink.is_paused()
+        self.current_rx.is_some() && self.sink.as_ref().is_some_and(|sink| !sink.is_paused())
     }
 
     /// Sets the playback state.
     ///
     /// Convenience method that calls either `play()` or `pause()`.
-    pub fn set_playing(&mut self, should_play: bool) {
+    ///
+    /// # Errors
+    ///
+    /// Returns error if audio device is not open.
+    pub fn set_playing(&mut self, should_play: bool) -> Result<()> {
         if should_play {
-            self.play();
+            self.play()
         } else {
-            self.pause();
+            self.pause()
         }
     }
 
@@ -836,16 +965,22 @@ impl Player {
 
     /// Clears the playback state.
     ///
-    /// * Creates new empty source queue
+    /// * Creates new empty source queue (if sink is active)
     /// * Resets track downloads
+    /// * Resets internal playback state (position, receivers)
+    ///
+    /// When sink is active:
+    /// * Creates new empty source queue
     /// * Maintains playback capability
     pub fn clear(&mut self) {
-        // Don't just clear the sink, because that would stop the playback. The following code
-        // works around that by creating a new, empty queue of sources and skipping to it.
-        let (sources, output) = rodio::queue::queue(true);
-        self.sink.append(output);
-        self.sink.skip_one();
-        self.sources = sources;
+        if let Ok(sink) = self.sink_mut() {
+            // Don't just clear the sink, because that makes Rodio stop playback. The following code
+            // works around that by creating a new, empty queue of sources and skipping to it.
+            let (sources, output) = rodio::queue::queue(true);
+            sink.append(output);
+            sink.skip_one();
+            self.sources = Some(sources);
+        }
 
         // Resetting the sink drops any downloads of the current and next tracks.
         // We need to reset the download state of those tracks.
@@ -898,7 +1033,7 @@ impl Player {
 
         if repeat_mode == RepeatMode::One {
             // This only clears the preloaded track.
-            self.sources.clear();
+            self.sources.as_mut().map(|sources| sources.clear());
             self.preload_rx = None;
         }
     }
@@ -906,12 +1041,20 @@ impl Player {
     /// Returns current volume as a percentage.
     ///
     /// Returns a value between 0.0 (muted) and 1.0 (full volume).
+    /// Returns default volume (1.0) if audio device is not open.
     #[must_use]
     pub fn volume(&self) -> Percentage {
-        let ratio = self.sink.volume();
-        Percentage::from_ratio_f32(ratio)
+        match self.sink.as_ref() {
+            Some(sink) => {
+                let ratio = sink.volume();
+                Percentage::from_ratio_f32(ratio)
+            }
+            None => {
+                // Default volume in Rodio is 1.0.
+                Percentage::from_ratio_f32(1.0)
+            }
+        }
     }
-
     /// Sets playback volume.
     ///
     /// No effect if new volume equals current volume.
@@ -919,28 +1062,32 @@ impl Player {
     /// # Arguments
     ///
     /// * `volume` - Target volume (0.0 to 1.0)
-    pub fn set_volume(&mut self, volume: Percentage) {
+    ///
+    /// # Errors
+    ///
+    /// Returns error if audio device is not open.
+    pub fn set_volume(&mut self, volume: Percentage) -> Result<()> {
         if volume == self.volume() {
-            return;
+            return Ok(());
         }
 
         info!("setting volume to {volume}");
         let ratio = volume.as_ratio_f32();
-        self.sink.set_volume(ratio);
+        self.sink_mut().map(|sink| sink.set_volume(ratio))
     }
 
     /// Returns current playback progress.
     ///
     /// Returns None if no track is playing.
     /// Progress is calculated as:
-    /// * Current sink position
+    /// * Current sink position (or zero if device not open)
     /// * Minus track start time
     /// * Divided by track duration
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
         // The progress is the difference between the current position of the sink, which is the
         // total duration played, and the time the current track started playing.
-        let progress = self.sink.get_pos().saturating_sub(self.playing_since);
+        let progress = self.get_pos().saturating_sub(self.playing_since);
 
         self.track().map(|track| {
             let ratio = progress.div_duration_f32(track.duration());
@@ -961,26 +1108,35 @@ impl Player {
     /// Returns error if:
     /// * No track is playing
     /// * Seek operation fails
+    ///
+    /// # Errors
+    ///
+    /// * No track is playing
+    /// * Audio device is not open
+    /// * Seek operation fails
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
         if let Some(track) = self.track() {
             info!("setting track progress to {progress}");
             let progress = progress.as_ratio_f32();
             if progress < 1.0 {
                 let progress = track.duration().mul_f32(progress);
-                match self.sink.try_seek(progress) {
+                match self
+                    .sink_mut()
+                    .and_then(|sink| sink.try_seek(progress).map_err(Into::into))
+                {
                     Ok(()) => {
                         // Reset the playing time to zero, as the sink will now reset it also.
                         self.playing_since = Duration::ZERO;
                         self.deferred_seek = None;
                     }
                     Err(e) => {
-                        if let rodio::source::SeekError::NotSupported { .. } = e {
+                        if matches!(e.kind, ErrorKind::Unavailable | ErrorKind::Unimplemented) {
                             // If the current track is not buffered yet, we can't seek.
                             // In that case, we defer the seek until the track is buffered.
                             self.deferred_seek = Some(progress);
                         } else {
                             // If the seek failed for any other reason, we return an error.
-                            return Err(e.into());
+                            return Err(e);
                         }
                     }
                 }
@@ -1060,5 +1216,12 @@ impl Player {
     /// Sets the media content URL.
     pub fn set_media_url(&mut self, url: Url) {
         self.media_url = url;
+    }
+}
+
+impl Drop for Player {
+    /// Ensures the audio device is properly closed when the player is dropped.
+    fn drop(&mut self) {
+        self.stop();
     }
 }

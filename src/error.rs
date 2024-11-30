@@ -49,6 +49,38 @@ pub struct Error {
     pub error: Box<dyn std::error::Error + Send + Sync>,
 }
 
+impl Error {
+    /// Attempts to downcast the underlying error to a concrete type.
+    ///
+    /// Allows accessing the original error when its concrete type is known.
+    ///
+    /// # Arguments
+    /// * `E` - The target error type to downcast to
+    ///
+    /// # Returns
+    /// * `Some(&E)` - If the underlying error is of type `E`
+    /// * `None` - If the underlying error is not of type `E`
+    ///
+    /// # Example
+    /// ```
+    /// use std::io;
+    ///
+    /// let io_error = io::Error::new(io::ErrorKind::Other, "oh no!");
+    /// let error = Error::from(io_error);
+    ///
+    /// if let Some(io_err) = error.downcast::<io::Error>() {
+    ///     println!("IO error kind: {:?}", io_err.kind());
+    /// }
+    /// ```
+    #[must_use]
+    pub fn downcast<E>(&self) -> Option<&E>
+    where
+        E: std::error::Error + 'static,
+    {
+        self.error.downcast_ref::<E>()
+    }
+}
+
 /// Standard result type for pleezer operations.
 ///
 /// Wraps the standard `Result` type with our custom [`Error`] type.

@@ -1268,7 +1268,7 @@ impl FromStr for AudioQuality {
 /// let half = Percentage::from_ratio_f32(0.5);
 /// assert_eq!(serde_json::to_string(&half)?, "0.5");
 /// ```
-#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialOrd)]
 pub struct Percentage(f64);
 
 impl Percentage {
@@ -1354,6 +1354,28 @@ impl Percentage {
     #[must_use]
     pub fn as_percent_f64(&self) -> f64 {
         self.0 * 100.0
+    }
+}
+
+impl PartialEq for Percentage {
+    /// Compares two percentages for equality.
+    ///
+    /// Uses floating point epsilon comparison to handle imprecise representations.
+    /// Two percentages are considered equal if their absolute difference is less
+    /// than `f64::EPSILON` (approximately 2.22e-16).
+    ///
+    /// # Examples
+    /// ```
+    /// let p1 = Percentage::from_ratio_f64(0.5);
+    /// let p2 = Percentage::from_ratio_f64(0.5);
+    /// assert_eq!(p1, p2);
+    ///
+    /// // Small differences are handled
+    /// let p3 = Percentage::from_ratio_f64(0.5 + f64::EPSILON / 2.0);
+    /// assert_eq!(p1, p3);
+    /// ```
+    fn eq(&self, other: &Self) -> bool {
+        (self.0 - other.0).abs() < f64::EPSILON
     }
 }
 

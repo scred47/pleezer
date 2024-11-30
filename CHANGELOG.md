@@ -9,10 +9,17 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Added
 - [docs] Comprehensive documentation for all public APIs and internals
+- [error] Add `downcast()` method to access underlying error types
+- [player] Explicit audio device lifecycle with `start()` and `stop()`
 - [uuid] `uuid` module providing a fast UUID v4 generator
 
 ### Changed
 - [main] Use kernel instead of distribution version on Linux systems
+- [remote] Start/stop audio device on controller connect/disconnect
+
+### Fixed
+- [protocol] Use epsilon comparison for `Percentage` equality checks
+- [remote] Improve queue refresh handling
 
 ## [0.3.0] - 2024-11-28
 

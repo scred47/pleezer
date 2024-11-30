@@ -662,57 +662,6 @@ impl Client {
         }
     }
 
-    /// Extends Flow queue with additional tracks.
-    ///
-    /// Fetches more personalized recommendations when:
-    /// * Current queue is Flow
-    /// * Near end of current tracks
-    ///
-    /// # Errors
-    ///
-    /// Returns error if:
-    /// * No active queue
-    /// * Track fetch fails
-    /// * Queue refresh fails
-    async fn extend_queue(&mut self) -> Result<()> {
-        let user_id = self.user_id();
-
-        if let Some(list) = self.queue.as_mut() {
-            let new_queue =
-                tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.user_radio(user_id))
-                    .await??;
-
-            let new_tracks: Vec<_> = new_queue.into_iter().map(Track::from).collect();
-
-            let new_list: Vec<_> = new_tracks
-                .iter()
-                .map(|track| queue::Track {
-                    id: track.id().to_string(),
-                    ..Default::default()
-                })
-                .collect();
-
-            // Generate a new list ID for the UI to pick up.
-            list.id = (*crate::Uuid::fast_v4()).into();
-
-            debug!(
-                "extending queue {} with {} tracks",
-                list.id,
-                new_tracks.len()
-            );
-
-            list.tracks.extend(new_list);
-            self.player.extend_queue(new_tracks);
-
-            // Refresh the controller's queue with the tracks that we got from the user radio.
-            self.handle_refresh_queue().await
-        } else {
-            Err(Error::failed_precondition(
-                "cannot extend queue: queue is missing",
-            ))
-        }
-    }
-
     /// Checks if current queue is Flow (personalized radio).
     ///
     /// Examines queue context for Flow indicators.
@@ -1077,6 +1026,7 @@ impl Client {
                 };
 
                 info!("connected to {controller}");
+                self.player.start()?;
 
                 if let Err(e) = self.event_tx.send(Event::Connected) {
                     error!("failed to send connected event: {e}");
@@ -1128,6 +1078,7 @@ impl Client {
     fn reset_states(&mut self) {
         if let Some(controller) = self.controller() {
             info!("disconnected from {controller}");
+            self.player.stop();
 
             if let Err(e) = self.event_tx.send(Event::Disconnected) {
                 error!("failed to send disconnected event: {e}");
@@ -1157,57 +1108,49 @@ impl Client {
     /// # Errors
     ///
     /// Returns error if:
-    /// * No active controller
     /// * Queue resolution fails
     /// * Flow extension fails
     async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
-        // TODO : does it really matter whether there's an active connection?
-        if self.controller().is_some() {
-            let container_type = list
-                .contexts
-                .first()
-                .unwrap_or_default()
-                .container
-                .typ
-                .enum_value_or_default();
+        let container_type = list
+            .contexts
+            .first()
+            .unwrap_or_default()
+            .container
+            .typ
+            .enum_value_or_default();
 
-            info!("setting queue to {}", list.id);
+        info!("setting queue to {}", list.id);
 
-            // Await with timeout in order to prevent blocking the select loop.
-            let queue = match container_type {
-                ContainerType::CONTAINER_TYPE_LIVE => {
-                    error!("live radio is not supported yet");
-                    Vec::new()
-                }
-                ContainerType::CONTAINER_TYPE_PODCAST => {
-                    error!("podcasts are not supported yet");
-                    Vec::new()
-                }
-                _ => {
-                    tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.list_to_queue(&list))
-                        .await??
-                }
-            };
-
-            let tracks: Vec<_> = queue.into_iter().map(Track::from).collect();
-
-            self.queue = Some(list);
-            self.player.set_queue(tracks);
-
-            if let Some(position) = self.deferred_position.take() {
-                self.player.set_position(position);
+        // Await with timeout in order to prevent blocking the select loop.
+        let queue = match container_type {
+            ContainerType::CONTAINER_TYPE_LIVE => {
+                error!("live radio is not supported yet");
+                Vec::new()
             }
-
-            if self.is_flow() {
-                self.extend_queue().await?;
+            ContainerType::CONTAINER_TYPE_PODCAST => {
+                error!("podcasts are not supported yet");
+                Vec::new()
             }
+            _ => {
+                tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.list_to_queue(&list))
+                    .await??
+            }
+        };
 
-            return Ok(());
+        let tracks: Vec<_> = queue.into_iter().map(Track::from).collect();
+
+        self.queue = Some(list);
+        self.player.set_queue(tracks);
+
+        if let Some(position) = self.deferred_position.take() {
+            self.player.set_position(position);
         }
 
-        Err(Error::failed_precondition(
-            "queue publication should have an active connection".to_string(),
-        ))
+        if self.is_flow() {
+            self.extend_queue().await?;
+        }
+
+        Ok(())
     }
 
     /// Sends ping message to controller.
@@ -1234,20 +1177,115 @@ impl Client {
         ))
     }
 
-    /// Requests controller to refresh its queue display.
+    /// Extends Flow queue and notifies controller.
     ///
-    /// Used after modifying queue content to update UI.
+    /// Fetches more personalized recommendations when:
+    /// * Current queue is Flow
+    /// * Near end of current tracks
+    ///
+    /// Updates both local state and remote controller by:
+    /// 1. Fetching new tracks
+    /// 2. Updating local queue and player
+    /// 3. Publishing updated queue to controller
+    /// 4. Requesting controller UI refresh
     ///
     /// # Errors
     ///
     /// Returns error if:
-    /// * No active controller
-    /// * No active queue
+    /// * No active queue exists
+    /// * Track fetch fails
+    /// * Controller communication fails
+    async fn extend_queue(&mut self) -> Result<()> {
+        let user_id = self.user_id();
+
+        if let Some(list) = self.queue.as_mut() {
+            let new_queue =
+                tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.user_radio(user_id))
+                    .await??;
+
+            let new_tracks: Vec<_> = new_queue.into_iter().map(Track::from).collect();
+
+            let new_list: Vec<_> = new_tracks
+                .iter()
+                .map(|track| queue::Track {
+                    id: track.id().to_string(),
+                    ..Default::default()
+                })
+                .collect();
+
+            // Generate a new list ID for the UI to pick up.
+            list.id = (*crate::Uuid::fast_v4()).into();
+
+            debug!(
+                "extending queue {} with {} tracks",
+                list.id,
+                new_tracks.len()
+            );
+
+            list.tracks.extend(new_list);
+            self.player.extend_queue(new_tracks);
+
+            if let Some(controller) = self.controller() {
+                // First publish the new queue to the controller.
+                self.publish_queue().await?;
+
+                // Then signal the controller to refresh its UI.
+                let contents = Body::RefreshQueue {
+                    message_id: (*crate::Uuid::fast_v4()).into(),
+                };
+
+                let channel = self.channel(Ident::RemoteQueue);
+                let refresh_queue = self.message(controller.clone(), channel, contents);
+                self.send_message(refresh_queue).await?;
+            }
+
+            Ok(())
+        } else {
+            Err(Error::failed_precondition(
+                "cannot extend queue: queue is missing",
+            ))
+        }
+    }
+
+    /// Handles a refresh queue request from the controller.
+    ///
+    /// Simply republishes our current queue state in response to
+    /// the controller's request for a refresh.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active queue exists
+    /// * No active controller connection
     /// * Message send fails
+    /// * Progress report fails
     async fn handle_refresh_queue(&mut self) -> Result<()> {
+        if let Some(queue) = self.queue.as_mut() {
+            queue.id = (*crate::Uuid::fast_v4()).into();
+            self.publish_queue().await?;
+            self.report_playback_progress().await
+        } else {
+            Err(Error::failed_precondition(
+                "queue refresh should have a published queue".to_string(),
+            ))
+        }
+    }
+
+    /// Publishes current queue state to the remote controller.
+    ///
+    /// Sends a `PublishQueue` message containing:
+    /// * New message ID
+    /// * Current queue state
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller connection
+    /// * No queue exists to publish
+    /// * Message send fails
+    async fn publish_queue(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
-            if let Some(ref queue) = self.queue {
-                // First publish the queue to the controller.
+            if let Some(queue) = self.queue.as_ref() {
                 let contents = Body::PublishQueue {
                     message_id: (*crate::Uuid::fast_v4()).into(),
                     queue: queue.clone(),
@@ -1255,16 +1293,7 @@ impl Client {
 
                 let channel = self.channel(Ident::RemoteQueue);
                 let publish_queue = self.message(controller.clone(), channel, contents);
-                self.send_message(publish_queue).await?;
-
-                // Then signal the controller to refresh its UI.
-                let contents = Body::RefreshQueue {
-                    message_id: (*crate::Uuid::fast_v4()).into(),
-                };
-
-                let refresh_queue =
-                    self.message(self.controller().unwrap().clone(), channel, contents);
-                self.send_message(refresh_queue).await
+                self.send_message(publish_queue).await
             } else {
                 Err(Error::failed_precondition(
                     "queue refresh should have a published queue".to_string(),
@@ -1443,11 +1472,15 @@ impl Client {
         }
 
         if let Some(volume) = set_volume {
-            self.player.set_volume(volume);
+            if let Err(e) = self.player.set_volume(volume) {
+                error!("error setting volume: {e}");
+            }
         }
 
         if let Some(should_play) = should_play {
-            self.player.set_playing(should_play);
+            if let Err(e) = self.player.set_playing(should_play) {
+                error!("error setting playback state: {e}");
+            }
         }
 
         self.report_playback_progress().await
@@ -1690,6 +1723,8 @@ impl Client {
 
             Body::PublishQueue { queue, .. } => self.handle_publish_queue(queue).await,
 
+            Body::RefreshQueue { .. } => self.handle_refresh_queue().await,
+
             Body::Skip {
                 message_id,
                 queue_id,
@@ -1717,15 +1752,9 @@ impl Client {
                 command_id, status, ..
             } => self.handle_status(from, &command_id, status).await,
 
-            Body::Stop { .. } => {
-                self.player.pause();
-                Ok(())
-            }
+            Body::Stop { .. } => self.player.pause(),
 
-            Body::ConnectionOffer { .. }
-            | Body::PlaybackProgress { .. }
-            | Body::Ready { .. }
-            | Body::RefreshQueue { .. } => {
+            Body::ConnectionOffer { .. } | Body::PlaybackProgress { .. } | Body::Ready { .. } => {
                 trace!("ignoring message intended for a controller");
                 Ok(())
             }
