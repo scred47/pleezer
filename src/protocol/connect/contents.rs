@@ -415,7 +415,7 @@ impl Default for DeviceId {
     /// assert!(matches!(device, DeviceId::Uuid(_)));
     /// ```
     fn default() -> Self {
-        Self::Uuid(*crate::Uuid::fast_v4())
+        Self::Uuid(crate::Uuid::fast_v4().into())
     }
 }
 

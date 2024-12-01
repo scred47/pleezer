@@ -817,7 +817,7 @@ impl Client {
     async fn disconnect(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let close = Body::Close {
-                message_id: (*crate::Uuid::fast_v4()).into(),
+                message_id: crate::Uuid::fast_v4().to_string(),
             };
 
             let command = self.command(controller.clone(), close);
@@ -995,7 +995,7 @@ impl Client {
                 if let ConnectionState::Connected { controller, .. } = &self.connection_state {
                     // Evict the active connection.
                     let close = Body::Close {
-                        message_id: (*crate::Uuid::fast_v4()).into(),
+                        message_id: crate::Uuid::fast_v4().to_string(),
                     };
 
                     let command = self.command(controller.clone(), close);
@@ -1165,7 +1165,7 @@ impl Client {
     async fn send_ping(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let ping = Body::Ping {
-                message_id: (*crate::Uuid::fast_v4()).into(),
+                message_id: crate::Uuid::fast_v4().to_string(),
             };
 
             let command = self.command(controller.clone(), ping);
@@ -1214,7 +1214,7 @@ impl Client {
                 .collect();
 
             // Generate a new list ID for the UI to pick up.
-            list.id = (*crate::Uuid::fast_v4()).into();
+            list.id = crate::Uuid::fast_v4().to_string();
 
             debug!(
                 "extending queue {} with {} tracks",
@@ -1231,7 +1231,7 @@ impl Client {
 
                 // Then signal the controller to refresh its UI.
                 let contents = Body::RefreshQueue {
-                    message_id: (*crate::Uuid::fast_v4()).into(),
+                    message_id: crate::Uuid::fast_v4().to_string(),
                 };
 
                 let channel = self.channel(Ident::RemoteQueue);
@@ -1261,7 +1261,7 @@ impl Client {
     /// * Progress report fails
     async fn handle_refresh_queue(&mut self) -> Result<()> {
         if let Some(queue) = self.queue.as_mut() {
-            queue.id = (*crate::Uuid::fast_v4()).into();
+            queue.id = crate::Uuid::fast_v4().to_string();
             self.publish_queue().await?;
             self.report_playback_progress().await
         } else {
@@ -1287,7 +1287,7 @@ impl Client {
         if let Some(controller) = self.controller() {
             if let Some(queue) = self.queue.as_ref() {
                 let contents = Body::PublishQueue {
-                    message_id: (*crate::Uuid::fast_v4()).into(),
+                    message_id: crate::Uuid::fast_v4().to_string(),
                     queue: queue.clone(),
                 };
 
@@ -1320,7 +1320,7 @@ impl Client {
     async fn send_acknowledgement(&mut self, acknowledgement_id: &str) -> Result<()> {
         if let Some(controller) = self.controller() {
             let acknowledgement = Body::Acknowledgement {
-                message_id: (*crate::Uuid::fast_v4()).into(),
+                message_id: crate::Uuid::fast_v4().to_string(),
                 acknowledgement_id: acknowledgement_id.to_string(),
             };
 
@@ -1501,7 +1501,7 @@ impl Client {
     async fn send_status(&mut self, command_id: &str, status: Status) -> Result<()> {
         if let Some(controller) = self.controller() {
             let status = Body::Status {
-                message_id: (*crate::Uuid::fast_v4()).into(),
+                message_id: crate::Uuid::fast_v4().to_string(),
                 command_id: command_id.to_string(),
                 status,
             };
@@ -1552,7 +1552,7 @@ impl Client {
                 };
 
                 let progress = Body::PlaybackProgress {
-                    message_id: (*crate::Uuid::fast_v4()).into(),
+                    message_id: crate::Uuid::fast_v4().to_string(),
                     track: item,
                     quality: track.quality(),
                     duration: track.duration(),

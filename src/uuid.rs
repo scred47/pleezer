@@ -114,3 +114,9 @@ impl FromStr for Uuid {
         uuid::Uuid::from_str(s).map(Self).map_err(Into::into)
     }
 }
+
+impl From<Uuid> for uuid::Uuid {
+    fn from(value: Uuid) -> Self {
+        *value
+    }
+}
