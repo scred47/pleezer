@@ -163,7 +163,7 @@ impl UserToken {
     /// ```
     #[must_use]
     pub fn is_expired(&self) -> bool {
-        SystemTime::now() >= self.expires_at
+        self.expires_at <= SystemTime::now()
     }
 }
 

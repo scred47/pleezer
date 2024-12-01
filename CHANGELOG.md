@@ -10,17 +10,22 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Added
 - [docs] Comprehensive documentation for all public APIs and internals
 - [error] Add `downcast()` method to access underlying error types
-- [player] Explicit audio device lifecycle with `start()` and `stop()`
+- [player] Explicit audio device lifecycle with `start()`, `stop()` and `is_started()`
 - [uuid] `uuid` module providing a fast UUID v4 generator
 
 ### Changed
 - [docs] Clarify that Deezer Connect control only works from mobile devices
+- [gateway] Use UNIX epoch instead of current time for expired token state
 - [main] Use kernel instead of distribution version on Linux systems
 - [remote] Start/stop audio device on controller connect/disconnect
+- [remote] Improve connection handshake ordering and timeout handling
 
 ### Fixed
 - [protocol] Use epsilon comparison for `Percentage` equality checks
 - [remote] Improve queue refresh handling
+- [player] Prevent from acquiring output device before playback starts
+- [remote] Fix race condition in controller connection setup
+- [tokens] Fix token expiration check
 
 ## [0.3.0] - 2024-11-28
 

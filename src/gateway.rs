@@ -350,23 +350,19 @@ impl Gateway {
     /// * Current time is past expiration time
     #[must_use]
     pub fn is_expired(&self) -> bool {
-        if let Some(data) = &self.user_data {
-            return data.user.options.expiration_timestamp >= SystemTime::now();
-        }
-
-        true
+        self.expires_at() <= SystemTime::now()
     }
 
     /// Returns when the current session will expire.
     ///
-    /// Returns current time if no session is active.
+    /// Returns UNIX epoch if no session is active.
     #[must_use]
     pub fn expires_at(&self) -> SystemTime {
         if let Some(data) = &self.user_data {
             return data.user.options.expiration_timestamp;
         }
 
-        SystemTime::now()
+        SystemTime::UNIX_EPOCH
     }
 
     /// Updates the cached user data.
@@ -541,6 +537,7 @@ impl Gateway {
     /// * Too many devices are registered
     pub async fn user_token(&mut self) -> Result<UserToken> {
         if self.is_expired() {
+            debug!("refreshing user token");
             self.refresh().await?;
         }
 
@@ -561,8 +558,8 @@ impl Gateway {
     pub fn flush_user_token(&mut self) {
         // Force refreshing user data, but do not set `user_data` to `None` so
         // so we can continue using the `api_token` it contains.
-        if let Some(ref mut data) = self.user_data {
-            data.user.options.expiration_timestamp = SystemTime::now();
+        if let Some(data) = self.user_data.as_mut() {
+            data.user.options.expiration_timestamp = SystemTime::UNIX_EPOCH;
         }
     }
 

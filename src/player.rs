@@ -1,3 +1,4 @@
+//! Audio playback and track management.
 //!
 //! This module handles:
 //! * Audio device configuration
@@ -6,7 +7,16 @@
 //! * Volume normalization
 //! * Event notifications
 //!
-//! # Audio Pipeline
+//! # Device Management
+//!
+//! The audio device is handled in three phases:
+//! 1. Selection during construction (`new()`)
+//! 2. Opening on demand (`start()`)
+//! 3. Closing when done (`stop()`)
+//!
+//! This design prevents ALSA from acquiring the device until it's actually needed.
+//!
+//! //! # Audio Pipeline
 //!
 //! The playback pipeline consists of:
 //! 1. Track download and decryption
@@ -222,8 +232,8 @@ impl Player {
     ///   ```
     ///   All parts are optional. Use empty string for system default.
     ///
-    /// Note: This only selects the audio device but does not open it.
-    /// Call `start()` to open the device before playback.
+    /// Note: This only stores the device specification without opening it,
+    /// preventing ALSA from acquiring the device until `start()` is called.
     ///
     /// # Errors
     ///
@@ -296,6 +306,7 @@ impl Player {
     /// * Device is not found
     /// * Sample rate is invalid
     /// * Sample format is not supported
+    /// * Device cannot be acquired (e.g., in use by another application)
     fn get_device(device: &str) -> Result<(rodio::Device, rodio::SupportedStreamConfig)> {
         // The device string has the following format:
         // "[<host>][|<device>][|<sample rate>][|<sample format>]" (case-insensitive)
@@ -438,14 +449,15 @@ impl Player {
     /// Note: This method is automatically called when the player is dropped,
     /// ensuring proper cleanup of audio device resources.
     pub fn stop(&mut self) {
-        debug!("closing output device");
-
         // Don't care if the sink is already dropped: we're already "stopped".
-        let _ = self.sink_mut().map(|sink| sink.stop());
+        if let Ok(sink) = self.sink_mut() {
+            debug!("closing output device");
+            sink.stop();
+        }
 
-        self.sink = None;
         self.sources = None;
         self.stream = None;
+        self.sink = None;
     }
 
     /// The list of supported sample rates.
@@ -1216,6 +1228,27 @@ impl Player {
     /// Sets the media content URL.
     pub fn set_media_url(&mut self, url: Url) {
         self.media_url = url;
+    }
+
+    /// Returns whether the audio device is open.
+    ///
+    /// True if `start()` has been called and the device was successfully opened.
+    /// False if device has not been opened or has been closed with `stop()`.
+    ///
+    /// # Example
+    /// ```
+    /// let mut player = Player::new(&config, "").await?;
+    /// assert!(!player.is_started());
+    ///
+    /// player.start()?;
+    /// assert!(player.is_started());
+    ///
+    /// player.stop();
+    /// assert!(!player.is_started());
+    /// ```
+    #[must_use]
+    pub fn is_started(&self) -> bool {
+        self.sink.is_some()
     }
 }
 

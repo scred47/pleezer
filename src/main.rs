@@ -336,7 +336,7 @@ async fn run(args: Args) -> Result<()> {
             "linux" => sysinfo::System::kernel_version(),
             _ => sysinfo::System::os_version(),
         }
-        .unwrap_or_else(|| String::from("0"));
+        .unwrap_or("0".to_string());
         if os_name.is_empty()
             || os_name.contains(illegal_chars)
             || os_version.is_empty()

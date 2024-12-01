@@ -243,14 +243,18 @@ impl Client {
     /// Maximum allowed websocket message size in bytes.
     const MESSAGE_SIZE_MAX: usize = 8192;
 
-    /// TODO
+    /// Creates a new client instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Configuration including device and authentication settings
+    /// * `player` - Audio playback manager instance
     ///
     /// # Errors
     ///
-    /// Will return `Err` if:
-    /// - the `app_version` in `config` is not in [`SemVer`] format
-    ///
-    /// [SemVer]: https://semver.org/
+    /// Returns error if:
+    /// * Application version in config is not valid `SemVer`
+    /// * Gateway client creation fails
     pub fn new(config: &Config, player: Player) -> Result<Self> {
         // Construct version in the form of `Mmmppp` where:
         // - `M` is the major version
@@ -420,13 +424,20 @@ impl Client {
         self.player.set_media_url(self.gateway.media_url());
     }
 
-    /// TODO
+    /// Starts the client and handles control messages.
+    ///
+    /// Establishes websocket connection, authenticates, and begins processing:
+    /// * Controller discovery
+    /// * Command messages
+    /// * Playback state updates
+    /// * Connection maintenance
     ///
     /// # Errors
     ///
-    /// Will return `Err` if:
-    /// - the websocket could not be connected to
-    /// - sending or receiving messages failed
+    /// Returns error if:
+    /// * Authentication fails
+    /// * Websocket connection fails
+    /// * Message handling fails critically
     pub async fn start(&mut self) -> Result<()> {
         if let Credentials::Login { email, password } = &self.credentials.clone() {
             info!("logging in with email and password");
@@ -544,7 +555,7 @@ impl Client {
                     }
                 }
 
-                Err(e) = self.player.run() => break Err(e),
+                Err(e) = self.player.run(), if self.player.is_started() => break Err(e),
 
                 Some(event) = self.event_rx.recv() => {
                     self.handle_event(event).await;
@@ -662,9 +673,14 @@ impl Client {
         }
     }
 
-    /// Checks if current queue is Flow (personalized radio).
+    /// Checks whether the current queue is a Flow (personalized radio) queue.
     ///
-    /// Examines queue context for Flow indicators.
+    /// Examines the queue context to determine if it represents a personalized radio stream.
+    ///
+    /// # Returns
+    ///
+    /// * `true` - Current queue is a Flow queue
+    /// * `false` - Current queue is not Flow or no queue exists
     fn is_flow(&self) -> bool {
         self.queue.as_ref().is_some_and(|queue| {
             queue
@@ -679,20 +695,18 @@ impl Client {
         })
     }
 
-    /// Resets receive watchdog timer.
+    /// Resets the receive watchdog timer.
     ///
-    /// Called when messages are received from controller to
-    /// prevent connection timeout.
+    /// Called when messages are received from the controller to prevent connection timeout.
     fn reset_watchdog_rx(&mut self) {
         if let Some(deadline) = from_now(Self::WATCHDOG_RX_TIMEOUT) {
             self.watchdog_rx.as_mut().reset(deadline);
         }
     }
 
-    /// Resets transmit watchdog timer.
+    /// Resets the transmit watchdog timer.
     ///
-    /// Called when messages are sent to controller to
-    /// maintain heartbeat timing.
+    /// Called when messages are sent to the controller to maintain heartbeat timing.
     fn reset_watchdog_tx(&mut self) {
         if let Some(deadline) = from_now(Self::WATCHDOG_TX_TIMEOUT) {
             self.watchdog_tx.as_mut().reset(deadline);
@@ -701,13 +715,18 @@ impl Client {
 
     /// Resets the playback reporting timer.
     ///
-    /// Schedules next progress report according to reporting interval.
+    /// Schedules the next progress report according to the reporting interval.
     fn reset_reporting_timer(&mut self) {
         if let Some(deadline) = from_now(Self::REPORTING_INTERVAL) {
             self.reporting_timer.as_mut().reset(deadline);
         }
     }
 
+    /// Stops the client and cleans up resources.
+    ///
+    /// * Disconnects from controller if connected
+    /// * Processes remaining events
+    /// * Unsubscribes from channels
     pub async fn stop(&mut self) {
         if self.is_connected() {
             if let Err(e) = self.disconnect().await {
@@ -814,6 +833,15 @@ impl Client {
         }
     }
 
+    /// Disconnects from the current controller.
+    ///
+    /// Sends a close message to the controller and resets connection state.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller connection exists
+    /// * Message send fails
     async fn disconnect(&mut self) -> Result<()> {
         if let Some(controller) = self.controller() {
             let close = Body::Close {
@@ -1008,29 +1036,30 @@ impl Client {
                     self.discovery_state = DiscoveryState::Taken;
                 }
 
+                // The unique session ID is used when reporting playback.
+                self.connection_state = ConnectionState::Connected {
+                    controller: from,
+                    session_id: crate::Uuid::fast_v4().into(),
+                };
+
+                info!("connected to {controller}");
+                if let Err(e) = self.event_tx.send(Event::Connected) {
+                    error!("failed to send connected event: {e}");
+                }
+
                 // Refreshed the user token on every reconnection in order to reload the user
                 // configuration, like normalization and audio quality.
-                let (user_token, time_to_live) = self.user_token().await?;
+                let (user_token, time_to_live) =
+                    tokio::time::timeout(Self::NETWORK_TIMEOUT, self.user_token()).await??;
                 self.user_token = Some(user_token);
-                self.set_player_settings();
 
                 // Inform the select loop about the new time to live.
                 if let Err(e) = self.time_to_live_tx.send(time_to_live).await {
                     error!("failed to send user token time to live: {e}");
                 }
 
-                // The unique session ID is used when reporting playback.
-                self.connection_state = ConnectionState::Connected {
-                    controller: from,
-                    session_id: *crate::Uuid::fast_v4(),
-                };
-
-                info!("connected to {controller}");
+                self.set_player_settings();
                 self.player.start()?;
-
-                if let Err(e) = self.event_tx.send(Event::Connected) {
-                    error!("failed to send connected event: {e}");
-                }
 
                 return Ok(());
             }
@@ -1067,9 +1096,9 @@ impl Client {
         ))
     }
 
-    /// Resets connection and discovery state.
+    /// Resets connection and discovery states.
     ///
-    /// Called when connection terminates to:
+    /// Called when a connection terminates to:
     /// * Clear controller association
     /// * Reset connection state
     /// * Reset discovery state
@@ -1078,12 +1107,13 @@ impl Client {
     fn reset_states(&mut self) {
         if let Some(controller) = self.controller() {
             info!("disconnected from {controller}");
-            self.player.stop();
 
             if let Err(e) = self.event_tx.send(Event::Disconnected) {
                 error!("failed to send disconnected event: {e}");
             }
         }
+
+        self.player.stop();
 
         // Force the user token to be reloaded on the next connection.
         self.gateway.flush_user_token();
