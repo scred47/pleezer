@@ -91,16 +91,20 @@ Before installing **pleezer**, ensure your system has the necessary build enviro
 
 ## Usage
 
-Once **pleezer** is launched, it will wait for a connection from another Deezer client. Here's how to connect and use **pleezer** with your mobile device or other Deezer clients:
+**pleezer** acts as a remote playback device that can be controlled from the Deezer mobile app using [Deezer Connect](https://support.deezer.com/hc/en-gb/articles/5449309457949-Deezer-Connect). Note that Deezer Connect only works *from* mobile devices - you cannot control **pleezer** from desktop apps or the web player.
 
-1. **Open** the Deezer app on your mobile device or another Deezer client.
-2. **Tap** the loudspeaker icon, usually found in the bottom-left corner, to access the Audio Output section.
-3. **Select** **Deezer Connect** to view a list of available devices.
-4. **Choose** the device named with either the name you specified using the `-n` option or the default system hostname.
+Following the official Deezer Connect instructions, here's how to control **pleezer** from your mobile device:
 
-Your music will start playing on the selected device.
+1. **Open** the Deezer app on your mobile device
+2. **Tap** the loudspeaker icon in the bottom-left corner (Audio Options)
+3. **Select** **Deezer Connect** to view available devices
+4. **Choose** the device named with either your specified name (`-n` option) or the system hostname
 
-**Note:** To discover and connect to the **pleezer** device, ensure it is connected with the same Deezer account and that **pleezer** is online.
+Your music will then play through **pleezer** while being controlled from your mobile device.
+
+**Note:** The device running **pleezer** must:
+- Be connected to the internet
+- Use the same Deezer account as your mobile device
 
 ### Command-Line Arguments
 

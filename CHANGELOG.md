@@ -14,6 +14,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [uuid] `uuid` module providing a fast UUID v4 generator
 
 ### Changed
+- [docs] Clarify that Deezer Connect control only works from mobile devices
 - [main] Use kernel instead of distribution version on Linux systems
 - [remote] Start/stop audio device on controller connect/disconnect
 
