@@ -96,7 +96,33 @@ We follow Rust's idiomatic style and use `rustfmt` and `clippy` to enforce forma
 
 ### Documentation
 
-Our goal is to provide thorough documentation for **pleezer**. Contributions to improve documentation are highly valued. We use [Rustdoc](https://doc.rust-lang.org/rustdoc/what-is-rustdoc.html) for generating documentation. Although we currently have limited documentation, we aim to improve this over time and publish it to docs.rs when it's mature enough.
+Documentation is a crucial part of **pleezer**. We maintain several types of documentation:
+
+1. **API Documentation**
+   - All public APIs must be documented using rustdoc
+   - Examples should be included where appropriate
+   - Documentation is published to docs.rs
+
+2. **User Documentation**
+   - README.md contains quick start guide and basic usage
+   - Command-line help text via `--help` flag
+
+3. **Contributing Guidelines**
+   - CONTRIBUTING.md (this document) for contributor information
+   - SECURITY.md for security-related procedures
+   - CODE_OF_CONDUCT.md for community guidelines
+
+4. **Change Documentation**
+   - CHANGELOG.md following Keep a Changelog format
+   - GitHub releases with detailed release notes
+
+When contributing:
+- Ensure any new code includes appropriate rustdoc comments
+- Update relevant documentation files
+- Include code examples in rustdoc comments where they would help understanding
+- Keep documentation in sync with code changes
+
+Documentation PRs are highly valued and encouraged, even if they're not accompanied by code changes.
 
 ### CI Pipeline
 

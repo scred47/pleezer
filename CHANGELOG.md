@@ -25,9 +25,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Fixed
 - [protocol] Use epsilon comparison for `Percentage` equality checks
-- [remote] Improve queue refresh handling
 - [player] Prevent from acquiring output device before playback starts
 - [player] Default device was not enumerated on Alsa
+- [remote] Improve queue refresh handling
 - [remote] Fix race condition in controller connection setup
 - [tokens] Fix token expiration check
 
