@@ -31,6 +31,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [remote] Fix race condition in controller connection setup
 - [tokens] Fix token expiration check
 
+### Removed
+- [docs] Remove unnecessary Homebrew installation instructions
+
 ## [0.3.0] - 2024-11-28
 
 ### Added

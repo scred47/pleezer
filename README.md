@@ -386,13 +386,13 @@ Before building **pleezer**, make sure your system is set up with a build enviro
     sudo dnf install alsa-lib-devel
     ```
 
-2. Install Git (optional for the development version):
+2. Install the latest version of Rust using [rustup](https://rustup.rs/). Follow the instructions on the rustup website for the most current setup commands.
+
+3. Install Git (optional for the development version):
     ```bash
     sudo apt-get install git  # On Debian/Ubuntu
     sudo dnf install git      # On Fedora
     ```
-
-3. Install the latest version of Rust using [rustup](https://rustup.rs/). Follow the instructions on the rustup website for the most current setup commands.
 
 #### macOS
 
@@ -404,18 +404,13 @@ Before building **pleezer**, make sure your system is set up with a build enviro
 
 2. Install Rust using [rustup](https://rustup.rs/). Follow the instructions on the rustup website for the most current setup commands.
 
-3. Install Git and Homebrew (optional for the development version):
-  - Install Homebrew by following the instructions at [Homebrew's official site](https://brew.sh/).
-  - Use Homebrew to install Git:
-    ```bash
-    brew install git
-    ```
+Note: Git comes pre-installed on macOS, so no additional Git installation is needed.
 
 #### Windows
 
-1. Install the latest version of Rust using [rustup](https://rustup.rs/). Follow the instructions on the rustup website for the most current setup commands.
+1. Set up a build environment by installing Visual Studio with the required components, following the instructions on the [Visual Studio official site](https://visualstudio.microsoft.com/).
 
-2. Set up a build environment by installing Visual Studio with the required components, following the instructions on the [Visual Studio official site](https://visualstudio.microsoft.com/).
+2. Install the latest version of Rust using [rustup](https://rustup.rs/). Follow the instructions on the rustup website for the most current setup commands.
 
 3. Install Git (optional for the development version):
   - Download and install Git from the [official site](https://git-scm.com/).
