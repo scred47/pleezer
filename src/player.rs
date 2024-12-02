@@ -10,8 +10,8 @@
 //! # Device Management
 //!
 //! The audio device is handled in three phases:
-//! 1. Selection during construction (`new()`)
-//! 2. Opening on demand (`start()`)
+//! 1. Device specification storage during construction (`new()`)
+//! 2. Configuration and opening on demand (`start()`)
 //! 3. Closing when done (`stop()`)
 //!
 //! This design prevents ALSA from acquiring the device until it's actually needed.
@@ -94,8 +94,8 @@ type SampleFormat = <rodio::decoder::Decoder<std::fs::File> as Iterator>::Item;
 /// * Volume normalization
 ///
 /// Audio device lifecycle:
-/// * Device is selected during construction
-/// * Device is opened with `start()`
+/// * Device specification is stored during construction
+/// * Device is configured and opened with `start()`
 /// * Device is closed with `stop()`
 /// * Device state affects method behavior:
 ///   - Most playback operations require an open device
@@ -176,16 +176,11 @@ pub struct Player {
     /// * Connection status
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
 
-    /// Selected audio output device.
+    /// Audio device specification string.
     ///
-    /// Device is chosen during construction but not opened until `start()`.
-    device: rodio::Device,
-
-    /// Audio output configuration.
-    ///
-    /// Contains sample rate, format, and buffer size settings
-    /// selected during construction.
-    device_config: rodio::SupportedStreamConfig,
+    /// Stored during construction and used to configure the device when `start()` is called.
+    /// Format: `[<host>][|<device>][|<sample rate>][|<sample format>]`.
+    device: String,
 
     /// Audio output sink.
     ///
@@ -248,19 +243,14 @@ impl Player {
     ///   [<host>][|<device>][|<sample rate>][|<sample format>]
     ///   ```
     ///   All parts are optional. Use empty string for system default.
-    ///
-    /// Note: This only stores the device specification without opening it,
-    /// preventing ALSA from acquiring the device until `start()` is called.
+    ///   Device configuration is deferred until `start()` is called.
     ///
     /// # Errors
     ///
     /// Returns error if:
-    /// * Audio device specification is invalid
-    /// * Device is not available
     /// * HTTP client creation fails
     /// * Decryption key is invalid
     pub async fn new(config: &Config, device: &str) -> Result<Self> {
-        let (device, device_config) = Self::get_device(device)?;
         let client = http::Client::without_cookies(config)?;
 
         let bf_secret = if let Some(secret) = config.bf_secret {
@@ -296,8 +286,7 @@ impl Player {
             deferred_seek: None,
             current_rx: None,
             preload_rx: None,
-            device,
-            device_config,
+            device: device.to_owned(),
             sink: None,
             stream: None,
             sources: None,
@@ -430,21 +419,25 @@ impl Player {
         Ok((device, config))
     }
 
-    /// Opens the audio output device for playback.
+    /// Opens and configures the audio output device for playback.
     ///
+    /// Configures the audio device according to the specification provided during construction.
     /// Must be called before playback operations like `play()` or `set_progress()`.
     /// The device remains open until `stop()` is called or the player is dropped.
     ///
     /// # Errors
     ///
     /// Returns error if:
-    /// * Audio device cannot be opened
+    /// * Audio device specification is invalid
+    /// * Device is not available
+    /// * Device cannot be opened
     /// * Output stream creation fails
     /// * Sink creation fails
     pub fn start(&mut self) -> Result<()> {
         debug!("opening output device");
-        let (stream, handle) =
-            rodio::OutputStream::try_from_device_config(&self.device, self.device_config.clone())?;
+
+        let (device, device_config) = Self::get_device(&self.device)?;
+        let (stream, handle) = rodio::OutputStream::try_from_device_config(&device, device_config)?;
         let sink = rodio::Sink::try_new(&handle)?;
 
         // Set the volume to the last known value.
