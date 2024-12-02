@@ -9,6 +9,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Added
 - [docs] Comprehensive documentation for all public APIs and internals
+- [docs] Recommendation to use 32-bit output formats for better audio precision
 - [error] Add `downcast()` method to access underlying error types
 - [player] Explicit audio device lifecycle with `start()`, `stop()` and `is_started()`
 - [uuid] `uuid` module providing a fast UUID v4 generator
@@ -17,6 +18,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [docs] Clarify that Deezer Connect control only works from mobile devices
 - [gateway] Use UNIX epoch instead of current time for expired token state
 - [main] Use kernel instead of distribution version on Linux systems
+- [player] Scale volume logarithmically with 60 dB dynamic range
 - [remote] Start/stop audio device on controller connect/disconnect
 - [remote] Improve connection handshake ordering and timeout handling
 

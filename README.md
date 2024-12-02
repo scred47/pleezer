@@ -39,7 +39,9 @@
 - **Playback Reporting**: Contribute to accurate artist monetization metrics.
 - **User MP3 Support**: Play your uploaded MP3 files alongside streamed content.
 - **Authentication Options**: Log in via Deezer email/password or ARL token.
-- **Volume Normalization**: Maintain consistent volume across all tracks while preventing clipping or distortion.
+- **Volume Controls**:
+  - Logarithmic volume scaling for natural-feeling volume control
+  - Volume normalization to maintain consistent levels across tracks
 - **Proxy Support**: Connect through HTTPS proxies using system environment variables.
 
 ### Planned Features
@@ -157,9 +159,12 @@ Your music will then play through **pleezer** while being controlled from your m
     pleezer -d "||44100"        # The first device to support 44100 Hz
     ```
 
-    **Note:** Deezer streams audio at 44100 Hz exclusively. Sampling rates other than
-    44100 Hz are not recommended and provided for compatibility only.
-    Resampling is done using linear interpolation.
+    **Notes:**
+    - Deezer streams audio at 44100 Hz exclusively. Sampling rates other than
+      44100 Hz are not recommended and provided for compatibility only.
+      Resampling is done using linear interpolation.
+    - 32-bit sample formats (i32/f32) are recommended when using volume control
+      or normalization, as they preserve more precision in the audio output.
 
 - `--normalize-volume`: Enable volume normalization to maintain consistent volume levels across tracks. Example:
     ```bash

@@ -22,7 +22,8 @@
 //! 1. Track download and decryption
 //! 2. Audio format decoding (MP3/FLAC)
 //! 3. Volume normalization (optional)
-//! 4. Audio device output
+//! 4. Logarithmic volume control
+//! 5. Audio device output
 //!
 //! # Features
 //!
@@ -161,6 +162,12 @@ pub struct Player {
     /// Used to calculate normalization ratios.
     gain_target_db: i8,
 
+    /// Raw volume setting as a percentage (0.0 to 1.0).
+    ///
+    /// This stores the user-set volume before logarithmic scaling is applied.
+    /// The actual output volume uses logarithmic scaling for better perceived control.
+    volume: Percentage,
+
     /// Channel for sending playback events.
     ///
     /// Events include:
@@ -221,6 +228,16 @@ pub struct Player {
 }
 
 impl Player {
+    /// Logarithmic volume scale factor for a dynamic range of 60 dB.
+    ///
+    /// Equal to 10^(60/20) = 1000.0
+    const LOG_VOLUME_SCALE_FACTOR: f32 = 1000.0;
+
+    /// Logarithmic volume growth rate for a dynamic range of 60 dB.
+    ///
+    /// Equal to ln(1000) ≈ 6.907755279
+    const LOG_VOLUME_GROWTH_RATE: f32 = 6.907_755_4;
+
     /// Creates a new player instance.
     ///
     /// # Arguments
@@ -273,6 +290,7 @@ impl Player {
             shuffle: false,
             normalization: config.normalization,
             gain_target_db,
+            volume: Percentage::from_ratio_f32(1.0),
             event_tx: None,
             playing_since: Duration::ZERO,
             deferred_seek: None,
@@ -427,6 +445,9 @@ impl Player {
         let (stream, handle) =
             rodio::OutputStream::try_from_device_config(&self.device, self.device_config.clone())?;
         let sink = rodio::Sink::try_new(&handle)?;
+
+        // Set the volume to the last known value.
+        sink.set_volume(self.volume.as_ratio_f32());
 
         // The output source will output silence when the queue is empty.
         // That will cause the sink to report as "playing", so we need to pause it.
@@ -902,11 +923,13 @@ impl Player {
 
     /// Returns whether playback is active.
     ///
-    /// True if:
+    /// # Returns
+    ///
+    /// `true` if both:
     /// * A track is loaded (`current_rx` is Some)
     /// * Audio device is open and sink is not paused
     ///
-    /// Note: Will return false if audio device is not open,
+    /// Note: Will return `false` if audio device is not open,
     /// even if a track is loaded and ready to play.
     #[must_use]
     pub fn is_playing(&self) -> bool {
@@ -915,7 +938,13 @@ impl Player {
 
     /// Sets the playback state.
     ///
-    /// Convenience method that calls either `play()` or `pause()`.
+    /// Convenience method that:
+    /// * Calls `play()` if `should_play` is true
+    /// * Calls `pause()` if `should_play` is false
+    ///
+    /// # Arguments
+    ///
+    /// * `should_play` - Desired playback state
     ///
     /// # Errors
     ///
@@ -1050,30 +1079,33 @@ impl Player {
         }
     }
 
-    /// Returns current volume as a percentage.
+    /// Returns the last volume setting as a percentage.
     ///
-    /// Returns a value between 0.0 (muted) and 1.0 (full volume).
-    /// Returns default volume (1.0) if audio device is not open.
+    /// Returns the raw volume value that was set, before logarithmic scaling is applied.
+    /// The actual audio output uses logarithmic scaling to match human perception.
+    ///
+    /// # Returns
+    ///
+    /// * The last volume set via `set_volume()`
+    /// * 1.0 (100%) if volume was never set
+    ///
+    /// Note: This returns the stored volume setting even if the audio device is closed.
     #[must_use]
     pub fn volume(&self) -> Percentage {
-        match self.sink.as_ref() {
-            Some(sink) => {
-                let ratio = sink.volume();
-                Percentage::from_ratio_f32(ratio)
-            }
-            None => {
-                // Default volume in Rodio is 1.0.
-                Percentage::from_ratio_f32(1.0)
-            }
-        }
+        self.volume
     }
-    /// Sets playback volume.
+    /// Sets playback volume with logarithmic scaling.
+    ///
+    /// The volume control uses a logarithmic scale that matches human perception:
+    /// * Logarithmic scaling across a 60 dB dynamic range
+    /// * Linear fade to zero for very low volumes (< 10%)
+    /// * Smooth transitions across the entire range
     ///
     /// No effect if new volume equals current volume.
     ///
     /// # Arguments
     ///
-    /// * `volume` - Target volume (0.0 to 1.0)
+    /// * `volume` - Target volume percentage (0.0 to 1.0)
     ///
     /// # Errors
     ///
@@ -1084,8 +1116,26 @@ impl Player {
         }
 
         info!("setting volume to {volume}");
-        let ratio = volume.as_ratio_f32();
-        self.sink_mut().map(|sink| sink.set_volume(ratio))
+        self.volume = volume;
+
+        let volume = volume.as_ratio_f32().clamp(0.0, 1.0);
+        let mut amplitude = volume;
+
+        // Apply logarithmic volume scaling with a smooth transition to zero.
+        // Source: https://www.dr-lex.be/info-stuff/volumecontrols.html
+        if amplitude > 0.0 && amplitude < 1.0 {
+            amplitude =
+                f32::exp(Self::LOG_VOLUME_GROWTH_RATE * volume) / Self::LOG_VOLUME_SCALE_FACTOR;
+            if volume < 0.1 {
+                amplitude *= volume * 10.0;
+            }
+            debug!(
+                "volume scaled logarithmically: {}",
+                Percentage::from_ratio_f32(amplitude)
+            );
+        }
+
+        self.sink_mut().map(|sink| sink.set_volume(amplitude))
     }
 
     /// Returns current playback progress.
