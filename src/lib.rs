@@ -16,14 +16,14 @@
 //! The library is organized into several key modules:
 //!
 //! * **Connection Management**
-//!   - [`remote`]: Implements Deezer Connect protocol
-//!   - [`gateway`]: Handles API authentication and requests
 //!   - [`http`]: Manages HTTP connections and cookies
+//!   - [`gateway`]: Handles API authentication and requests
+//!   - [`remote`]: Implements Deezer Connect protocol
 //!
 //! * **Audio Processing**
+//!   - [`decrypt`]: Handles encrypted content
 //!   - [`player`]: Controls audio playback and queues
 //!   - [`track`]: Manages track metadata and downloads
-//!   - [`decrypt`]: Handles encrypted content
 //!
 //! * **Authentication**
 //!   - [`arl`]: ARL token management
@@ -34,13 +34,13 @@
 //!   - [`proxy`]: Network proxy support
 //!
 //! * **Protocol**
-//!   - [`protocol`]: Deezer Connect message types
 //!   - [`events`]: Event system for state changes
+//!   - [`protocol`]: Deezer Connect message types
 //!
 //! * **Utilities**
-//!   - [`util`]: General helper functions
-//!   - [`rand`]: Random number generation
 //!   - [`error`]: Error types and handling
+//!   - [`util`]: General helper functions
+//!   - [`uuid`]: UUID generation
 //!
 //! # Example
 //!
@@ -86,6 +86,7 @@ extern crate log;
 pub mod arl;
 pub mod config;
 pub mod decrypt;
+pub mod error;
 pub mod events;
 pub mod gateway;
 pub mod http;
@@ -97,8 +98,5 @@ pub mod tokens;
 pub mod track;
 pub mod util;
 pub mod uuid;
-
-#[allow(clippy::enum_glob_use)]
-pub mod error;
 
 pub use uuid::Uuid;
