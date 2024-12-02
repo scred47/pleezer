@@ -120,9 +120,9 @@ Your music will then play through **pleezer** while being controlled from your m
     pleezer --device-type mobile
     ```
 
-- `-d` or `--device`: Select the output device. Use `?` to list available devices. If omitted, the system default output device is used. Examples:
+- `-d` or `--device`: Select the output device. Use `?` to list available stereo 44.1/48 kHz output devices. If omitted, the system default output device is used. Examples:
     ```bash
-    # List available devices
+    # List available stereo 44.1/48 kHz output devices
     pleezer -d "?"
     ```
 
@@ -138,8 +138,6 @@ Your music will then play through **pleezer** while being controlled from your m
     Sample formats use Rust naming conventions:
     - `i16`: Signed 16-bit integer (S16 in ALSA)
     - `i32`: Signed 32-bit integer (S32)
-    - `u16`: Unsigned 16-bit integer (U16)
-    - `u32`: Unsigned 32-bit integer (U32)
     - `f32`: 32-bit float (FLOAT)
 
     Examples by platform:
@@ -165,6 +163,10 @@ Your music will then play through **pleezer** while being controlled from your m
       Resampling is done using linear interpolation.
     - 32-bit sample formats (i32/f32) are recommended when using volume control
       or normalization, as they preserve more precision in the audio output.
+    - Advanced: While device enumeration shows only common configurations
+      (44.1/48 kHz, I16/I32/F32), other sample rates (e.g., 96 kHz) and
+      formats (e.g., U16) are supported when explicitly specified in the
+      device string.
 
 - `--normalize-volume`: Enable volume normalization to maintain consistent volume levels across tracks. Example:
     ```bash

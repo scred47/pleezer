@@ -93,7 +93,7 @@ struct Args {
     /// Select the audio output device
     ///
     /// Format: [<host>][|<device>][|<sample rate>][|<sample format>]
-    /// Use "?" to list available devices.
+    /// Use "?" to list available stereo 44.1/48 kHz output devices.
     /// If omitted, uses the system default output device.
     #[arg(short, long, default_value = None, env = "PLEEZER_DEVICE")]
     device: Option<String>,
@@ -250,10 +250,12 @@ async fn run(args: Args) -> Result<()> {
         // List available devices and exit.
         let devices = Player::enumerate_devices();
         if devices.is_empty() {
-            return Err(Error::not_found("no audio output devices found"));
+            return Err(Error::not_found(
+                "no stereo 44.1/48 kHz output devices found",
+            ));
         }
 
-        info!("available audio output devices:");
+        info!("available stereo 44.1/48 kHz output devices:");
         for device in devices {
             info!("- {device}");
         }

@@ -19,6 +19,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [gateway] Use UNIX epoch instead of current time for expired token state
 - [main] Use kernel instead of distribution version on Linux systems
 - [player] Scale volume logarithmically with 60 dB dynamic range
+- [player] Only show output devices that support stereo 44.1/48 kHz in I16/I32/F32 formats
 - [remote] Start/stop audio device on controller connect/disconnect
 - [remote] Improve connection handshake ordering and timeout handling
 
@@ -26,6 +27,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [protocol] Use epsilon comparison for `Percentage` equality checks
 - [remote] Improve queue refresh handling
 - [player] Prevent from acquiring output device before playback starts
+- [player] Default device was not enumerated on Alsa
 - [remote] Fix race condition in controller connection setup
 - [tokens] Fix token expiration check
 

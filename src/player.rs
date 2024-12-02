@@ -1,7 +1,7 @@
 //! Audio playback and track management.
 //!
 //! This module handles:
-//! * Audio device configuration
+//! * Audio device configuration and output
 //! * Track playback and decryption
 //! * Queue management
 //! * Volume normalization
@@ -312,6 +312,7 @@ impl Player {
     ///   ```text
     ///   [<host>][|<device>][|<sample rate>][|<sample format>]
     ///   ```
+    ///   All parts are optional. Use empty string for system default.
     ///
     /// # Returns
     ///
@@ -481,17 +482,23 @@ impl Player {
         self.sink = None;
     }
 
-    /// The list of supported sample rates.
+    /// The list of sample rates to enumerate.
     ///
-    /// This list is used to filter out unreasonable sample rates.
-    /// Common sample rates in Hz:
+    /// Only includes the two most common sample rates in Hz:
     /// * 44100 - CD audio, most streaming services
-    /// * 48000 - Professional digital audio, DVDs, most DAWs
-    /// * 88200/96000 - High resolution audio
-    /// * 176400/192000 - Studio quality
-    /// * 352800/384000 - Ultra high definition audio
-    const SAMPLE_RATES: [u32; 8] = [
-        44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 352_800, 384_000,
+    /// * 48000 - Professional digital audio, video production, many sound cards
+    const SAMPLE_RATES: [u32; 2] = [44_100, 48_000];
+
+    /// The list of sample formats to enumerate.
+    ///
+    /// Only includes the three most common sample formats:
+    /// * I16 - 16-bit signed integer
+    /// * I32 - 32-bit signed integer
+    /// * F32 - 32-bit floating point
+    const SAMPLE_FORMATS: [cpal::SampleFormat; 3] = [
+        cpal::SampleFormat::I16,
+        cpal::SampleFormat::I32,
+        cpal::SampleFormat::F32,
     ];
 
     /// Lists available audio output devices.
@@ -501,27 +508,27 @@ impl Player {
     /// <host>|<device>|<sample rate>|<sample format>
     /// ```
     ///
-    /// Only includes devices supporting common sample rates:
-    /// * 44.1/48 kHz (standard)
-    /// * 88.2/96 kHz (high resolution)
-    /// * 176.4/192 kHz (studio)
-    /// * 352.8/384 kHz (ultra HD)
+    /// Only enumerates configurations meeting these criteria:
+    /// * Standard sample rates:
+    ///   - 44.1 kHz (CD audio, streaming services)
+    ///   - 48 kHz (professional audio, video production)
+    ///   - I16 (16-bit integer)
+    ///   - I32 (32-bit integer)
+    ///   - F32 (32-bit float)
+    /// * Stereo output (2 channels)
     ///
     /// Default device is marked with "(default)" suffix.
+    ///
+    /// Note: Other device configurations can still be used by explicitly
+    /// specifying them in the device string passed to `new()`.
+    ///
+    /// # Returns
+    ///
+    /// A vector of device specification strings, as sorted by the host.
     #[must_use]
     pub fn enumerate_devices() -> Vec<String> {
         let hosts = cpal::available_hosts();
-
-        // Create a set to store the unique device names.
-        // On Alsa hosts, the same device may otherwise be enumerated multiple times.
-        let mut result = HashSet::new();
-
-        // Get the default host, device and config.
-        let default_host = cpal::default_host();
-        let default_device = default_host.default_output_device();
-        let default_config = default_device
-            .as_ref()
-            .and_then(|device| device.default_output_config().ok());
+        let mut result = Vec::new();
 
         // Enumerate all available hosts, devices and configs.
         for host in hosts
@@ -530,39 +537,26 @@ impl Player {
         {
             if let Ok(devices) = host.output_devices() {
                 for device in devices {
-                    if let Ok(configs) = device.supported_output_configs() {
-                        for config in configs {
-                            if let Ok(device_name) = device.name() {
-                                for sample_rate in &Self::SAMPLE_RATES {
-                                    if let Some(config) =
-                                        config.try_with_sample_rate(cpal::SampleRate(*sample_rate))
-                                    {
-                                        let mut line = format!(
-                                            "{}|{}|{}|{}",
-                                            host.id().name(),
-                                            device_name,
-                                            config.sample_rate().0,
-                                            config.sample_format(),
-                                        );
-
-                                        // Check if this is the default host, device
-                                        // and config.
-                                        if default_host.id() == host.id()
-                                            && default_device.as_ref().is_some_and(
-                                                |default_device| {
-                                                    default_device.name().is_ok_and(
-                                                        |default_name| default_name == device_name,
-                                                    )
-                                                },
-                                            )
-                                            && default_config.as_ref().is_some_and(
-                                                |default_config| *default_config == config,
-                                            )
+                    if let Ok(device_name) = device.name() {
+                        if let Ok(configs) = device.supported_output_configs() {
+                            for config in configs {
+                                if config.channels() == 2
+                                    && Self::SAMPLE_FORMATS.contains(&config.sample_format())
+                                {
+                                    for sample_rate in &Self::SAMPLE_RATES {
+                                        if let Some(config) = config
+                                            .try_with_sample_rate(cpal::SampleRate(*sample_rate))
                                         {
-                                            line.push_str(" (default)");
-                                        }
+                                            let line = format!(
+                                                "{}|{}|{}|{}",
+                                                host.id().name(),
+                                                device_name,
+                                                config.sample_rate().0,
+                                                config.sample_format(),
+                                            );
 
-                                        result.insert(line);
+                                            result.push(line);
+                                        }
                                     }
                                 }
                             }
@@ -572,8 +566,6 @@ impl Player {
             }
         }
 
-        let mut result: Vec<_> = result.into_iter().collect();
-        result.sort();
         result
     }
 
