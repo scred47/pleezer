@@ -33,26 +33,28 @@
 
 ### Supported Features
 
-### Supported Features
-
-- **High-Quality Audio**: Stream in basic, HQ, or lossless formats depending on your [Deezer subscription](http://www.deezer.com/offers).
 - **Playback Controls**:
   - Queue management with shuffle and repeat modes
   - Gapless playback for seamless transitions
-  - **Volume Controls**:
-    - Logarithmic volume scaling for natural-feeling volume control
-    - Volume normalization to maintain consistent levels across tracks
-    - Configurable initial volume level with automatic fallback to client control
-- **Flow and Mixes**: Access personalized playlists and mixes tailored to your preferences.
-- **Playback Reporting**: Contribute to accurate artist monetization metrics.
-- **User MP3 Support**: Play your uploaded MP3 files alongside streamed content.
-- **Authentication Options**: Log in via Deezer email/password or ARL token.
-- **Proxy Support**: Connect through HTTPS proxies using system environment variables.
+- **High-Quality Audio**: Stream in basic, HQ, or lossless formats depending on your [Deezer subscription](http://www.deezer.com/offers).
+- **Volume Controls**:
+  - Logarithmic volume scaling for natural-feeling volume control
+  - Volume normalization to maintain consistent levels across tracks
+  - Configurable initial volume level with automatic fallback to client control
+- **Content Support**:
+  - **Flow and Mixes**: Access personalized playlists and [mixes](https://www.deezer.com/explore/mixes) tailored to your preferences
+  - **User MP3s**: Play your [uploaded MP3 files](https://support.deezer.com/hc/en-gb/articles/115004221605-Upload-MP3s) alongside streamed content
+  - **Playback Reporting**: Contribute to accurate artist monetization metrics
+- **Audio Backends**:
+  - [JACK](https://jackaudio.org/) backend for audio routing between applications (Linux only)
+  - [ASIO](https://helpcenter.steinberg.de/hc/en-us/articles/17863730844946-Steinberg-built-in-ASIO-Driver-information-download) backend for low-latency audio with direct hardware access (Windows only)
+- **Connection Options**:
+  - Authentication via Deezer email/password or [ARL token](https://www.deezer.com/desktop/login/electron/callback)
+  - HTTPS proxy support using system environment variables
 
 ### Planned Features
 
-- Live radio and podcast integration
-- Advanced audio outputs: ASIO, JACK
+- [Live radio](https://www.deezer.com/explore/radio) and [podcast](https://www.deezer.com/explore/podcasts) integration
 - Device registration
 
 ## Installation
@@ -146,18 +148,37 @@ Your music will then play through **pleezer** while being controlled from your m
 
     Examples by platform:
 
-    macOS (CoreAudio):
+    Linux ([ALSA](https://www.alsa-project.org/wiki/Main_Page)):
     ```bash
-    pleezer -d "CoreAudio"                           # System default
+    pleezer -d "ALSA|default:CARD=Headphones"                  # Named device
+    pleezer -d "ALSA|hw:CARD=sndrpihifiberry,DEV=0|44100|i16"  # Hardware device
+    ```
+
+    Linux ([JACK](https://jackaudio.org/)) (requires `--features jack`):
+    ```bash
+    pleezer -d "JACK"                               # Connect as "pleezer"
+    pleezer -d "JACK|MyPlayer"                      # Connect with custom name
+    ```
+
+    macOS ([CoreAudio](https://developer.apple.com/documentation/coreaudio)):
+    ```bash
+    pleezer -d "CoreAudio"                          # System default
     pleezer -d "CoreAudio|Yggdrasil+"               # Specific device
     pleezer -d "CoreAudio|Yggdrasil+|44100"         # With sample rate
     pleezer -d "CoreAudio|Yggdrasil+|44100|f32"     # With format
     ```
 
-    Linux (ALSA):
+    Windows ([ASIO](https://helpcenter.steinberg.de/hc/en-us/articles/17863730844946-Steinberg-built-in-ASIO-Driver-information-download)) (requires `--features asio`):
     ```bash
-    pleezer -d "ALSA|default:CARD=Headphones"       # Named device
-    pleezer -d "ALSA|hw:CARD=sndrpihifiberry,DEV=0|44100|i16"  # Hardware device
+    pleezer -d "ASIO"                               # System default ASIO device
+    pleezer -d "ASIO|Focusrite USB ASIO"            # Specific ASIO device
+    ```
+
+    Windows ([WASAPI](https://learn.microsoft.com/en-us/windows/win32/coreaudio/wasapi)):
+    ```bash
+    pleezer -d "WASAPI"                            # System default
+    pleezer -d "WASAPI|Speakers"                   # Specific device
+    pleezer -d "WASAPI|Speakers|44100|f32"         # With format
     ```
 
     Shorthand syntax (any platform):
@@ -431,6 +452,41 @@ Note: Git comes pre-installed on macOS, so no additional Git installation is nee
 
 3. Install Git (optional for the development version):
   - Download and install Git from the [official site](https://git-scm.com/).
+
+### Advanced Audio Backends
+
+**pleezer** supports additional audio backends that can be enabled at compile time:
+
+#### JACK Backend (Linux only)
+
+[JACK](https://jackaudio.org/) (JACK Audio Connection Kit) is a professional audio server that enables routing audio between applications. It provides flexible routing capabilities.
+
+1. Install JACK development files:
+  - On Debian/Ubuntu:
+    ```bash
+    sudo apt-get install libjack-dev
+    ```
+  - On Fedora:
+    ```bash
+    sudo dnf install jack-audio-connection-kit-devel
+    ```
+
+Then build with JACK support:
+```bash
+cargo build --features jack
+```
+
+#### ASIO Backend (Windows only)
+
+[ASIO](https://helpcenter.steinberg.de/hc/en-us/articles/17863730844946-Steinberg-built-in-ASIO-Driver-information-download) (Audio Stream Input/Output) is a low-latency audio driver protocol developed by Steinberg. It bypasses the Windows audio mixer to provide direct hardware access and sub-millisecond latency.
+
+1. Install the Steinberg ASIO SDK
+2. Configure build environment following the [CPAL documentation](https://docs.rs/crate/cpal/latest)
+
+Then build with ASIO support:
+```bash
+cargo build --features asio
+```
 
 ## Contributing
 

@@ -19,15 +19,18 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            features: --features jack
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build tools and ALSA dependencies (Linux only)
+      - name: Install build tools and dependencies (Linux only)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo apt-get update && sudo apt-get install -y libasound2-dev
+          sudo apt-get update && sudo apt-get install -y libasound2-dev libjack-dev
 
       - name: Install Rust stable
         run: rustup toolchain install stable --profile minimal
@@ -37,4 +40,4 @@ jobs:
 
       - name: Compile on ${{ matrix.os }} with Rust stable
         run: |
-          cargo check --verbose
+          cargo check --verbose ${{ matrix.features || '' }}

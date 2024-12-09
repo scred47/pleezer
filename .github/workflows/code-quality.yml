@@ -20,9 +20,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build tools and ALSA dependencies
+      - name: Install build tools and dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libasound2-dev
+          sudo apt-get update && sudo apt-get install -y libasound2-dev libjack-dev
 
       - name: Install Rust stable
         run: rustup toolchain install stable
@@ -34,4 +34,4 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Check Clippy lints
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings

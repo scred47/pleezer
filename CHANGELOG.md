@@ -8,6 +8,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
+- [player] Support JACK and ASIO audio backends
 - [player] Queue reordering with position tracking
 - [remote] Queue shuffle support with state synchronization
 - [remote] Initial volume setting that remains active until client takes control below maximum

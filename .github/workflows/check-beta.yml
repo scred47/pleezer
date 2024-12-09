@@ -11,12 +11,15 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            features: --features jack
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build tools and ALSA dependencies (Linux only)
+      - name: Install build tools and dependencies (Linux only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update && sudo apt-get install -y libasound2-dev
@@ -27,6 +30,6 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Check on ${{ matrix.os }} with Rust stable
+      - name: Check on ${{ matrix.os }} with Rust beta
         run: |
-          cargo check --verbose
+          cargo check --verbose ${{ matrix.features || '' }}
