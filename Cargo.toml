@@ -76,7 +76,7 @@ serde_with = { version = "3.11", default-features = false, features = [
 ] }
 shell-escape = "0.1"
 stream-download = { version = "0.13", features = ["reqwest-rustls"] }
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 thiserror = "2"
 time = "0.3"
 tokio = { version = "1", features = [
