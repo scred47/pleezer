@@ -156,8 +156,7 @@ Your music will then play through **pleezer** while being controlled from your m
 
     Linux ([JACK](https://jackaudio.org/)) (requires `--features jack`):
     ```bash
-    pleezer -d "JACK"                               # Connect as "pleezer"
-    pleezer -d "JACK|MyPlayer"                      # Connect with custom name
+    pleezer -d "JACK|cpal_client_out"               # Connect as "cpal_client_out"
     ```
 
     macOS ([CoreAudio](https://developer.apple.com/documentation/coreaudio)):
