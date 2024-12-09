@@ -34,7 +34,7 @@ use pleezer::{
     decrypt,
     error::{Error, ErrorKind, Result},
     player::Player,
-    protocol::connect::DeviceType,
+    protocol::connect::{DeviceType, Percentage},
     remote,
     uuid::Uuid,
 };
@@ -67,7 +67,7 @@ const ARGS_GROUP_LOGGING: &str = "logging";
 ///
 /// All options can be set via environment variables with
 /// the `PLEEZER_` prefix.
-#[derive(Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Parser)]
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Path to the secrets file
@@ -103,6 +103,17 @@ struct Args {
     /// Normalizes volume across tracks to provide consistent listening levels.
     #[arg(long, default_value_t = false, env = "PLEEZER_NORMALIZE_VOLUME")]
     normalize_volume: bool,
+
+    /// Set initial volume level (0-100)
+    ///
+    /// Applied when no volume is reported by Deezer client or when reported as maximum.
+    /// Useful for clients that don't correctly set volume levels.
+    #[arg(
+        long,
+        value_parser = clap::value_parser!(u8).range(0..=100),
+        env = "PLEEZER_INITIAL_VOLUME"
+    )]
+    initial_volume: Option<u8>,
 
     /// Prevent other clients from taking over the connection
     ///
@@ -373,6 +384,9 @@ async fn run(args: Args) -> Result<()> {
 
             interruptions: !args.no_interruptions,
             normalization: args.normalize_volume,
+            initial_volume: args
+                .initial_volume
+                .map(|volume| Percentage::from_percent_f32(volume as f32)),
 
             hook: args.hook,
 

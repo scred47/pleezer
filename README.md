@@ -39,9 +39,10 @@
 - **Playback Controls**:
   - Queue management with shuffle and repeat modes
   - Gapless playback for seamless transitions
-- **Volume Controls**:
-  - Logarithmic volume scaling for natural-feeling volume control
-  - Volume normalization to maintain consistent levels across tracks
+  - **Volume Controls**:
+    - Logarithmic volume scaling for natural-feeling volume control
+    - Volume normalization to maintain consistent levels across tracks
+    - Configurable initial volume level with automatic fallback to client control
 - **Flow and Mixes**: Access personalized playlists and mixes tailored to your preferences.
 - **Playback Reporting**: Contribute to accurate artist monetization metrics.
 - **User MP3 Support**: Play your uploaded MP3 files alongside streamed content.
@@ -144,20 +145,25 @@ Your music will then play through **pleezer** while being controlled from your m
     - `f32`: 32-bit float (FLOAT)
 
     Examples by platform:
+
+    macOS (CoreAudio):
     ```bash
-    # macOS examples:
-    pleezer -d "CoreAudio"
-    pleezer -d "CoreAudio|Yggdrasil+"
-    pleezer -d "CoreAudio|Yggdrasil+|44100"
-    pleezer -d "CoreAudio|Yggdrasil+|44100|f32"
+    pleezer -d "CoreAudio"                           # System default
+    pleezer -d "CoreAudio|Yggdrasil+"               # Specific device
+    pleezer -d "CoreAudio|Yggdrasil+|44100"         # With sample rate
+    pleezer -d "CoreAudio|Yggdrasil+|44100|f32"     # With format
+    ```
 
-    # Linux (ALSA) examples:
-    pleezer -d "ALSA|default:CARD=Headphones"
-    pleezer -d "ALSA|hw:CARD=sndrpihifiberry,DEV=0|44100|i16"
+    Linux (ALSA):
+    ```bash
+    pleezer -d "ALSA|default:CARD=Headphones"       # Named device
+    pleezer -d "ALSA|hw:CARD=sndrpihifiberry,DEV=0|44100|i16"  # Hardware device
+    ```
 
-    # Advanced examples, showing you can omit fields as long as you include the pipes:
-    pleezer -d "|yggdrasil+"    # The Yggdrasil+ device (case-insensitive)
-    pleezer -d "||44100"        # The first device to support 44100 Hz
+    Shorthand syntax (any platform):
+    ```bash
+    pleezer -d "|yggdrasil+"    # Just device name (case-insensitive)
+    pleezer -d "||44100"        # Just sample rate
     ```
 
     **Notes:**
@@ -171,9 +177,14 @@ Your music will then play through **pleezer** while being controlled from your m
       formats (e.g., U16) are supported when explicitly specified in the
       device string.
 
-- `--normalize-volume`: Enable volume normalization to maintain consistent volume levels across tracks. Example:
+- `--normalize-volume`: Enable volume normalization to maintain consistent volume levels across tracks. This operates independently from the "Normalize audio" setting in Deezer apps. Example:
     ```bash
     pleezer --normalize-volume
+    ```
+
+- `--initial-volume`: Set initial volume level between 0 and 100. Remains active until a Deezer client sets volume below maximum. Example:
+    ```bash
+    pleezer --initial-volume 50  # Start at 50% volume
     ```
 
 - `--no-interruptions`: Prevent other clients from taking over the connection after **pleezer** has connected. By default, interruptions are allowed. Example:
@@ -228,6 +239,7 @@ All command-line options can be set using environment variables by prefixing `PL
 # Using environment variables
 export PLEEZER_NAME="Living Room"
 export PLEEZER_NO_INTERRUPTIONS=true
+export PLEEZER_INITIAL_VOLUME=50  # Set initial volume to 50%
 
 # Command-line arguments override environment variables
 pleezer --name "Kitchen"  # Will use "Kitchen" instead
@@ -322,9 +334,7 @@ esac
 
 **pleezer** operates statelessly and loads user settings, such as normalization and audio quality, when it connects. To apply changes, disconnect and reconnect. This limitation is due to the Deezer Connect protocol.
 
-Note that volume normalization in **pleezer** (set via `--normalize-volume`) is independent from the "Normalize audio" toggle in Deezer apps, which only affects local playback on those devices. The **pleezer** setting is configured at startup and cannot be changed remotely.
-
-Command-line options handle settings that cannot be managed statelessly.
+Command-line options handle settings that cannot be managed through the Deezer Connect protocol.
 
 ### Configuring the Secrets File
 
@@ -365,7 +375,11 @@ You can start with the [`secrets.toml.example`](https://github.com/roderickvd/pl
 
 ## Troubleshooting
 
-If you encounter any issues while using **pleezer**, visit our [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions) for help and advice. You can also post your issue there to get help from the community.
+If you encounter any issues while using **pleezer**, visit our [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions) for help and advice.
+
+Common volume-related issues:
+- Volume at maximum when connecting: Use `--initial-volume` to set a lower starting level
+- Volume variations between tracks: Enable `--normalize-volume` for consistent playback levels
 
 ## Building pleezer
 

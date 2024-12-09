@@ -3,20 +3,24 @@
 //! This module handles:
 //! * Authentication methods (email/password or ARL)
 //! * Device identification and settings
+//! * Audio configuration (volume, normalization)
 //! * Track decryption configuration
 //! * API client settings
 //!
 //! # Examples
 //!
 //! ```rust
+//! ```rust
 //! use pleezer::config::{Config, Credentials};
 //! use pleezer::arl::Arl;
+//! use pleezer::protocol::connect::Percentage;
 //!
-//! // Configure with ARL authentication
+//! // Configure with ARL authentication and initial volume
 //! let config = Config {
 //!     credentials: Credentials::Arl(arl),
 //!     device_name: "My Player".to_string(),
 //!     normalization: true,
+//!     initial_volume: Some(Percentage::from_percent_f32(50.0)), // Start at 50% volume
 //!     // ... other settings ...
 //! };
 //!
@@ -39,7 +43,7 @@ use crate::{
     decrypt::{Key, KEY_LENGTH},
     error::{Error, Result},
     http,
-    protocol::connect::DeviceType,
+    protocol::connect::{DeviceType, Percentage},
 };
 
 /// Authentication methods for Deezer.
@@ -83,7 +87,7 @@ pub enum Credentials {
 ///
 /// Most settings have reasonable defaults that can be overridden
 /// as needed.
-#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
 pub struct Config {
     /// The name of the application.
     ///
@@ -124,6 +128,12 @@ pub struct Config {
     ///
     /// By default this is `false`.
     pub normalization: bool,
+
+    /// Initial volume level.
+    ///
+    /// Used when no volume is reported by Deezer client or when reported as maximum.
+    /// None means no volume override.
+    pub initial_volume: Option<Percentage>,
 
     /// Whether other clients may take over an existing connection.
     ///

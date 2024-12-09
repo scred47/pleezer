@@ -10,6 +10,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Added
 - [player] Queue reordering with position tracking
 - [remote] Queue shuffle support with state synchronization
+- [remote] Initial volume setting that remains active until client takes control below maximum
 
 ### Fixed
 - [docs] Fix Rustdoc linking to error module in documentation

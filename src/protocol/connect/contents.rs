@@ -1231,15 +1231,11 @@ impl FromStr for AudioQuality {
 ///
 /// # Examples
 ///
-/// Creating percentage values:
 /// ```rust
-/// // From ratios
-/// let half = Percentage::from_ratio_f32(0.5);
-/// let full = Percentage::from_ratio_f64(1.0);
-///
-/// // Common values
-/// assert_eq!(half.as_percent_f32(), 50.0);
-/// assert_eq!(full.as_ratio_f64(), 1.0);
+/// // Volume control
+/// let max_volume = Percentage::ONE_HUNDRED;  // 100% volume
+/// let half_volume = Percentage::from_percent_f32(50.0); // 50% volume
+/// let muted = Percentage::ZERO; // 0% volume
 /// ```
 ///
 /// Using in playback messages:
@@ -1272,6 +1268,12 @@ impl FromStr for AudioQuality {
 pub struct Percentage(f64);
 
 impl Percentage {
+    /// Represents 0% (0.0)
+    pub const ZERO: Self = Self(0.0);
+
+    /// Represents 100% (1.0)
+    pub const ONE_HUNDRED: Self = Self(1.0);
+
     /// Creates a new percentage from a 32-bit floating point ratio.
     ///
     /// # Examples
@@ -1296,6 +1298,32 @@ impl Percentage {
     #[must_use]
     pub fn from_ratio_f64(ratio: f64) -> Self {
         Self(ratio)
+    }
+
+    /// Creates a new percentage from a 32-bit floating point percentage value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_percent_f32(75.0);
+    /// assert_eq!(p.as_ratio_f32(), 0.75);
+    /// ```
+    #[must_use]
+    pub fn from_percent_f32(percent: f32) -> Self {
+        Self(f64::from(percent) / 100.0)
+    }
+
+    /// Creates a new percentage from a 64-bit floating point percentage value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let p = Percentage::from_percent_f64(33.3);
+    /// assert_eq!(p.as_ratio_f64(), 0.333);
+    /// ```
+    #[must_use]
+    pub fn from_percent_f64(percent: f64) -> Self {
+        Self(percent / 100.0)
     }
 
     /// Returns the value as a 32-bit floating point ratio (0.0 to 1.0).

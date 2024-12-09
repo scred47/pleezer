@@ -144,6 +144,10 @@ pub struct Client {
     /// Channel for sending player and control events
     event_tx: tokio::sync::mpsc::UnboundedSender<Event>,
 
+    /// Volume level to set on connection and maintain until client sets below maximum.
+    /// Helps work around clients that don't properly set volume levels.
+    initial_volume: InitialVolume,
+
     /// Whether to allow connection interruptions
     interruptions: bool,
 
@@ -218,6 +222,22 @@ enum ShuffleAction {
     Unshuffle,
 }
 
+/// Volume initialization state.
+///
+/// Controls how initial volume is applied:
+/// * Active - Set volume and remain active until client sets below maximum
+/// * Inactive - Initial volume has been superseded by client control
+/// * Disabled - No initial volume configured
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum InitialVolume {
+    /// Initial volume is active and will be applied
+    Active(Percentage),
+    /// Initial volume is stored but inactive
+    Inactive(Percentage),
+    /// No initial volume configured
+    Disabled,
+}
+
 /// Calculates a future time instant by adding seconds to now.
 ///
 /// # Arguments
@@ -233,13 +253,14 @@ fn from_now(seconds: Duration) -> Option<tokio::time::Instant> {
     tokio::time::Instant::now().checked_add(seconds)
 }
 
-/// Client implementation of Deezer Connect protocol.
+/// A client on the Deezer Connect protocol.
 ///
 /// Handles:
 /// * Device discovery and connections
 /// * Command processing
 /// * Queue management
 /// * Playback state synchronization
+/// * Volume management and normalization
 /// * Event notifications
 impl Client {
     /// Time before network operations timeout.
@@ -306,6 +327,11 @@ impl Client {
         let (time_to_live_tx, time_to_live_rx) = tokio::sync::mpsc::channel(1);
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
 
+        let initial_volume = match config.initial_volume {
+            Some(volume) => InitialVolume::Active(volume),
+            None => InitialVolume::Disabled,
+        };
+
         Ok(Self {
             device_id: config.device_id.into(),
             device_name: config.device_name.clone(),
@@ -336,6 +362,7 @@ impl Client {
             discovery_state: DiscoveryState::Available,
             connection_offers,
 
+            initial_volume,
             interruptions: config.interruptions,
             hook: config.hook.clone(),
 
@@ -1005,7 +1032,12 @@ impl Client {
     /// Handles status message from controller.
     ///
     /// Processes command status and updates connection state.
-    /// During connection handshake, establishes full connection.
+    /// During connection handshake, establishes full connection and:
+    /// * Updates connection state
+    /// * Sets discovery state
+    /// * Loads user settings
+    /// * Starts playback device
+    /// * Applies initial volume if configured
     ///
     /// # Arguments
     ///
@@ -1019,6 +1051,7 @@ impl Client {
     /// * Status indicates command failure
     /// * Connection state transition invalid
     /// * Message send fails
+    /// * Volume setting fails
     async fn handle_status(
         &mut self,
         from: DeviceId,
@@ -1078,6 +1111,11 @@ impl Client {
                 self.set_player_settings();
                 self.player.start()?;
 
+                if let InitialVolume::Active(initial_volume) = self.initial_volume {
+                    debug!("initial volume: {initial_volume}");
+                    self.player.set_volume(initial_volume)?;
+                }
+
                 return Ok(());
             }
 
@@ -1119,6 +1157,7 @@ impl Client {
     /// * Clear controller association
     /// * Reset connection state
     /// * Reset discovery state
+    /// * Restore initial volume activation
     /// * Flush cached tokens
     /// * Emit disconnect event
     fn reset_states(&mut self) {
@@ -1130,11 +1169,18 @@ impl Client {
             }
         }
 
+        // Ensure the player releases the output device.
         self.player.stop();
+
+        // Restore the initial volume for the next connection.
+        if let InitialVolume::Inactive(initial_volume) = self.initial_volume {
+            self.initial_volume = InitialVolume::Active(initial_volume);
+        }
 
         // Force the user token to be reloaded on the next connection.
         self.gateway.flush_user_token();
 
+        // Reset the connection and discovery states.
         self.connection_state = ConnectionState::Disconnected;
         self.discovery_state = DiscoveryState::Available;
     }
@@ -1494,7 +1540,7 @@ impl Client {
     /// * Playback state
     /// * Shuffle mode and track order
     /// * Repeat mode
-    /// * Volume level
+    /// * Volume level (respecting initial volume until client takes control)
     ///
     /// # Arguments
     ///
@@ -1570,7 +1616,17 @@ impl Client {
             self.player.set_repeat_mode(repeat_mode);
         }
 
-        if let Some(volume) = set_volume {
+        if let Some(mut volume) = set_volume {
+            if let InitialVolume::Active(initial_volume) = self.initial_volume {
+                if volume < Percentage::ONE_HUNDRED {
+                    // If the volume is set to a value less than 1.0, we stop using the initial
+                    // volume.
+                    self.initial_volume = InitialVolume::Inactive(initial_volume);
+                } else {
+                    volume = initial_volume;
+                }
+            }
+
             if let Err(e) = self.player.set_volume(volume) {
                 error!("error setting volume: {e}");
             }
