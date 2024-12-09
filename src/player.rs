@@ -3,7 +3,7 @@
 //! This module handles:
 //! * Audio device configuration and output
 //! * Track playback and decryption
-//! * Queue management
+//! * Queue management and track access
 //! * Volume normalization
 //! * Event notifications
 //!
@@ -89,7 +89,7 @@ type SampleFormat = <rodio::decoder::Decoder<std::fs::File> as Iterator>::Item;
 /// Handles:
 /// * Audio device management
 /// * Track downloading and decoding
-/// * Queue management
+/// * Queue management and ordering
 /// * Playback control
 /// * Volume normalization
 ///
@@ -118,6 +118,7 @@ pub struct Player {
     bf_secret: Key,
 
     /// Ordered list of tracks for playback.
+    /// Order may be changed by shuffle operations.
     queue: Vec<Track>,
 
     /// Set of track IDs to skip during playback.
@@ -148,11 +149,6 @@ pub struct Player {
     ///
     /// Controls behavior at queue boundaries.
     repeat_mode: RepeatMode,
-
-    /// Whether shuffle mode is enabled.
-    ///
-    /// Note: Not yet implemented.
-    shuffle: bool,
 
     /// Whether volume normalization is enabled.
     normalization: bool,
@@ -277,7 +273,6 @@ impl Player {
             media_url: MediaUrl::default().into(),
             bf_secret,
             repeat_mode: RepeatMode::default(),
-            shuffle: false,
             normalization: config.normalization,
             gain_target_db,
             volume: Percentage::from_ratio_f32(1.0),
@@ -948,9 +943,16 @@ impl Player {
         self.queue.get(self.position)
     }
 
+    /// Returns a mutable reference to the currently playing track, if any.
+    #[must_use]
+    pub fn track_mut(&mut self) -> Option<&mut Track> {
+        self.queue.get_mut(self.position)
+    }
+
     /// Replaces the entire playback queue.
     ///
     /// * Clears current queue and playback state
+    /// * Sets queue to the provided track order
     /// * Resets position to start
     /// * Clears skip track list
     pub fn set_queue(&mut self, tracks: Vec<Track>) {
@@ -959,6 +961,66 @@ impl Player {
         self.queue = tracks;
         self.skip_tracks.clear();
         self.skip_tracks.shrink_to_fit();
+    }
+
+    /// Returns a reference to the next track in the queue, if any.
+    #[must_use]
+    pub fn next_track(&self) -> Option<&Track> {
+        let next = self.position.saturating_add(1);
+        self.queue.get(next)
+    }
+
+    /// Returns a mutable reference to the next track in the queue, if any.
+    #[must_use]
+    pub fn next_track_mut(&mut self) -> Option<&mut Track> {
+        let next = self.position.saturating_add(1);
+        self.queue.get_mut(next)
+    }
+
+    /// Reorders the playback queue according to given track IDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `track_ids` - New ordered list of track IDs
+    ///
+    /// This function:
+    /// * Maintains the currently playing track
+    /// * Reorders remaining tracks to match provided order
+    /// * Updates internal queue position
+    /// * Clears preloaded tracks to reflect new order
+    pub fn reorder_queue(&mut self, track_ids: &[TrackId]) {
+        let current_track_id = self.track().map(Track::id);
+        let next_track_id = self.next_track().map(Track::id);
+
+        // Reorder the queue based on the new track order.
+        let mut new_queue = Vec::with_capacity(track_ids.len());
+        for new_track_id in track_ids {
+            if let Some(position) = self
+                .queue
+                .iter()
+                .position(|track| &track.id() == new_track_id)
+            {
+                let mut new_track = self.queue.remove(position);
+
+                // Reset the download state of tracks that are not in the current or next position.
+                if ![current_track_id, next_track_id].contains(&Some(new_track.id())) {
+                    new_track.reset_download();
+                }
+
+                new_queue.push(new_track);
+            }
+        }
+
+        // Find the new position of the current track in the new queue.
+        self.position = new_queue
+            .iter()
+            .position(|track| Some(track.id()) == current_track_id)
+            .unwrap_or_default();
+
+        // Set the new queue and clear the current track and preloaded track.
+        self.queue = new_queue;
+        self.preload_rx = None;
+        self.sources.as_mut().map(|sources| sources.clear());
     }
 
     /// Adds tracks to the end of the queue.
@@ -1010,36 +1072,16 @@ impl Player {
 
         // Resetting the sink drops any downloads of the current and next tracks.
         // We need to reset the download state of those tracks.
-        if let Some(current) = self.queue.get_mut(self.position) {
+        if let Some(current) = self.track_mut() {
             current.reset_download();
         }
-        if let Some(next) = self.queue.get_mut(self.position.saturating_add(1)) {
+        if let Some(next) = self.next_track_mut() {
             next.reset_download();
         }
 
         self.playing_since = Duration::ZERO;
         self.current_rx = None;
         self.preload_rx = None;
-    }
-
-    /// Returns whether shuffle mode is enabled.
-    #[must_use]
-    pub fn shuffle(&self) -> bool {
-        self.shuffle
-    }
-
-    /// Sets shuffle mode for playback.
-    ///
-    /// Note: Shuffle functionality is not yet implemented.
-    /// Setting to true will log a warning.
-    pub fn set_shuffle(&mut self, shuffle: bool) {
-        info!("setting shuffle to {shuffle}");
-        self.shuffle = shuffle;
-
-        // TODO: implement shuffle
-        if shuffle {
-            warn!("shuffle is not yet implemented");
-        }
     }
 
     /// Returns the current repeat mode.
@@ -1115,7 +1157,7 @@ impl Player {
                 amplitude *= volume * 10.0;
             }
             debug!(
-                "volume scaled logarithmically: {}",
+                "volume scaled logarithmically to {}",
                 Percentage::from_ratio_f32(amplitude)
             );
         }

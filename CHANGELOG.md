@@ -7,6 +7,10 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- [player] Queue reordering with position tracking
+- [remote] Queue shuffle support with state synchronization
+
 ### Fixed
 - [docs] Fix Rustdoc linking to error module in documentation
 

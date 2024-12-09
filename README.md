@@ -33,20 +33,23 @@
 
 ### Supported Features
 
+### Supported Features
+
 - **High-Quality Audio**: Stream in basic, HQ, or lossless formats depending on your [Deezer subscription](http://www.deezer.com/offers).
-- **Gapless Playback**: Enjoy seamless transitions between tracks.
+- **Playback Controls**:
+  - Queue management with shuffle and repeat modes
+  - Gapless playback for seamless transitions
+- **Volume Controls**:
+  - Logarithmic volume scaling for natural-feeling volume control
+  - Volume normalization to maintain consistent levels across tracks
 - **Flow and Mixes**: Access personalized playlists and mixes tailored to your preferences.
 - **Playback Reporting**: Contribute to accurate artist monetization metrics.
 - **User MP3 Support**: Play your uploaded MP3 files alongside streamed content.
 - **Authentication Options**: Log in via Deezer email/password or ARL token.
-- **Volume Controls**:
-  - Logarithmic volume scaling for natural-feeling volume control
-  - Volume normalization to maintain consistent levels across tracks
 - **Proxy Support**: Connect through HTTPS proxies using system environment variables.
 
 ### Planned Features
 
-- Shuffle support
 - Live radio and podcast integration
 - Advanced audio outputs: ASIO, JACK
 - Device registration

@@ -5,7 +5,7 @@
 //! * Device discovery and connection
 //! * Authentication and session management
 //! * Command processing
-//! * Queue synchronization
+//! * Queue synchronization and manipulation (shuffle, repeat)
 //! * Playback reporting
 //! * Event notifications
 //!
@@ -25,7 +25,7 @@
 //!    * Controller initiates connection
 //!    * Client accepts and establishes session
 //!    * Commands flow between devices
-//!    * Playback state synchronized
+//!    * Queue and playback state synchronized (including shuffle)
 //!
 //! # Connection States
 //!
@@ -157,9 +157,13 @@ pub struct Client {
     reporting_timer: Pin<Box<tokio::time::Sleep>>,
 
     /// Current playback queue
+    ///
+    /// Maintains both track list and shuffle state.
     queue: Option<queue::List>,
 
     /// Position to set when queue arrives
+    ///
+    /// Used to handle position changes that arrive before queue.
     deferred_position: Option<usize>,
 
     /// Whether to monitor all websocket traffic
@@ -199,6 +203,19 @@ enum ConnectionState {
         /// Unique session identifier
         session_id: Uuid,
     },
+}
+
+/// Direction for queue shuffling operations.
+///
+/// Controls whether to:
+/// * `Shuffle` - Randomize track order
+/// * `Unshuffle` - Restore original track order
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+enum ShuffleAction {
+    /// Randomize track order
+    Shuffle,
+    /// Restore original track order
+    Unshuffle,
 }
 
 /// Calculates a future time instant by adding seconds to now.
@@ -1149,7 +1166,8 @@ impl Client {
             .typ
             .enum_value_or_default();
 
-        info!("setting queue to {}", list.id);
+        let shuffled = if list.shuffled { "(shuffled)" } else { "" };
+        info!("setting queue to {} {shuffled}", list.id);
 
         // Await with timeout in order to prevent blocking the select loop.
         let queue = match container_type {
@@ -1173,7 +1191,7 @@ impl Client {
         self.player.set_queue(tracks);
 
         if let Some(position) = self.deferred_position.take() {
-            self.player.set_position(position);
+            self.set_position(position);
         }
 
         if self.is_flow() {
@@ -1243,36 +1261,56 @@ impl Client {
                 })
                 .collect();
 
-            // Generate a new list ID for the UI to pick up.
-            list.id = crate::Uuid::fast_v4().to_string();
-
-            debug!(
-                "extending queue {} with {} tracks",
-                list.id,
-                new_tracks.len()
-            );
+            debug!("extending queue with {} tracks", new_tracks.len());
 
             list.tracks.extend(new_list);
             self.player.extend_queue(new_tracks);
-
-            if let Some(controller) = self.controller() {
-                // First publish the new queue to the controller.
-                self.publish_queue().await?;
-
-                // Then signal the controller to refresh its UI.
-                let contents = Body::RefreshQueue {
-                    message_id: crate::Uuid::fast_v4().to_string(),
-                };
-
-                let channel = self.channel(Ident::RemoteQueue);
-                let refresh_queue = self.message(controller.clone(), channel, contents);
-                self.send_message(refresh_queue).await?;
-            }
-
-            Ok(())
+            self.refresh_queue().await
         } else {
             Err(Error::failed_precondition(
                 "cannot extend queue: queue is missing",
+            ))
+        }
+    }
+
+    /// Publishes updated queue to controller and requests UI refresh.
+    ///
+    /// Called after queue modifications to:
+    /// 1. Send updated queue state to controller
+    /// 2. Request controller to refresh its UI
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No active controller connection exists
+    /// * Queue publication fails
+    /// * Refresh request fails
+    ///
+    /// # Notes
+    ///
+    /// This is typically called after operations that modify the queue like:
+    /// * Extending Flow recommendations
+    /// * Updating shuffle order
+    /// * Changing repeat mode
+    async fn refresh_queue(&mut self) -> Result<()> {
+        if let Some(controller) = self.controller() {
+            // First publish the new queue to the controller.
+            if let Some(queue) = self.queue.as_mut() {
+                queue.id = crate::Uuid::fast_v4().to_string();
+            }
+            self.publish_queue().await?;
+
+            // Then signal the controller to refresh its UI.
+            let contents = Body::RefreshQueue {
+                message_id: crate::Uuid::fast_v4().to_string(),
+            };
+
+            let channel = self.channel(Ident::RemoteQueue);
+            let refresh_queue = self.message(controller.clone(), channel, contents);
+            self.send_message(refresh_queue).await
+        } else {
+            Err(Error::failed_precondition(
+                "refresh should have an active connection".to_string(),
             ))
         }
     }
@@ -1437,13 +1475,24 @@ impl Client {
         }
     }
 
+    fn set_position(&mut self, position: usize) {
+        let mut position = position;
+        if let Some(queue) = self.queue.as_ref() {
+            if queue.shuffled {
+                position = queue.tracks_order[position] as usize;
+            }
+        }
+
+        self.player.set_position(position);
+    }
+
     /// Updates player state based on controller commands.
     ///
     /// Applies changes to:
     /// * Queue position
     /// * Playback progress
     /// * Playback state
-    /// * Shuffle mode
+    /// * Shuffle mode and track order
     /// * Repeat mode
     /// * Volume level
     ///
@@ -1483,7 +1532,7 @@ impl Client {
                 .as_ref()
                 .is_some_and(|local| queue_id.is_some_and(|remote| local.id == remote))
             {
-                self.player.set_position(position);
+                self.set_position(position);
             } else {
                 self.deferred_position = Some(position);
             }
@@ -1494,7 +1543,27 @@ impl Client {
         }
 
         if let Some(shuffle) = set_shuffle {
-            self.player.set_shuffle(shuffle);
+            if self
+                .queue
+                .as_ref()
+                .is_some_and(|queue| queue.shuffled != shuffle)
+            {
+                if shuffle {
+                    self.shuffle_queue(ShuffleAction::Shuffle);
+                } else {
+                    self.shuffle_queue(ShuffleAction::Unshuffle);
+                }
+
+                if let Some(queue) = self.queue.as_mut() {
+                    let reordered_queue: Vec<_> = queue
+                        .tracks
+                        .iter()
+                        .filter_map(|track| track.id.parse().ok())
+                        .collect();
+                    self.player.reorder_queue(&reordered_queue);
+                    self.refresh_queue().await?;
+                }
+            }
         }
 
         if let Some(repeat_mode) = set_repeat_mode {
@@ -1513,7 +1582,70 @@ impl Client {
             }
         }
 
+        // TODO: move to caller so we also report on failure
         self.report_playback_progress().await
+    }
+
+    /// Shuffles or unshuffles the current queue.
+    ///
+    /// # Arguments
+    ///
+    /// * `action` - Whether to shuffle or unshuffle the queue
+    ///
+    /// When shuffling:
+    /// * Randomizes track order
+    /// * Stores original order for unshuffling
+    /// * Updates shuffle state
+    ///
+    /// When unshuffling:
+    /// * Restores original track order
+    /// * Clears stored order
+    /// * Updates shuffle state
+    ///
+    /// No effect if no queue exists.
+    #[expect(clippy::cast_possible_truncation)]
+    fn shuffle_queue(&mut self, action: ShuffleAction) {
+        if let Some(queue) = self.queue.as_mut() {
+            match action {
+                ShuffleAction::Shuffle => {
+                    info!("shuffling queue");
+
+                    let len = queue.tracks.len();
+                    let mut order: Vec<usize> = (0..len).collect();
+                    fastrand::shuffle(&mut order);
+
+                    let mut tracks = Vec::with_capacity(len);
+                    for i in &order {
+                        tracks.push(queue.tracks[*i].clone());
+                    }
+
+                    queue.tracks = tracks;
+                    queue.tracks_order = order.iter().map(|position| *position as u32).collect();
+                    queue.shuffled = true;
+                }
+
+                ShuffleAction::Unshuffle => {
+                    info!("unshuffling queue");
+
+                    let len = queue.tracks.len();
+                    let mut tracks = Vec::with_capacity(len);
+                    for i in 0..len {
+                        if let Some(position) = queue
+                            .tracks_order
+                            .iter()
+                            .position(|position| *position == i as u32)
+                        {
+                            tracks.push(queue.tracks[position].clone());
+                        }
+                    }
+
+                    queue.tracks = tracks;
+                    queue.tracks_order.clear();
+                    queue.tracks_order.shrink_to_fit();
+                    queue.shuffled = false;
+                }
+            }
+        }
     }
 
     /// Sends command status to controller.
@@ -1562,6 +1694,7 @@ impl Client {
     /// * No active queue
     /// * No current track
     /// * Message send fails
+    #[expect(clippy::cast_possible_truncation)]
     async fn report_playback_progress(&mut self) -> Result<()> {
         // Reset the timer regardless of success or failure, to prevent getting
         // stuck in a reporting state.
@@ -1575,10 +1708,20 @@ impl Client {
                     .as_ref()
                     .ok_or(Error::internal("no active queue"))?;
 
+                let player_position = self.player.position();
+                let mut position = player_position;
+                if queue.shuffled {
+                    position = queue
+                        .tracks_order
+                        .iter()
+                        .position(|i| *i == player_position as u32)
+                        .unwrap_or_default();
+                }
+
                 let item = QueueItem {
                     queue_id: queue.id.to_string(),
                     track_id: track.id(),
-                    position: self.player.position(),
+                    position,
                 };
 
                 let progress = Body::PlaybackProgress {
@@ -1590,7 +1733,7 @@ impl Client {
                     progress: self.player.progress(),
                     volume: self.player.volume(),
                     is_playing: self.player.is_playing(),
-                    is_shuffle: self.player.shuffle(),
+                    is_shuffle: queue.shuffled,
                     repeat_mode: self.player.repeat_mode(),
                 };
 

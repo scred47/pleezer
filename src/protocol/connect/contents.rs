@@ -2423,24 +2423,6 @@ impl FromStr for Payload {
             if let Ok(queue) = queue::List::parse_from_bytes(&buffer) {
                 // Validate queue data by checking for required fields
                 if !queue.id.is_empty() {
-                    // TODO: Process shuffled queues
-                    //     if list.shuffled {
-                    //         warn!("encountered shuffled playback queue; please report this to the developers");
-                    //         trace!("{list:#?}");
-                    //     }
-                    //
-                    //     let number_of_tracks = list.tracks.len();
-                    //     let tracks = if list.tracks_order.len() == number_of_tracks {
-                    //         let mut ordered_tracks = Vec::with_capacity(number_of_tracks);
-                    //         for index in list.tracks_order {
-                    //             ordered_tracks.push(list.tracks[index as usize].clone().id);
-                    //         }
-                    //         ordered_tracks
-                    //     } else {
-                    //         list.tracks.into_iter().map(|track| track.id).collect()
-                    //     };
-                    //
-                    //     let tracks = tracks.into_iter().filter_map(|track| track.parse::<u64>().ok()).collect();
                     return Ok(Self::PublishQueue(queue));
                 }
             }
