@@ -85,7 +85,7 @@ impl Error {
 
 /// Standard result type for pleezer operations.
 ///
-/// Wraps the standard `Result` type with our custom [`Error`] type.
+/// Wraps the standard `Result` type with our custom [`struct@Error`] type.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Error categories based on gRPC status codes.

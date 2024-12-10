@@ -38,7 +38,7 @@
 //!   - [`protocol`]: Deezer Connect message types
 //!
 //! * **Utilities**
-//!   - [`error`]: Error types and handling
+//!   - [`mod@error`]: Error types and handling
 //!   - [`util`]: General helper functions
 //!   - [`uuid`]: UUID generation
 //!
@@ -67,7 +67,7 @@
 //!
 //! # Error Handling
 //!
-//! Errors are handled through the types in the [`error`] module, with
+//! Errors are handled through the types in the [`mod@error`] module, with
 //! most functions returning [`Result`](error::Result).
 //!
 //! # Concurrency

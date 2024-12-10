@@ -1,10 +1,10 @@
 //! Message contents and data types for the Deezer Connect protocol.
 //!
 //! This module defines the structures exchanged through [`Channel`]s, including:
-//! * Message identification and routing ([`Headers`], [`DeviceId`])
-//! * Audio configuration ([`AudioQuality`], [`RepeatMode`])
-//! * Playback control ([`Body`], [`QueueItem`])
-//! * Status reporting ([`Status`], [`Percentage`])
+//! * Message identification and routing ([`super::contents::Headers`], [`super::contents::DeviceId`])
+//! * Audio configuration ([`super::contents::AudioQuality`], [`super::contents::RepeatMode`])
+//! * Playback control ([`super::contents::Body`], [`super::contents::QueueItem`])
+//! * Status reporting ([`super::contents::Status`], [`super::contents::Percentage`])
 //!
 //! # Wire Format
 //!
@@ -454,7 +454,6 @@ pub enum UserId {
 ///
 /// * All wire format strings are converted to uppercase before parsing
 /// * `UserFeed` requires a valid user ID suffix
-/// * The separator character for `UserFeed` is inherited from [`Channel::SEPARATOR`]
 ///
 /// [`Display`]: std::fmt::Display
 /// [`FromStr`]: std::str::FromStr

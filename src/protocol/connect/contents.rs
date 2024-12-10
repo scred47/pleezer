@@ -308,8 +308,8 @@ impl fmt::Display for Headers {
     /// Formats the headers in a human-readable format.
     ///
     /// The output format is:
-    /// * For broadcast: "from <device-id>"
-    /// * For targeted: "from <device-id> to <target-id>"
+    /// * For broadcast: "from {device-id}"
+    /// * For targeted: "from {device-id} to {target-id}"
     ///
     /// # Examples
     ///

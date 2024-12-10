@@ -22,7 +22,7 @@
 //! # Token Lifecycle
 //!
 //! 1. Token Creation
-//!    * Generated during login via [`gateway::Gateway`]
+//!    * Generated during login via [`super::gateway::Gateway`]
 //!    * Contains user ID and expiration time
 //!
 //! 2. Token Usage

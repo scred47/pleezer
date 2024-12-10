@@ -1,9 +1,6 @@
 //! Message types and routing for the Deezer Connect protocol.
 //!
-//! This module provides message abstractions for communication over [`Channel`]s:
-//! * [`Message`] - High-level message representation
-//! * [`WireMessage`] - Wire format handling
-//! * [`Stanza`] - Message direction indicators
+//! This module provides a high-level message representation for communication over [`Channel`]s.
 //!
 //! Messages flow through channels in specific directions:
 //! * `Send`/`Receive` - Regular message content
@@ -41,8 +38,8 @@
 //! };
 //! ```
 //!
-//! The lower-level wire format types ([`WireMessage`], [`Stanza`]) are handled
-//! automatically during serialization/deserialization.
+//! The lower-level wire format types are handled automatically during
+//! serialization/deserialization.
 
 use std::fmt;
 
@@ -203,10 +200,6 @@ impl fmt::Display for Message {
 impl Serialize for Message {
     /// Serializes a message into its wire format representation.
     ///
-    /// This implementation:
-    /// 1. Converts the `Message` into a [`WireMessage`]
-    /// 2. Serializes the `WireMessage` to JSON
-    ///
     /// # Examples
     ///
     /// ```rust
@@ -229,10 +222,6 @@ impl Serialize for Message {
 
 impl<'de> Deserialize<'de> for Message {
     /// Deserializes a message from its wire format representation.
-    ///
-    /// This implementation:
-    /// 1. Deserializes JSON into a [`WireMessage`]
-    /// 2. Converts the `WireMessage` into a `Message`
     ///
     /// # Examples
     ///

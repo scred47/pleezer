@@ -10,7 +10,6 @@
 //! # Examples
 //!
 //! ```rust
-//! ```rust
 //! use pleezer::config::{Config, Credentials};
 //! use pleezer::arl::Arl;
 //! use pleezer::protocol::connect::Percentage;
