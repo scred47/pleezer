@@ -7,6 +7,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- [main] Print Git commit hash and date if available
+
 ### Fixed
 - [docs] Fix Rustdoc lints and warnings
 

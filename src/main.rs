@@ -476,10 +476,16 @@ async fn main() {
 
     let cmd = command!();
     let name = cmd.get_name().to_string();
-    let version = cmd.get_version().unwrap_or("UNKNOWN").to_string();
-    let lang = String::from("en");
 
-    info!("starting {name}/{version}; {BUILD_PROFILE}; {lang}");
+    let mut version = cmd.get_version().unwrap_or("UNKNOWN").to_string();
+    if let Some(hash) = option_env!("PLEEZER_COMMIT_HASH") {
+        version.push_str(&format!(".{hash}"));
+    }
+    if let Some(date) = option_env!("PLEEZER_COMMIT_DATE") {
+        version.push_str(&format!(" ({date})"));
+    }
+
+    info!("starting {name}/{version}; {BUILD_PROFILE}");
 
     if let Err(e) = run(args).await {
         error!("{e}");
