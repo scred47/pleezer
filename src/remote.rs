@@ -73,7 +73,7 @@ use uuid::Uuid;
 use crate::{
     arl::Arl,
     config::{Config, Credentials},
-    error::{Error, ErrorKind, Result},
+    error::{Error, Result},
     events::Event,
     gateway::Gateway,
     player::Player,
@@ -586,12 +586,6 @@ impl Client {
                                 ControlFlow::Continue(()) => continue,
 
                                 ControlFlow::Break(e) => {
-                                    if e.kind == ErrorKind::DeadlineExceeded {
-                                        info!("stopping client: {}", e.to_string());
-                                        self.gateway.flush_user_token();
-                                        break Ok(());
-                                    }
-
                                     break Err(Error::internal(format!("error handling message: {e}")));
                                 }
                             }
@@ -1103,17 +1097,12 @@ impl Client {
                 // - assume that the arl expired
                 // - return a deadline exceeded error
                 // - so that the client can be stopped (and restarted)
-                let (user_token, time_to_live) =
-                    tokio::time::timeout(Self::NETWORK_TIMEOUT, self.user_token())
-                        .await?
-                        .map_err(Error::deadline_exceeded)?;
-
-                self.user_token = Some(user_token);
-
-                // Inform the select loop about the new time to live.
+                let result = tokio::time::timeout(Self::NETWORK_TIMEOUT, self.user_token()).await?;
+                let time_to_live = result.as_ref().map_or(Duration::ZERO, |result| result.1);
                 if let Err(e) = self.time_to_live_tx.send(time_to_live).await {
                     error!("failed to send user token time to live: {e}");
                 }
+                self.user_token = Some(result?.0);
 
                 self.set_player_settings();
                 self.player.start()?;

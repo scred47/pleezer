@@ -5,14 +5,17 @@
 //! * Logging configuration
 //! * Configuration loading
 //! * Application lifecycle
-//! * Connection retry logic with jitter
+//! * Connection retry logic with exponential backoff
 //!
 //! # Runtime Behavior
 //!
 //! The application:
 //! 1. Loads and validates configuration
 //! 2. Establishes Deezer connection
-//! 3. Maintains connection with automatic retry
+//! 3. Maintains connection with automatic retry on failures:
+//!    * Uses exponential backoff with jitter
+//!    * Makes up to 5 retry attempts
+//!    * Backs off between 100ms and 10s
 //! 4. Handles graceful shutdown
 //!
 //! # Error Handling
@@ -20,12 +23,22 @@
 //! Errors are handled at different levels:
 //! * Configuration errors terminate immediately
 //! * Authentication errors terminate immediately
-//! * Network errors trigger automatic retry
+//! * Network errors trigger automatic retry with backoff
+//! * ARL expiration triggers immediate retry
 //! * Other errors are logged and may trigger retry
+//!
+//! # Retry Behavior
+//!
+//! The retry logic uses exponential backoff with the following parameters:
+//! * Maximum 5 retry attempts
+//! * Initial backoff of 100ms
+//! * Maximum backoff of 10 seconds
+//! * Random jitter between attempts
 
 use std::{env, fs, path::Path, process, time::Duration};
 
 use clap::{command, Parser, ValueHint};
+use exponential_backoff::Backoff;
 use log::{debug, error, info, trace, warn, LevelFilter};
 
 use pleezer::{
@@ -39,13 +52,13 @@ use pleezer::{
     uuid::Uuid,
 };
 
-/// Build profile for logging.
+/// Build profile indicator for logging.
 ///
 /// Shows "debug" when built without optimizations.
 #[cfg(debug_assertions)]
 const BUILD_PROFILE: &str = "debug";
 
-/// Build profile for logging.
+/// Build profile indicator for logging.
 ///
 /// Shows "release" when built with optimizations.
 #[cfg(not(debug_assertions))]
@@ -53,8 +66,27 @@ const BUILD_PROFILE: &str = "release";
 
 /// Group name for mutually exclusive logging options.
 ///
-/// Used by clap to ensure -q and -v aren't used together.
+/// Used by clap to ensure -q (quiet) and -v (verbose) flags
+/// cannot be used together.
 const ARGS_GROUP_LOGGING: &str = "logging";
+
+/// Number of retry attempts before giving up.
+///
+/// After this many failed connection attempts, the application will terminate
+/// with an error instead of continuing to retry.
+const BACKOFF_ATTEMPTS: u32 = 5;
+
+/// Minimum duration to wait between retry attempts.
+///
+/// The first retry will wait at least this long, with subsequent retries
+/// increasing exponentially up to MAX_BACKOFF.
+const MIN_BACKOFF: Duration = Duration::from_millis(100);
+
+/// Maximum duration to wait between retry attempts.
+///
+/// Backoff periods will not exceed this duration, even with
+/// exponential increases.
+const MAX_BACKOFF: Duration = Duration::from_secs(10);
 
 /// Command line arguments as parsed by `clap`.
 ///
@@ -200,7 +232,7 @@ fn init_logger(config: &Args) {
 ///
 /// # Security
 ///
-/// To prevent resource exhaustion:
+/// To prevent resource exhaustion attacks:
 /// * File size is limited to 1024 bytes
 /// * Contents must be valid UTF-8
 /// * Must be valid TOML format
@@ -213,7 +245,7 @@ fn init_logger(config: &Args) {
 ///
 /// Returns error if:
 /// * File cannot be read
-/// * File is too large
+/// * File exceeds size limit
 /// * Content isn't valid UTF-8
 /// * Content isn't valid TOML
 fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
@@ -403,54 +435,58 @@ async fn run(args: Args) -> Result<()> {
     let player = Player::new(&config, args.device.as_deref().unwrap_or_default()).await?;
     let mut client = remote::Client::new(&config, player)?;
 
-    // Restart after sleeping some duration to prevent accidental denial of
-    // service attacks on the Deezer infrastructure. Initially set the timer to
-    // zero to immediately connect to the Deezer servers.
-    let restart_timer = tokio::time::sleep(Duration::ZERO);
-    tokio::pin!(restart_timer);
-
-    // Main application loop. This restarts the new remote client when it gets
-    // disconnected for whatever reason. This could be from a network failure
-    // on either end or simply a disconnection from the user. In this case, the
-    // session is refreshed with possibly new user data.
+    // Main application loop. This restarts the new remote client when it gets disconnected for
+    // whatever reason. This could be from a network failure or an arl that expired. In this case,
+    // we try to recover from the error by restarting the client. If the error is a permission
+    // we bail out, because the user is not be able to login.
     loop {
         tokio::select! {
             // Prioritize shutdown signals.
             biased;
 
-            // Handle shutdown signals.
             _ = tokio::signal::ctrl_c() => {
                 info!("shutting down gracefully");
                 client.stop().await;
                 break Ok(())
             }
 
-            // Restart the client when it gets disconnected. The initial
-            // connection happens immediately, because the timer elapses
-            // immediately.
-            result = client.start(), if restart_timer.is_elapsed() => {
-                // Bail out if the error is a permission denied error. This
-                // could be due to the user not being able to login.
-                // Otherwise, try to recover from the error by restarting the
-                // client.
-                if let Err(e) = &result {
-                    if e.kind == ErrorKind::PermissionDenied {
-                        break result;
+            result = async {
+                for backoff in Backoff::new(BACKOFF_ATTEMPTS, MIN_BACKOFF, MAX_BACKOFF) {
+                    match client.start().await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => {
+                            match e.kind {
+                                ErrorKind::PermissionDenied => {
+                                    // Bail out if the user is not able to login.
+                                    return Err(e);
+                                },
+                                ErrorKind::DeadlineExceeded => {
+                                    // Retry when the arl is expired.
+                                    warn!("{e}");
+                                    return Ok(());
+                                }
+                                _ => match backoff {
+                                    // Retry `BACKOFF_ATTEMPTS` times with exponential backoff
+                                    // on network errors.
+                                    Some(duration) => {
+                                        warn!("{e}; retrying in {duration:?}");
+                                        tokio::time::sleep(duration).await;
+                                    }
+                                    // Bail out if we have exhausted all retries.
+                                    None => return Err(e),
+                                }
+                            }
+                        },
                     }
-
-                    error!("{e}");
                 }
 
-                // Sleep with jitter to prevent thundering herds. Subsecond
-                // precision further prevents that by spreading requests
-                // when users are launching this from some crontab.
-                let duration = Duration::from_millis(fastrand::u64(5_000..=6_000));
-                info!("restarting in {:.1}s", duration.as_secs_f32());
-                restart_timer.as_mut().reset(tokio::time::Instant::now() + duration);
+                Ok(())
+            } => {
+                match result {
+                    Ok(()) => { info!("restarting client"); }
+                    Err(e) => break Err(e),
+                }
             }
-
-            // Keep the timer running until the client is ready to restart.
-            _ = &mut restart_timer, if !restart_timer.is_elapsed() => {}
         }
     }
 }
