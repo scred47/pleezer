@@ -8,6 +8,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
+- [docs] Instruct docs.rs to document all features
 - [main] Print Git commit hash and date if available
 
 ### Fixed

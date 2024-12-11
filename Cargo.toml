@@ -18,19 +18,18 @@ maintenance = { status = "actively-developed" }
 [features]
 default = ["binary"]
 
-# Enable command-line interface and binary build
+## Enable command-line interface and binary build
 binary = ["dep:clap"]
 
-# Enable ASIO (Audio Stream Input/Output) backend for low-latency audio (Windows only)
-# Requires Steinberg ASIO SDK and additional build setup
-# See: https://docs.rs/crate/cpal/latest
+## Enable ASIO (Audio Stream Input/Output) backend for low-latency audio (Windows only)
+## Requires Steinberg ASIO SDK and additional build setup
+## See: https://docs.rs/crate/cpal/latest
 asio = ["cpal/asio"]
 
-# Enable JACK (JACK Audio Connection Kit) backend for low-latency audio with flexible routing
-# (Linux only)
-# Requires JACK development files:
-# - Debian/Ubuntu: libjack-dev
-# - Fedora: jack-audio-connection-kit-devel
+## Enable JACK (JACK Audio Connection Kit) backend for low-latency audio with flexible routing  (Linux only)
+## Requires JACK development files:
+## - Debian/Ubuntu: libjack-dev
+## - Fedora: jack-audio-connection-kit-devel
 jack = ["cpal/jack"]
 
 [dependencies]
@@ -156,3 +155,6 @@ extended-description = """\
 A headless streaming player built around the Deezer Connect protocol. \
 Enables streaming from Deezer to any Linux system without a graphical interface, \
 making it ideal for DIY setups, server-based systems, or custom integrations."""
+
+[package.metadata.docs.rs]
+all-features = true
