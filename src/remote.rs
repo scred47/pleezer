@@ -558,6 +558,7 @@ impl Client {
                 () = &mut expiry => {
                     break Err(Error::deadline_exceeded("user token expired"));
                 }
+
                 Some(time_to_live) = self.time_to_live_rx.recv() => {
                     if let Some(deadline) = tokio::time::Instant::now().checked_add(time_to_live) {
                         expiry.as_mut().reset(deadline);
@@ -1097,10 +1098,16 @@ impl Client {
                     error!("failed to send connected event: {e}");
                 }
 
-                // Refreshed the user token on every reconnection in order to reload the user
-                // configuration, like normalization and audio quality.
+                // Refresh the user token on every reconnection in order to reload the user
+                // configuration, like normalization and audio quality. If this fails, then:
+                // - assume that the arl expired
+                // - return a deadline exceeded error
+                // - so that the client can be stopped (and restarted)
                 let (user_token, time_to_live) =
-                    tokio::time::timeout(Self::NETWORK_TIMEOUT, self.user_token()).await??;
+                    tokio::time::timeout(Self::NETWORK_TIMEOUT, self.user_token())
+                        .await?
+                        .map_err(Error::deadline_exceeded)?;
+
                 self.user_token = Some(user_token);
 
                 // Inform the select loop about the new time to live.
