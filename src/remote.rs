@@ -765,10 +765,12 @@ impl Client {
             }
         }
 
-        // Close the event receiver and handle any remaining events.
-        self.event_rx.close();
-        while let Some(event) = self.event_rx.recv().await {
-            self.handle_event(event).await;
+        // Handle any remaining events without closing the event channel,
+        // so it will work when the client is restarted.
+        while !self.event_rx.is_empty() {
+            if let Some(event) = self.event_rx.recv().await {
+                self.handle_event(event).await;
+            }
         }
 
         // Cancel any remaining subscriptions not handled by `disconnect`.

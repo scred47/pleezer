@@ -19,6 +19,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Fixed
 - [docs] Fix Rustdoc lints and warnings
 - [remote] Restart client on user token expiration
+- [remote] Fix event handling after client restart
 
 ## [0.5.0] - 2024-12-09
 
