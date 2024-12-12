@@ -23,7 +23,8 @@
 //!
 //! 3. Control Session
 //!    * Controller initiates connection
-//!    * Client accepts and establishes session
+//!    * Client accepts if available
+//!    * Establishes session and channel subscriptions
 //!    * Commands flow between devices
 //!    * Queue and playback state synchronized (including shuffle)
 //!
@@ -60,7 +61,6 @@ use std::{collections::HashSet, ops::ControlFlow, pin::Pin, process::Command, ti
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use log::Level;
-use lru_time_cache::LruCache;
 use semver;
 use tokio_tungstenite::{
     tungstenite::{
@@ -134,9 +134,6 @@ pub struct Client {
 
     /// Current discovery state
     discovery_state: DiscoveryState,
-
-    /// Cache of pending connection offers
-    connection_offers: LruCache<String, DeviceId>,
 
     /// Channel for receiving player and control events
     event_rx: tokio::sync::mpsc::UnboundedReceiver<Event>,
@@ -313,10 +310,6 @@ impl Client {
         };
         trace!("remote version: {version}");
 
-        // Controllers send discovery requests every two seconds.
-        let time_to_live = Duration::from_secs(5);
-        let connection_offers = LruCache::with_expiry_duration(time_to_live);
-
         // Timers are set in the message handlers. They should be moved into
         // a state variant once `select!` supports `if let` statements:
         // https://github.com/tokio-rs/tokio/issues/4173
@@ -360,7 +353,6 @@ impl Client {
             reporting_timer: Box::pin(reporting_timer),
 
             discovery_state: DiscoveryState::Available,
-            connection_offers,
 
             initial_volume,
             interruptions: config.interruptions,
@@ -879,24 +871,11 @@ impl Client {
     /// # Errors
     ///
     /// Returns error if:
-    /// * No active controller connection exists
-    /// * Message send fails
+    /// * Sending a close message fails
     async fn disconnect(&mut self) -> Result<()> {
-        if let Some(controller) = self.controller() {
-            let close = Body::Close {
-                message_id: crate::Uuid::fast_v4().to_string(),
-            };
-
-            let command = self.command(controller.clone(), close);
-            self.send_message(command).await?;
-
-            self.reset_states();
-            return Ok(());
-        }
-
-        Err(Error::failed_precondition(
-            "disconnect should have an active connection".to_string(),
-        ))
+        self.send_close().await?;
+        self.reset_states();
+        Ok(())
     }
 
     /// Handles device discovery request from a controller.
@@ -913,14 +892,10 @@ impl Client {
     /// Returns error if message send fails.
     async fn handle_discovery_request(&mut self, from: DeviceId) -> Result<()> {
         // Controllers keep sending discovery requests about every two seconds
-        // until it accepts some offer. `connection_offers` implements a LRU
-        // cache to evict stale offers.
-        let message_id = crate::Uuid::fast_v4().to_string();
-        self.connection_offers
-            .insert(message_id.clone(), from.clone());
-
+        // until it accepts some offer. Sometimes they take up on old requests,
+        // and we don't really care as long as it is directed to us.
         let offer = Body::ConnectionOffer {
-            message_id,
+            message_id: crate::Uuid::fast_v4().to_string(),
             from: self.device_id.clone(),
             device_name: self.device_name.clone(),
             device_type: self.device_type,
@@ -932,34 +907,25 @@ impl Client {
 
     /// Handles connection request from a controller.
     ///
-    /// Validates connection offer and establishes control session if:
-    /// * Offer is valid and matches requesting controller
+    /// Validates the connection and establishes control session if:
     /// * Client is available for connections
     /// * Required channel subscriptions succeed
+    ///
+    /// Note: Offer ID is ignored as controllers may use old offers.
+    /// What matters is that the request is directed at this device.
     ///
     /// # Arguments
     ///
     /// * `from` - ID of connecting controller
-    /// * `offer_id` - ID of previous connection offer
+    /// * `offer_id` - ID of previous connection offer (ignored)
     ///
     /// # Errors
     ///
     /// Returns error if:
-    /// * Offer validation fails
     /// * Client is not available
     /// * Channel subscription fails
     /// * Message send fails
-    async fn handle_connect(&mut self, from: DeviceId, offer_id: Option<String>) -> Result<()> {
-        let controller = offer_id
-            .and_then(|offer_id| self.connection_offers.remove(&offer_id))
-            .ok_or_else(|| Error::failed_precondition("connection offer should be active"))?;
-
-        if controller != from {
-            return Err(Error::failed_precondition(format!(
-                "connection offer for {controller} should be for {from}"
-            )));
-        }
-
+    async fn handle_connect(&mut self, from: DeviceId, _offer_id: Option<String>) -> Result<()> {
         if self.discovery_state == DiscoveryState::Taken {
             debug!("not allowing interruptions from {from}");
 
@@ -1024,6 +990,28 @@ impl Client {
         None
     }
 
+    /// Sends a close message to the currently connected controller.
+    ///
+    /// Sends a close command if there is either:
+    /// * An active controller connection
+    /// * A pending controller connection
+    ///
+    /// # Errors
+    ///
+    /// Returns error if message send fails
+    async fn send_close(&mut self) -> Result<()> {
+        if let Some(controller) = self.controller() {
+            let close = Body::Close {
+                message_id: crate::Uuid::fast_v4().to_string(),
+            };
+
+            let command = self.command(controller.clone(), close);
+            self.send_message(command).await?;
+        }
+
+        Ok(())
+    }
+
     /// Handles status message from controller.
     ///
     /// Processes command status and updates connection state.
@@ -1065,14 +1053,8 @@ impl Client {
         } = self.discovery_state.clone()
         {
             if from == controller && command_id == ready_message_id {
-                if let ConnectionState::Connected { controller, .. } = &self.connection_state {
-                    // Evict the active connection.
-                    let close = Body::Close {
-                        message_id: crate::Uuid::fast_v4().to_string(),
-                    };
-
-                    let command = self.command(controller.clone(), close);
-                    self.send_message(command).await?;
+                if self.is_connected() {
+                    self.send_close().await?;
                 }
 
                 if self.interruptions {

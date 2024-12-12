@@ -13,6 +13,8 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Changed
 - [error] Represent gRPC status codes as `u32`
+- [remote] Improved connection robustness by removing offer ID validation
+- [remote] Centralize close message handling
 
 ### Fixed
 - [docs] Fix Rustdoc lints and warnings
