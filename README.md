@@ -114,6 +114,8 @@ Your music will then play through **pleezer** while being controlled from your m
 - Be connected to the internet
 - Use the same Deezer account as your mobile device
 
+**Battery Usage:** When using Deezer Connect, you may notice increased battery drain on your mobile device. This is normal and happens because the Deezer app maintains constant network communication with the player device - sending commands and receiving status updates. This continuous communication is necessary for remote control functionality but does consume more power than local playback.
+
 ### Command-Line Arguments
 
 - `-n` or `--name`: Set the player's name as it appears to Deezer clients. By default, it uses the system hostname. Example:

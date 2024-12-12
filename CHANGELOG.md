@@ -9,6 +9,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Added
 - [docs] Instruct docs.rs to document all features
+- [docs] Document battery usage with Deezer Connect
 - [main] Print Git commit hash and date if available
 
 ### Changed
