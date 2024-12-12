@@ -14,7 +14,7 @@
 //! 2. Establishes Deezer connection
 //! 3. Maintains connection with automatic retry on failures:
 //!    * Uses exponential backoff with jitter
-//!    * Makes up to 5 retry attempts
+//!    * Makes up to 10 retry attempts
 //!    * Backs off between 100ms and 10s
 //! 4. Handles graceful shutdown
 //!
@@ -74,7 +74,7 @@ const ARGS_GROUP_LOGGING: &str = "logging";
 ///
 /// After this many failed connection attempts, the application will terminate
 /// with an error instead of continuing to retry.
-const BACKOFF_ATTEMPTS: u32 = 5;
+const BACKOFF_ATTEMPTS: u32 = 10;
 
 /// Minimum duration to wait between retry attempts.
 ///
@@ -451,7 +451,7 @@ async fn run(args: Args) -> Result<()> {
             }
 
             result = async {
-                for backoff in Backoff::new(BACKOFF_ATTEMPTS, MIN_BACKOFF, MAX_BACKOFF) {
+                for (i, backoff) in Backoff::new(BACKOFF_ATTEMPTS, MIN_BACKOFF, MAX_BACKOFF).into_iter().enumerate() {
                     match client.start().await {
                         Ok(result) => return Ok(result),
                         Err(e) => {
@@ -469,7 +469,7 @@ async fn run(args: Args) -> Result<()> {
                                     // Retry `BACKOFF_ATTEMPTS` times with exponential backoff
                                     // on network errors.
                                     Some(duration) => {
-                                        warn!("{e}; retrying in {duration:?}");
+                                        warn!("{e}; retrying in {duration:?} ({}/{BACKOFF_ATTEMPTS})", i+1);
                                         tokio::time::sleep(duration).await;
                                     }
                                     // Bail out if we have exhausted all retries.
