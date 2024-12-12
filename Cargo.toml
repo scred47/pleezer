@@ -11,6 +11,7 @@ repository = "https://github.com/roderickvd/pleezer/"
 categories = ["multimedia::audio"]
 keywords = ["audio", "deezer", "player"]
 exclude = ["secrets.toml"]
+documentation = "https://docs.rs/pleezer"
 
 [badges]
 maintenance = { status = "actively-developed" }
