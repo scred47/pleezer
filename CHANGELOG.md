@@ -11,6 +11,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [docs] Instruct docs.rs to document all features
 - [main] Print Git commit hash and date if available
 
+### Changed
+- [error] Represent gRPC status codes as `u32`
+
 ### Fixed
 - [docs] Fix Rustdoc lints and warnings
 - [remote] Restart client on user token expiration

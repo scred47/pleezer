@@ -99,69 +99,70 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// for the original definitions.
 #[expect(clippy::module_name_repetitions)]
 #[derive(Clone, Copy, Debug, Eq, Error, Hash, Ord, PartialEq, PartialOrd)]
+#[repr(u32)]
 pub enum ErrorKind {
     /// HTTP Mapping: 499 Client Closed Request
-    #[error("Operation was cancelled")]
+    #[error("operation was cancelled")]
     Cancelled = 1,
 
     /// HTTP Mapping: 500 Internal Server Error
-    #[error("Unknown error")]
+    #[error("unknown error")]
     Unknown = 2,
 
     /// HTTP Mapping: 400 Bad Request
-    #[error("Invalid argument specified")]
+    #[error("invalid argument specified")]
     InvalidArgument = 3,
 
     /// HTTP Mapping: 504 Gateway Timeout
-    #[error("Operation timed out")]
+    #[error("operation timed out")]
     DeadlineExceeded = 4,
 
     /// HTTP Mapping: 404 Not Found
-    #[error("Not found")]
+    #[error("not found")]
     NotFound = 5,
 
     /// HTTP Mapping: 409 Conflict
-    #[error("Attempt to create what already exists")]
+    #[error("attempt to create what already exists")]
     AlreadyExists = 6,
 
     /// HTTP Mapping: 403 Forbidden
-    #[error("Permission denied")]
+    #[error("permission denied")]
     PermissionDenied = 7,
 
     /// HTTP Mapping: 401 Unauthorized
-    #[error("No valid authentication credentials")]
+    #[error("no valid authentication credentials")]
     Unauthenticated = 16,
 
     /// HTTP Mapping: 429 Too Many Requests
-    #[error("Resource has been exhausted")]
+    #[error("resource has been exhausted")]
     ResourceExhausted = 8,
 
     /// HTTP Mapping: 400 Bad Request
-    #[error("Invalid state")]
+    #[error("invalid state")]
     FailedPrecondition = 9,
 
     /// HTTP Mapping: 409 Conflict
-    #[error("Operation aborted")]
+    #[error("operation aborted")]
     Aborted = 10,
 
     /// HTTP Mapping: 400 Bad Request
-    #[error("Out of range")]
+    #[error("out of range")]
     OutOfRange = 11,
 
     /// HTTP Mapping: 501 Not Implemented
-    #[error("Not implemented")]
+    #[error("not implemented")]
     Unimplemented = 12,
 
     /// HTTP Mapping: 500 Internal Server Error
-    #[error("Internal error")]
+    #[error("internal error")]
     Internal = 13,
 
     /// HTTP Mapping: 503 Service Unavailable
-    #[error("Service unavailable")]
+    #[error("service unavailable")]
     Unavailable = 14,
 
     /// HTTP Mapping: 500 Internal Server Error
-    #[error("Unrecoverable data loss or corruption")]
+    #[error("unrecoverable data loss or corruption")]
     DataLoss = 15,
 }
 
