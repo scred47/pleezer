@@ -10,6 +10,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Added
 - [docs] Add documentation link for docs.rs in package metadata
 
+### Changed
+- [build] Enable thin LTO and single codegen unit by default for better runtime performance
+
 ## [0.6.0] - 2024-12-12
 
 ### Added

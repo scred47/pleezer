@@ -109,16 +109,16 @@ protoc-bin-vendored = "3"
 time = { version = "0.3", features = ["formatting"] }
 
 [profile.release]
-# Enable Link Time Optimization and single codegen unit for maximum
-# optimization. These are disabled by default because we consider the
-# Raspberry Pi 3B+ (1GB RAM) as minimum supported hardware, where these
-# settings cause lockups due to memory exhaustion.
+# Default optimization settings balanced for minimum supported hardware
+# (Raspberry Pi 3B+ with 1GB RAM). These settings provide good optimization
+# while avoiding memory exhaustion during builds.
+lto = "thin"      # Enable Thin Link Time Optimization
+codegen-units = 1 # Optimize across the entire program
+
+# For systems with more RAM, maximum runtime performance can be achieved
+# by using full LTO (not supported by the mold linker):
 #
-# We recommend enabling these on more powerful systems for better
-# runtime performance:
-#
-# lto = true           # Enable Link Time Optimization
-# codegen-units = 1    # Optimize across the entire program
+# lto = true        # Enable Full Link Time Optimization
 
 [package.metadata.deb]
 copyright = "2024, Roderick van Domburg"
