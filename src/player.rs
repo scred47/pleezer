@@ -1209,10 +1209,16 @@ impl Player {
             let progress = progress.as_ratio_f32();
             if progress < 1.0 {
                 let progress = track.duration().mul_f32(progress);
-                match self
-                    .sink_mut()
-                    .and_then(|sink| sink.try_seek(progress).map_err(Into::into))
-                {
+
+                // Try to seek only if the track has started downloading, otherwise defer the seek.
+                // This prevents stalling the player when seeking in a track that has not started.
+                match track
+                    .handle()
+                    .ok_or(Error::unavailable("download not yet started"))
+                    .and_then(|_| {
+                        self.sink_mut()
+                            .and_then(|sink| sink.try_seek(progress).map_err(Into::into))
+                    }) {
                     Ok(()) => {
                         // Reset the playing time to zero, as the sink will now reset it also.
                         self.playing_since = Duration::ZERO;

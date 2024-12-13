@@ -13,6 +13,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [build] Enable thin LTO and single codegen unit by default for better runtime performance
 
+### Fixed
+- [player] Fix disconnection when skipping to next track before current track finishes downloading
+
 ## [0.6.0] - 2024-12-12
 
 ### Added
