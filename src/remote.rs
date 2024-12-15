@@ -64,7 +64,9 @@ use log::Level;
 use semver;
 use tokio_tungstenite::{
     tungstenite::{
-        client::ClientRequestBuilder, protocol::frame::Frame, Message as WebsocketMessage,
+        client::ClientRequestBuilder,
+        protocol::{frame::Frame, WebSocketConfig},
+        Message as WebsocketMessage,
     },
     MaybeTlsStream, WebSocketStream,
 };
@@ -275,8 +277,17 @@ impl Client {
     /// Maximum time between sending heartbeats.
     const WATCHDOG_TX_TIMEOUT: Duration = Duration::from_secs(5);
 
-    /// Maximum allowed websocket message size in bytes.
-    const MESSAGE_SIZE_MAX: usize = 8192;
+    /// Maximum allowed websocket frame size (payload) in bytes.
+    /// Set to 32KB (message size / 4) to balance between chunking and overhead.
+    const FRAME_SIZE_MAX: usize = Self::MESSAGE_SIZE_MAX / 4;
+
+    /// Maximum allowed websocket message size (payload plus headers) in bytes.
+    /// Set to 128KB (message buffer / 2) to provide backpressure and prevent OOM.
+    const MESSAGE_SIZE_MAX: usize = Self::MESSAGE_BUFFER_MAX / 2;
+
+    /// Maximum size of the websocket write buffer in bytes.
+    /// Set to 256KB to provide adequate buffering while preventing memory exhaustion.
+    const MESSAGE_BUFFER_MAX: usize = 2 * 128 * 1024;
 
     /// Creates a new client instance.
     ///
@@ -462,7 +473,12 @@ impl Client {
 
     /// Starts the client and handles control messages.
     ///
-    /// Establishes websocket connection, authenticates, and begins processing:
+    /// Establishes websocket connection with configured limits:
+    /// * Frame size: 32KB maximum
+    /// * Message size: 128KB maximum
+    /// * Write buffer: 128KB maximum
+    ///
+    /// Authenticates and begins processing:
     /// * Controller discovery
     /// * Command messages
     /// * Playback state updates
@@ -509,12 +525,20 @@ impl Client {
             }
         }
 
+        let config = Some(
+            WebSocketConfig::default()
+                .max_write_buffer_size(Self::MESSAGE_BUFFER_MAX)
+                .max_message_size(Some(Self::MESSAGE_SIZE_MAX))
+                .max_frame_size(Some(Self::FRAME_SIZE_MAX)),
+        );
+
         let (ws_stream, _) = if let Some(proxy) = proxy::Http::from_env() {
             info!("using proxy: {proxy}");
             let tcp_stream = proxy.connect_async(&uri).await?;
-            tokio_tungstenite::client_async_tls(request, tcp_stream).await?
+            tokio_tungstenite::client_async_tls_with_config(request, tcp_stream, config, None)
+                .await?
         } else {
-            tokio_tungstenite::connect_async(request).await?
+            tokio_tungstenite::connect_async_with_config(request, config, false).await?
         };
 
         let (websocket_tx, mut websocket_rx) = ws_stream.split();
@@ -1803,7 +1827,7 @@ impl Client {
     async fn handle_message(&mut self, message: &WebsocketMessage) -> ControlFlow<Error, ()> {
         match message {
             WebsocketMessage::Text(message) => {
-                match serde_json::from_str::<Message>(message) {
+                match serde_json::from_str::<Message>(message.as_str()) {
                     Ok(message) => {
                         match message.clone() {
                             Message::Receive { contents, .. } => {
@@ -2016,7 +2040,7 @@ impl Client {
         }
 
         let json = serde_json::to_string(&message)?;
-        let frame = WebsocketMessage::Text(json);
+        let frame = WebsocketMessage::Text(json.into());
         self.send_frame(frame).await
     }
 
