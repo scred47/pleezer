@@ -808,7 +808,6 @@ impl Player {
                                 Err(e) => {
                                     error!("failed to load track: {e}");
                                     self.mark_unavailable(track_id);
-                                    self.go_next();
                                 }
                             }
                         }

@@ -494,8 +494,7 @@ impl Track {
         // Deezer usually returns multiple sources for a track. The official
         // client seems to always use the first one. We start with the first
         // and continue with the next one if the first one fails to start.
-        #[expect(clippy::iter_next_slice)]
-        while let Some(source) = medium.sources.iter().next() {
+        for source in &medium.sources {
             // URLs can theoretically be non-HTTP, and we only support HTTP(S) URLs.
             let Some(host_str) = source.url.host_str() else {
                 warn!("skipping source with invalid host for track {self}");

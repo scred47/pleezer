@@ -10,6 +10,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [remote] Configure websocket message size limits to prevent memory exhaustion
 
+### Fixed
+- [track] Infinite loop loading track that is not available yet or anymore
+
 ## [0.6.1] - 2024-12-13
 
 ### Added
