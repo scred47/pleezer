@@ -233,11 +233,15 @@ enum ShuffleAction {
 /// * Active - Set volume and remain active until client sets below maximum
 /// * Inactive - Initial volume has been superseded by client control
 /// * Disabled - No initial volume configured
+///
+/// The state transitions from Active to Inactive when the client takes control by setting
+/// a volume below maximum. When a connection ends, it transitions back to Active to ensure
+/// the initial volume is reapplied on reconnection.
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum InitialVolume {
-    /// Initial volume is active and will be applied
+    /// Initial volume is active and will be applied on connection/reconnection
     Active(Percentage),
-    /// Initial volume is stored but inactive
+    /// Initial volume is stored but inactive (client has taken control)
     Inactive(Percentage),
     /// No initial volume configured
     Disabled,
@@ -1202,9 +1206,12 @@ impl Client {
     /// * Clear controller association
     /// * Reset connection state
     /// * Reset discovery state
-    /// * Restore initial volume activation
+    /// * Restore initial volume for next connection
     /// * Flush cached tokens
     /// * Emit disconnect event
+    ///
+    /// The initial volume is reactivated during reset to ensure it will be
+    /// applied again when a new controller connects.
     fn reset_states(&mut self) {
         if let Some(controller) = self.controller() {
             info!("disconnected from {controller}");

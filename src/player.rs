@@ -219,14 +219,21 @@ pub struct Player {
 }
 
 impl Player {
+    /// Default volume level.
+    ///
+    /// Constant value of 100% (1.0) used as initial volume setting.
+    const DEFAULT_VOLUME: Percentage = Percentage::from_ratio_f32(1.0);
+
     /// Logarithmic volume scale factor for a dynamic range of 60 dB.
     ///
     /// Equal to 10^(60/20) = 1000.0
+    /// Constant used in volume scaling calculations.
     const LOG_VOLUME_SCALE_FACTOR: f32 = 1000.0;
 
     /// Logarithmic volume growth rate for a dynamic range of 60 dB.
     ///
     /// Equal to ln(1000) ≈ 6.907755279
+    /// Constant used in volume scaling calculations.
     const LOG_VOLUME_GROWTH_RATE: f32 = 6.907_755_4;
 
     /// Creates a new player instance.
@@ -275,7 +282,7 @@ impl Player {
             repeat_mode: RepeatMode::default(),
             normalization: config.normalization,
             gain_target_db,
-            volume: Percentage::from_ratio_f32(1.0),
+            volume: Self::DEFAULT_VOLUME,
             event_tx: None,
             playing_since: Duration::ZERO,
             deferred_seek: None,
@@ -436,7 +443,8 @@ impl Player {
         let sink = rodio::Sink::try_new(&handle)?;
 
         // Set the volume to the last known value.
-        sink.set_volume(self.volume.as_ratio_f32());
+        let target_volume = std::mem::replace(&mut self.volume, Self::DEFAULT_VOLUME);
+        sink.set_volume(target_volume.as_ratio_f32());
 
         // The output source will output silence when the queue is empty.
         // That will cause the sink to report as "playing", so we need to pause it.

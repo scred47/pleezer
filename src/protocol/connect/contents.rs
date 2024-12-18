@@ -1229,23 +1229,34 @@ impl FromStr for AudioQuality {
 /// Values are stored internally as `f64` ratios between 0.0 and 1.0, but the
 /// type provides methods to work with both ratio and percentage formats.
 ///
-/// # Examples
+/// # Constants
 ///
+/// Provides common values as const:
 /// ```rust
-/// // Volume control
-/// let max_volume = Percentage::ONE_HUNDRED;  // 100% volume
-/// let half_volume = Percentage::from_percent_f32(50.0); // 50% volume
-/// let muted = Percentage::ZERO; // 0% volume
+/// const ZERO: Percentage = Percentage::ZERO;         // 0%
+/// const MAX: Percentage = Percentage::ONE_HUNDRED;   // 100%
 /// ```
 ///
-/// Using in playback messages:
+/// # Examples
+///
+/// Creating percentages:
+/// ```rust
+/// // Using const constructors
+/// const HALF: Percentage = Percentage::from_ratio_f32(0.5);
+/// const QUARTER: Percentage = Percentage::from_percent_f32(25.0);
+///
+/// // Using runtime constructors
+/// let progress = Percentage::from_ratio_f64(0.75);
+/// let volume = Percentage::from_percent_f64(80.0);
+/// ```
+///
+/// Using in messages:
 /// ```rust
 /// let body = Body::PlaybackProgress {
-///     message_id: "msg123".to_string(),
-///     // ... other fields ...
+///     // ...
 ///     progress: Some(Percentage::from_ratio_f32(0.25)), // 25% through track
 ///     volume: Percentage::from_ratio_f32(0.8),          // 80% volume
-///     // ... other fields ...
+///     // ...
 /// };
 /// ```
 ///
@@ -1269,60 +1280,102 @@ pub struct Percentage(f64);
 
 impl Percentage {
     /// Represents 0% (0.0)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// const MUTED: Percentage = Percentage::ZERO;
+    /// assert_eq!(MUTED.as_percent_f32(), 0.0);
+    /// ```
     pub const ZERO: Self = Self(0.0);
 
     /// Represents 100% (1.0)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// const MAX_VOLUME: Percentage = Percentage::ONE_HUNDRED;
+    /// assert_eq!(MAX_VOLUME.as_percent_f32(), 100.0);
+    /// ```
     pub const ONE_HUNDRED: Self = Self(1.0);
 
     /// Creates a new percentage from a 32-bit floating point ratio.
     ///
+    /// Can be used in const contexts.
+    ///
     /// # Examples
     ///
     /// ```rust
+    /// // Const context
+    /// const HALF: Percentage = Percentage::from_ratio_f32(0.5);
+    /// assert_eq!(HALF.as_percent_f32(), 50.0);
+    ///
+    /// // Runtime context
     /// let p = Percentage::from_ratio_f32(0.75);
     /// assert_eq!(p.as_percent_f32(), 75.0);
     /// ```
     #[must_use]
-    pub fn from_ratio_f32(ratio: f32) -> Self {
-        Self(ratio.into())
+    pub const fn from_ratio_f32(ratio: f32) -> Self {
+        Self(ratio as f64)
     }
 
     /// Creates a new percentage from a 64-bit floating point ratio.
     ///
+    /// Can be used in const contexts.
+    ///
     /// # Examples
     ///
     /// ```rust
-    /// let p = Percentage::from_ratio_f64(0.333);
-    /// assert_eq!(p.as_percent_f64(), 33.3);
+    /// // Const context
+    /// const THIRD: Percentage = Percentage::from_ratio_f64(0.333);
+    /// assert_eq!(THIRD.as_percent_f64(), 33.3);
+    ///
+    /// // Runtime context
+    /// let p = Percentage::from_ratio_f64(0.5);
+    /// assert_eq!(p.as_percent_f64(), 50.0);
     /// ```
     #[must_use]
-    pub fn from_ratio_f64(ratio: f64) -> Self {
+    pub const fn from_ratio_f64(ratio: f64) -> Self {
         Self(ratio)
     }
 
     /// Creates a new percentage from a 32-bit floating point percentage value.
     ///
+    /// Can be used in const contexts.
+    ///
     /// # Examples
     ///
     /// ```rust
+    /// // Const context
+    /// const HALF: Percentage = Percentage::from_percent_f32(50.0);
+    /// assert_eq!(HALF.as_ratio_f32(), 0.5);
+    ///
+    /// // Runtime context
     /// let p = Percentage::from_percent_f32(75.0);
     /// assert_eq!(p.as_ratio_f32(), 0.75);
     /// ```
     #[must_use]
-    pub fn from_percent_f32(percent: f32) -> Self {
-        Self(f64::from(percent) / 100.0)
+    pub const fn from_percent_f32(percent: f32) -> Self {
+        Self(percent as f64 / 100.0)
     }
 
     /// Creates a new percentage from a 64-bit floating point percentage value.
     ///
+    /// Can be used in const contexts.
+    ///
     /// # Examples
     ///
     /// ```rust
-    /// let p = Percentage::from_percent_f64(33.3);
-    /// assert_eq!(p.as_ratio_f64(), 0.333);
+    /// // Const context
+    /// const THIRD: Percentage = Percentage::from_percent_f64(33.3);
+    /// assert_eq!(THIRD.as_ratio_f64(), 0.333);
+    ///
+    /// // Runtime context
+    /// let p = Percentage::from_percent_f64(75.0);
+    /// assert_eq!(p.as_ratio_f64(), 0.75);
     /// ```
     #[must_use]
-    pub fn from_percent_f64(percent: f64) -> Self {
+    pub const fn from_percent_f64(percent: f64) -> Self {
         Self(percent / 100.0)
     }
 
@@ -1344,14 +1397,17 @@ impl Percentage {
 
     /// Returns the value as a 64-bit floating point ratio (0.0 to 1.0).
     ///
+    /// Can be used in const contexts.
+    ///
     /// # Examples
     ///
     /// ```rust
-    /// let p = Percentage::from_ratio_f64(0.333);
-    /// assert_eq!(p.as_ratio_f64(), 0.333);
+    /// const P: Percentage = Percentage::from_ratio_f64(0.333);
+    /// const RATIO: f64 = P.as_ratio_f64();
+    /// assert_eq!(RATIO, 0.333);
     /// ```
     #[must_use]
-    pub fn as_ratio_f64(&self) -> f64 {
+    pub const fn as_ratio_f64(&self) -> f64 {
         self.0
     }
 
@@ -1373,14 +1429,17 @@ impl Percentage {
 
     /// Returns the value as a 64-bit floating point percentage (0.0 to 100.0).
     ///
+    /// Can be used in const contexts.
+    ///
     /// # Examples
     ///
     /// ```rust
-    /// let p = Percentage::from_ratio_f64(0.333);
-    /// assert_eq!(p.as_percent_f64(), 33.3);
+    /// const P: Percentage = Percentage::from_ratio_f64(0.333);
+    /// const PERCENT: f64 = P.as_percent_f64();
+    /// assert_eq!(PERCENT, 33.3);
     /// ```
     #[must_use]
-    pub fn as_percent_f64(&self) -> f64 {
+    pub const fn as_percent_f64(&self) -> f64 {
         self.0 * 100.0
     }
 }
