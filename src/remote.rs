@@ -18,7 +18,8 @@
 //!
 //! 2. Device Discovery
 //!    * Client announces availability
-//!    * Controllers send discovery requests
+//!    * Controllers send discovery requests with session IDs
+//!    * Client caches session IDs and responds once per session
 //!    * Client responds with connection offers
 //!
 //! 3. Control Session
@@ -136,6 +137,11 @@ pub struct Client {
 
     /// Current discovery state
     discovery_state: DiscoveryState,
+
+    /// Cache of discovery session IDs to prevent duplicate offers within a single connection
+    ///
+    /// Cleared when client starts/restarts to prevent memory exhaustion across reconnections.
+    discovery_sessions: HashSet<String>,
 
     /// Channel for receiving player and control events
     event_rx: tokio::sync::mpsc::UnboundedReceiver<Event>,
@@ -331,6 +337,9 @@ impl Client {
         let (time_to_live_tx, time_to_live_rx) = tokio::sync::mpsc::channel(1);
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
 
+        let mut player = player;
+        player.register(event_tx.clone());
+
         let initial_volume = match config.initial_volume {
             Some(volume) => InitialVolume::Active(volume),
             None => InitialVolume::Disabled,
@@ -364,6 +373,7 @@ impl Client {
             reporting_timer: Box::pin(reporting_timer),
 
             discovery_state: DiscoveryState::Available,
+            discovery_sessions: HashSet::new(),
 
             initial_volume,
             interruptions: config.interruptions,
@@ -478,7 +488,12 @@ impl Client {
     /// * Message size: 128KB maximum
     /// * Write buffer: 128KB maximum
     ///
-    /// Authenticates and begins processing:
+    /// Initializes clean state by:
+    /// * Clearing cached discovery sessions
+    /// * Authenticating connection
+    /// * Beginning message processing
+    ///
+    /// Processes:
     /// * Controller discovery
     /// * Command messages
     /// * Playback state updates
@@ -491,6 +506,9 @@ impl Client {
     /// * Websocket connection fails
     /// * Message handling fails critically
     pub async fn start(&mut self) -> Result<()> {
+        // Purge discovery sessions from any previous session to prevent memory exhaustion.
+        self.discovery_sessions = HashSet::new();
+
         if let Credentials::Login { email, password } = &self.credentials.clone() {
             info!("logging in with email and password");
             // We can drop the result because the ARL is stored as a cookie.
@@ -546,9 +564,6 @@ impl Client {
 
         self.subscribe(Ident::Stream).await?;
         self.subscribe(Ident::RemoteDiscover).await?;
-
-        // Register playback event handler.
-        self.player.register(self.event_tx.clone());
 
         if self.eavesdrop {
             warn!("not discoverable: eavesdropping on websocket");
@@ -906,29 +921,55 @@ impl Client {
 
     /// Handles device discovery request from a controller.
     ///
-    /// Creates and caches a connection offer, then sends it to the
-    /// requesting controller.
+    /// Creates and caches a connection offer, then sends it to the requesting controller.
+    /// Caches discovery session IDs to prevent duplicate offers showing up in older Deezer apps.
     ///
     /// # Arguments
     ///
     /// * `from` - ID of requesting controller
+    /// * `discovery_session_id` - Unique identifier for this discovery session
+    ///
+    /// # Implementation Notes
+    ///
+    /// Controllers send discovery requests approximately every 2 seconds until accepting an offer.
+    /// To prevent older Deezer app versions from showing duplicate remote entries, this method:
+    ///
+    /// 1. Checks if discovery session ID is already cached
+    /// 2. Only generates and sends new offer if session is new
+    /// 3. Caches session ID after sending offer
+    ///
+    /// Newer app versions automatically deduplicate offers from the same remote,
+    /// but this caching is needed for backwards compatibility.
     ///
     /// # Errors
     ///
-    /// Returns error if message send fails.
-    async fn handle_discovery_request(&mut self, from: DeviceId) -> Result<()> {
-        // Controllers keep sending discovery requests about every two seconds
-        // until it accepts some offer. Sometimes they take up on old requests,
-        // and we don't really care as long as it is directed to us.
-        let offer = Body::ConnectionOffer {
-            message_id: crate::Uuid::fast_v4().to_string(),
-            from: self.device_id.clone(),
-            device_name: self.device_name.clone(),
-            device_type: self.device_type,
-        };
+    /// Returns error if message send fails
+    async fn handle_discovery_request(
+        &mut self,
+        from: DeviceId,
+        discovery_session_id: String,
+    ) -> Result<()> {
+        if !self.discovery_sessions.contains(&discovery_session_id) {
+            // Controllers keep sending discovery requests about every two seconds
+            // until it accepts some offer. Sometimes they take up on old requests,
+            // and we don't really care as long as it is directed to us.
+            let offer = Body::ConnectionOffer {
+                message_id: crate::Uuid::fast_v4().to_string(),
+                from: self.device_id.clone(),
+                device_name: self.device_name.clone(),
+                device_type: self.device_type,
+            };
 
-        let discover = self.discover(from, offer);
-        self.send_message(discover).await
+            let discover = self.discover(from, offer);
+            self.send_message(discover).await?;
+
+            // Cache the discovery session ID to prevent multiple offers showing up in the Deezer
+            // app. Newer versions of the app will ignore multiple offers from the same remote, but
+            // older versions will show the same remote multiple times.
+            self.discovery_sessions.insert(discovery_session_id);
+        }
+
+        Ok(())
     }
 
     /// Handles connection request from a controller.
@@ -1700,8 +1741,7 @@ impl Client {
                     }
 
                     queue.tracks = tracks;
-                    queue.tracks_order.clear();
-                    queue.tracks_order.shrink_to_fit();
+                    queue.tracks_order = Vec::new();
                     queue.shuffled = false;
                 }
             }
@@ -1948,7 +1988,11 @@ impl Client {
 
             Body::Connect { from, offer_id, .. } => self.handle_connect(from, offer_id).await,
 
-            Body::DiscoveryRequest { from, .. } => self.handle_discovery_request(from).await,
+            Body::DiscoveryRequest {
+                from,
+                discovery_session,
+                ..
+            } => self.handle_discovery_request(from, discovery_session).await,
 
             // Pings don't use dedicated WebSocket frames, but are sent as
             // normal data. An acknowledgement serves as pong.

@@ -11,6 +11,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [remote] Configure websocket message size limits to prevent memory exhaustion
 
 ### Fixed
+- [remote] Prevent duplicate remotes appearing in older Deezer apps
 - [track] Infinite loop loading track that is not available yet or anymore
 
 ## [0.6.1] - 2024-12-13

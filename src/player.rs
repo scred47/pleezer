@@ -958,8 +958,7 @@ impl Player {
         self.clear();
         self.position = 0;
         self.queue = tracks;
-        self.skip_tracks.clear();
-        self.skip_tracks.shrink_to_fit();
+        self.skip_tracks = HashSet::new();
     }
 
     /// Returns a reference to the next track in the queue, if any.
