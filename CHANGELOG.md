@@ -146,7 +146,8 @@ Initial release of pleezer, a headless streaming player for the Deezer Connect p
 - Debug and trace logging capabilities
 - Command-line interface with various configuration options
 
-[Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/roderickvd/pleezer/releases/tag/v0.6.2
 [0.6.1]: https://github.com/roderickvd/pleezer/releases/tag/v0.6.1
 [0.6.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.6.0
 [0.5.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.5.0
