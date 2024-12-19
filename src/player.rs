@@ -443,8 +443,8 @@ impl Player {
         let sink = rodio::Sink::try_new(&handle)?;
 
         // Set the volume to the last known value.
-        let target_volume = std::mem::replace(&mut self.volume, Self::DEFAULT_VOLUME);
-        sink.set_volume(target_volume.as_ratio_f32());
+        let target_volume = std::mem::replace(&mut self.volume.as_ratio_f32(), sink.volume());
+        sink.set_volume(target_volume);
 
         // The output source will output silence when the queue is empty.
         // That will cause the sink to report as "playing", so we need to pause it.
