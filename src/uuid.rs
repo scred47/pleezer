@@ -41,6 +41,7 @@ use std::{fmt, ops::Deref, str::FromStr};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Uuid(pub uuid::Uuid);
 
+/// Provides transparent access to all methods of the underlying `uuid::Uuid` type.
 impl Deref for Uuid {
     type Target = uuid::Uuid;
 
@@ -73,48 +74,57 @@ impl Uuid {
     }
 }
 
+/// Formats the UUID using the underlying `uuid::Uuid` Display implementation.
+///
+/// The UUID is formatted as a string of 32 hexadecimal digits with hyphens,
+/// in the format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`.
+///
+/// # Example
+/// ```
+/// let uuid = Uuid::fast_v4();
+/// println!("{}", uuid); // e.g., "550e8400-e29b-41d4-a716-446655440000"
+/// ```
 impl fmt::Display for Uuid {
-    /// Formats the UUID using the underlying `uuid::Uuid` Display implementation.
-    ///
-    /// The UUID is formatted as a string of 32 hexadecimal digits with hyphens,
-    /// in the format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`.
-    ///
-    /// # Example
-    /// ```
-    /// let uuid = Uuid::fast_v4();
-    /// println!("{}", uuid); // e.g., "550e8400-e29b-41d4-a716-446655440000"
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
 
+/// Parses a UUID string using the underlying `uuid::Uuid` `FromStr` implementation.
+///
+/// # Formats
+/// Supports parsing UUIDs in these formats:
+/// - Simple: `67e55044f3a340e6b5c0e090eb28b36`
+/// - Hyphenated: `67e5504-4f3a-340e-6b5c-0e090eb28b36`
+/// - Braced: `{67e55044-f3a3-40e6-b5c0-e090eb28b36}`
+/// - Urn: `urn:uuid:67e55044-f3a3-40e6-b5c0-e090eb28b36`
+///
+/// # Errors
+/// Returns a `uuid::Error` if the string is not a valid UUID.
+///
+/// # Example
+/// ```
+/// use std::str::FromStr;
+///
+/// let uuid = Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+/// ```
 impl FromStr for Uuid {
     type Err = Error;
 
-    /// Parses a UUID string using the underlying `uuid::Uuid` `FromStr` implementation.
-    ///
-    /// # Formats
-    /// Supports parsing UUIDs in these formats:
-    /// - Simple: `67e55044f3a340e6b5c0e090eb28b36`
-    /// - Hyphenated: `67e5504-4f3a-340e-6b5c-0e090eb28b36`
-    /// - Braced: `{67e55044-f3a3-40e6-b5c0-e090eb28b36}`
-    /// - Urn: `urn:uuid:67e55044-f3a3-40e6-b5c0-e090eb28b36`
-    ///
-    /// # Errors
-    /// Returns a `uuid::Error` if the string is not a valid UUID.
-    ///
-    /// # Example
-    /// ```
-    /// use std::str::FromStr;
-    ///
-    /// let uuid = Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         uuid::Uuid::from_str(s).map(Self).map_err(Into::into)
     }
 }
 
+/// Converts this `Uuid` into a `uuid::Uuid`.
+///
+/// This allows seamless conversion from our `Uuid` type to the underlying `uuid::Uuid` type.
+///
+/// # Example
+/// ```
+/// let our_uuid = Uuid::fast_v4();
+/// let std_uuid: uuid::Uuid = our_uuid.into();
+/// ```
 impl From<Uuid> for uuid::Uuid {
     fn from(value: Uuid) -> Self {
         *value

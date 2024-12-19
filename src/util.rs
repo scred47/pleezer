@@ -33,22 +33,22 @@ pub trait ToF32 {
     fn to_f32_lossy(self) -> f32;
 }
 
+/// Implements conversion from `f64` to `f32` with range clamping.
+///
+/// Clamps the value to the valid `f32` range before truncating:
+/// * `f64` values beyond `f32::MAX` become `f32::MAX`
+/// * `f64` values beyond `f32::MIN` become `f32::MIN`
+///
+/// # Example
+///
+/// ```rust
+/// use pleezer::util::ToF32;
+///
+/// let too_large = f64::MAX;
+/// let clamped = too_large.to_f32_lossy();
+/// assert!(clamped == f32::MAX);
+/// ```
 impl ToF32 for f64 {
-    /// Converts an `f64` to `f32`, clamping to prevent invalid results.
-    ///
-    /// Clamps the value to the valid `f32` range before truncating:
-    /// * `f64` values beyond `f32::MAX` become `f32::MAX`
-    /// * `f64` values beyond `f32::MIN` become `f32::MIN`
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use pleezer::util::ToF32;
-    ///
-    /// let too_large = f64::MAX;
-    /// let clamped = too_large.to_f32_lossy();
-    /// assert!(clamped == f32::MAX);
-    /// ```
     #[expect(clippy::cast_possible_truncation)]
     fn to_f32_lossy(self) -> f32 {
         self.clamp(f64::from(f32::MIN), f64::from(f32::MAX)) as f32

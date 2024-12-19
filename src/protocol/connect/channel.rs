@@ -535,24 +535,24 @@ impl Ident {
     const USER_FEED: &'static str = "USERFEED";
 }
 
+/// Formats an identifier for wire protocol transmission.
+///
+/// # Examples
+///
+/// Basic identifiers:
+/// ```rust
+/// assert_eq!(Ident::RemoteCommand.to_string(), "REMOTECOMMAND");
+/// assert_eq!(Ident::Stream.to_string(), "STREAM");
+/// ```
+///
+/// `UserFeed` with target:
+/// ```rust
+/// use std::num::NonZeroU64;
+///
+/// let feed = Ident::UserFeed(UserId::Id(NonZeroU64::new(12345).unwrap()));
+/// assert_eq!(feed.to_string(), "USERFEED_12345");
+/// ```
 impl fmt::Display for Channel {
-    /// Formats an identifier for wire protocol transmission.
-    ///
-    /// # Examples
-    ///
-    /// Basic identifiers:
-    /// ```rust
-    /// assert_eq!(Ident::RemoteCommand.to_string(), "REMOTECOMMAND");
-    /// assert_eq!(Ident::Stream.to_string(), "STREAM");
-    /// ```
-    ///
-    /// `UserFeed` with target:
-    /// ```rust
-    /// use std::num::NonZeroU64;
-    ///
-    /// let feed = Ident::UserFeed(UserId::Id(NonZeroU64::new(12345).unwrap()));
-    /// assert_eq!(feed.to_string(), "USERFEED_12345");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -566,36 +566,36 @@ impl fmt::Display for Channel {
     }
 }
 
+/// Parses a wire format string into an identifier.
+///
+/// The parsing is case-insensitive for the identifier part. For `UserFeed`,
+/// a valid user ID must follow the separator.
+///
+/// # Examples
+///
+/// ```rust
+/// // Basic identifiers (case insensitive)
+/// assert_eq!("REMOTECOMMAND".parse::<Ident>()?, Ident::RemoteCommand);
+/// assert_eq!("stream".parse::<Ident>()?, Ident::Stream);
+///
+/// // UserFeed with target
+/// let feed: Ident = "USERFEED_12345".parse()?;
+/// assert!(matches!(feed, Ident::UserFeed(_)));
+///
+/// // Error cases
+/// assert!("UNKNOWN".parse::<Ident>().is_err());
+/// assert!("USERFEED".parse::<Ident>().is_err()); // Missing user ID
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * The identifier is not recognized
+/// * `UserFeed` is missing a user ID
+/// * `UserFeed` has an invalid user ID format
 impl FromStr for Channel {
     type Err = Error;
 
-    /// Parses a wire format string into an identifier.
-    ///
-    /// The parsing is case-insensitive for the identifier part. For `UserFeed`,
-    /// a valid user ID must follow the separator.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Basic identifiers (case insensitive)
-    /// assert_eq!("REMOTECOMMAND".parse::<Ident>()?, Ident::RemoteCommand);
-    /// assert_eq!("stream".parse::<Ident>()?, Ident::Stream);
-    ///
-    /// // UserFeed with target
-    /// let feed: Ident = "USERFEED_12345".parse()?;
-    /// assert!(matches!(feed, Ident::UserFeed(_)));
-    ///
-    /// // Error cases
-    /// assert!("UNKNOWN".parse::<Ident>().is_err());
-    /// assert!("USERFEED".parse::<Ident>().is_err()); // Missing user ID
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * The identifier is not recognized
-    /// * `UserFeed` is missing a user ID
-    /// * `UserFeed` has an invalid user ID format
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let mut parts = s.split(Self::SEPARATOR);
 
@@ -628,26 +628,26 @@ impl FromStr for Channel {
     }
 }
 
+/// Formats a user ID for wire protocol transmission.
+///
+/// # Format
+/// * [`UserId::Id`] - Formats as the positive integer value
+/// * [`UserId::Unspecified`] - Formats as "-1"
+///
+/// # Examples
+///
+/// ```rust
+/// use std::num::NonZeroU64;
+///
+/// // Specific user ID
+/// let user = UserId::Id(NonZeroU64::new(12345).unwrap());
+/// assert_eq!(user.to_string(), "12345");
+///
+/// // Unspecified user
+/// let unspec = UserId::Unspecified;
+/// assert_eq!(unspec.to_string(), "-1");
+/// ```
 impl fmt::Display for UserId {
-    /// Formats a user ID for wire protocol transmission.
-    ///
-    /// # Format
-    /// * [`UserId::Id`] - Formats as the positive integer value
-    /// * [`UserId::Unspecified`] - Formats as "-1"
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::num::NonZeroU64;
-    ///
-    /// // Specific user ID
-    /// let user = UserId::Id(NonZeroU64::new(12345).unwrap());
-    /// assert_eq!(user.to_string(), "12345");
-    ///
-    /// // Unspecified user
-    /// let unspec = UserId::Unspecified;
-    /// assert_eq!(unspec.to_string(), "-1");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Id(id) => write!(f, "{id}"),
@@ -656,39 +656,39 @@ impl fmt::Display for UserId {
     }
 }
 
+/// Parses a wire format string into a user ID.
+///
+/// # Format
+/// * Positive integers - Parsed as [`UserId::Id`]
+/// * "-1" - Parsed as [`UserId::Unspecified`]
+///
+/// # Examples
+///
+/// ```rust
+/// // Parse specific user ID
+/// let user: UserId = "12345".parse()?;
+/// assert!(matches!(user, UserId::Id(_)));
+///
+/// // Parse unspecified user
+/// let unspec: UserId = "-1".parse()?;
+/// assert_eq!(unspec, UserId::Unspecified);
+///
+/// // Error cases
+/// assert!("0".parse::<UserId>().is_err());  // Zero is invalid
+/// assert!("-2".parse::<UserId>().is_err()); // Only -1 is valid negative
+/// assert!("abc".parse::<UserId>().is_err()); // Must be numeric
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * The string is not a valid integer
+/// * The value is zero
+/// * The value is negative but not -1
+/// * The value exceeds `u64::MAX`
 impl FromStr for UserId {
     type Err = Error;
 
-    /// Parses a wire format string into a user ID.
-    ///
-    /// # Format
-    /// * Positive integers - Parsed as [`UserId::Id`]
-    /// * "-1" - Parsed as [`UserId::Unspecified`]
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Parse specific user ID
-    /// let user: UserId = "12345".parse()?;
-    /// assert!(matches!(user, UserId::Id(_)));
-    ///
-    /// // Parse unspecified user
-    /// let unspec: UserId = "-1".parse()?;
-    /// assert_eq!(unspec, UserId::Unspecified);
-    ///
-    /// // Error cases
-    /// assert!("0".parse::<UserId>().is_err());  // Zero is invalid
-    /// assert!("-2".parse::<UserId>().is_err()); // Only -1 is valid negative
-    /// assert!("abc".parse::<UserId>().is_err()); // Must be numeric
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * The string is not a valid integer
-    /// * The value is zero
-    /// * The value is negative but not -1
-    /// * The value exceeds `u64::MAX`
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         if s == "-1" {
             return Ok(Self::Unspecified);
@@ -699,54 +699,54 @@ impl FromStr for UserId {
     }
 }
 
+/// Creates a [`UserId::Id`] from a [`NonZeroU64`].
+///
+/// This conversion is infallible as [`NonZeroU64`] guarantees
+/// a valid positive, non-zero value.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::num::NonZeroU64;
+///
+/// let id = NonZeroU64::new(12345).unwrap();
+/// let user: UserId = id.into();
+/// assert!(matches!(user, UserId::Id(_)));
+/// ```
 impl From<NonZeroU64> for UserId {
-    /// Creates a [`UserId::Id`] from a [`NonZeroU64`].
-    ///
-    /// This conversion is infallible as [`NonZeroU64`] guarantees
-    /// a valid positive, non-zero value.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::num::NonZeroU64;
-    ///
-    /// let id = NonZeroU64::new(12345).unwrap();
-    /// let user: UserId = id.into();
-    /// assert!(matches!(user, UserId::Id(_)));
-    /// ```
     fn from(id: NonZeroU64) -> Self {
         Self::Id(id)
     }
 }
 
+/// Formats a message identifier for wire protocol transmission.
+///
+/// Basic identifiers are formatted as simple uppercase strings.
+/// The [`Ident::UserFeed`] variant includes the target user ID
+/// after a separator.
+///
+/// # Examples
+///
+/// Basic identifiers:
+/// ```rust
+/// let cmd = Ident::RemoteCommand;
+/// assert_eq!(cmd.to_string(), "REMOTECOMMAND");
+///
+/// let stream = Ident::Stream;
+/// assert_eq!(stream.to_string(), "STREAM");
+/// ```
+///
+/// `UserFeed` with target:
+/// ```rust
+/// use std::num::NonZeroU64;
+///
+/// let feed = Ident::UserFeed(UserId::Id(NonZeroU64::new(12345).unwrap()));
+/// assert_eq!(feed.to_string(), "USERFEED_12345");
+///
+/// let broadcast = Ident::UserFeed(UserId::Unspecified);
+/// assert_eq!(broadcast.to_string(), "USERFEED_-1");
+/// ```
 impl fmt::Display for Ident {
-    /// Formats a message identifier for wire protocol transmission.
-    ///
-    /// Basic identifiers are formatted as simple uppercase strings.
-    /// The [`Ident::UserFeed`] variant includes the target user ID
-    /// after a separator.
-    ///
-    /// # Examples
-    ///
-    /// Basic identifiers:
-    /// ```rust
-    /// let cmd = Ident::RemoteCommand;
-    /// assert_eq!(cmd.to_string(), "REMOTECOMMAND");
-    ///
-    /// let stream = Ident::Stream;
-    /// assert_eq!(stream.to_string(), "STREAM");
-    /// ```
-    ///
-    /// `UserFeed` with target:
-    /// ```rust
-    /// use std::num::NonZeroU64;
-    ///
-    /// let feed = Ident::UserFeed(UserId::Id(NonZeroU64::new(12345).unwrap()));
-    /// assert_eq!(feed.to_string(), "USERFEED_12345");
-    ///
-    /// let broadcast = Ident::UserFeed(UserId::Unspecified);
-    /// assert_eq!(broadcast.to_string(), "USERFEED_-1");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::RemoteCommand => write!(f, "{}", Self::REMOTE_COMMAND),
@@ -758,67 +758,67 @@ impl fmt::Display for Ident {
     }
 }
 
+/// Parses a wire format string into a message identifier.
+///
+/// The identifier part is parsed case-insensitively. For [`Ident::UserFeed`],
+/// a valid user ID must follow the separator.
+///
+/// # Wire Format
+///
+/// Basic identifiers:
+/// * "REMOTECOMMAND" - Playback control
+/// * "REMOTEDISCOVER" - Device discovery
+/// * "REMOTEQUEUE" - Queue publications
+/// * "STREAM" - Playback reporting
+///
+/// `UserFeed` format:
+/// * "USERFEED_<`user_id`>" where `user_id` is either:
+///   * A positive integer (specific user)
+///   * "-1" (unspecified user)
+///
+/// # Examples
+///
+/// Basic identifiers (case insensitive):
+/// ```rust
+/// assert_eq!("REMOTECOMMAND".parse::<Ident>()?, Ident::RemoteCommand);
+/// assert_eq!("remotecommand".parse::<Ident>()?, Ident::RemoteCommand);
+/// assert_eq!("stream".parse::<Ident>()?, Ident::Stream);
+/// ```
+///
+/// `UserFeed` variants:
+/// ```rust
+/// // Specific target
+/// let feed: Ident = "USERFEED_12345".parse()?;
+/// assert!(matches!(feed, Ident::UserFeed(_)));
+///
+/// // Broadcast
+/// let broadcast: Ident = "USERFEED_-1".parse()?;
+/// assert!(matches!(broadcast, Ident::UserFeed(UserId::Unspecified)));
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * The identifier is not one of the known types
+/// * `UserFeed` is missing its required user ID
+/// * `UserFeed` has an invalid user ID format
+/// * The format includes unexpected additional parts
+///
+/// ```rust
+/// // Unknown identifier
+/// assert!("UNKNOWN".parse::<Ident>().is_err());
+///
+/// // Missing UserFeed target
+/// assert!("USERFEED".parse::<Ident>().is_err());
+///
+/// // Invalid UserFeed target
+/// assert!("USERFEED_abc".parse::<Ident>().is_err());
+/// assert!("USERFEED_0".parse::<Ident>().is_err());
+/// assert!("USERFEED_-2".parse::<Ident>().is_err());
+/// ```
 impl FromStr for Ident {
     type Err = Error;
 
-    /// Parses a wire format string into a message identifier.
-    ///
-    /// The identifier part is parsed case-insensitively. For [`Ident::UserFeed`],
-    /// a valid user ID must follow the separator.
-    ///
-    /// # Wire Format
-    ///
-    /// Basic identifiers:
-    /// * "REMOTECOMMAND" - Playback control
-    /// * "REMOTEDISCOVER" - Device discovery
-    /// * "REMOTEQUEUE" - Queue publications
-    /// * "STREAM" - Playback reporting
-    ///
-    /// `UserFeed` format:
-    /// * "USERFEED_<`user_id`>" where `user_id` is either:
-    ///   * A positive integer (specific user)
-    ///   * "-1" (unspecified user)
-    ///
-    /// # Examples
-    ///
-    /// Basic identifiers (case insensitive):
-    /// ```rust
-    /// assert_eq!("REMOTECOMMAND".parse::<Ident>()?, Ident::RemoteCommand);
-    /// assert_eq!("remotecommand".parse::<Ident>()?, Ident::RemoteCommand);
-    /// assert_eq!("stream".parse::<Ident>()?, Ident::Stream);
-    /// ```
-    ///
-    /// `UserFeed` variants:
-    /// ```rust
-    /// // Specific target
-    /// let feed: Ident = "USERFEED_12345".parse()?;
-    /// assert!(matches!(feed, Ident::UserFeed(_)));
-    ///
-    /// // Broadcast
-    /// let broadcast: Ident = "USERFEED_-1".parse()?;
-    /// assert!(matches!(broadcast, Ident::UserFeed(UserId::Unspecified)));
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * The identifier is not one of the known types
-    /// * `UserFeed` is missing its required user ID
-    /// * `UserFeed` has an invalid user ID format
-    /// * The format includes unexpected additional parts
-    ///
-    /// ```rust
-    /// // Unknown identifier
-    /// assert!("UNKNOWN".parse::<Ident>().is_err());
-    ///
-    /// // Missing UserFeed target
-    /// assert!("USERFEED".parse::<Ident>().is_err());
-    ///
-    /// // Invalid UserFeed target
-    /// assert!("USERFEED_abc".parse::<Ident>().is_err());
-    /// assert!("USERFEED_0".parse::<Ident>().is_err());
-    /// assert!("USERFEED_-2".parse::<Ident>().is_err());
-    /// ```
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let (ident, user_id) = s
             .split_once('_')

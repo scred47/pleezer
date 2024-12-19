@@ -39,11 +39,11 @@ use serde_with::{serde_as, DisplayFromStr};
 use super::{ListData, Method};
 use crate::protocol::connect::UserId;
 
+/// Gateway method name for retrieving Flow tracks.
+///
+/// Returns a batch of track recommendations based on the user's
+/// preferences and listening history.
 impl Method for UserRadio {
-    /// Gateway method name for retrieving Flow tracks.
-    ///
-    /// Returns a batch of track recommendations based on the user's
-    /// preferences and listening history.
     const METHOD: &'static str = "radio.getUserRadio";
 }
 
@@ -55,22 +55,22 @@ impl Method for UserRadio {
 #[derive(Clone, PartialEq, Deserialize, Debug)]
 pub struct UserRadio(pub ListData);
 
+/// Provides access to the underlying track data.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::gateway::{Response, UserRadio};
+///
+/// let response: Response<UserRadio> = /* gateway response */;
+/// if let Some(track) = response.first() {
+///     // Access track data directly
+///     println!("{} by {}", track.title, track.artist);
+/// }
+/// ```
 impl Deref for UserRadio {
     type Target = ListData;
 
-    /// Provides access to the underlying track data.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::gateway::{Response, UserRadio};
-    ///
-    /// let response: Response<UserRadio> = /* gateway response */;
-    /// if let Some(track) = response.first() {
-    ///     // Access track data directly
-    ///     println!("{} by {}", track.title, track.artist);
-    /// }
-    /// ```
     fn deref(&self) -> &Self::Target {
         &self.0
     }

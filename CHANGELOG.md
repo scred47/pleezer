@@ -8,6 +8,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Changed
+- [docs] Improve documentation coverage
 - [remote] Configure websocket message size limits to prevent memory exhaustion
 
 ### Fixed
@@ -146,7 +147,7 @@ Initial release of pleezer, a headless streaming player for the Deezer Connect p
 - Command-line interface with various configuration options
 
 [Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.6.1...HEAD
-[0.6.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.6.1
+[0.6.1]: https://github.com/roderickvd/pleezer/releases/tag/v0.6.1
 [0.6.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.6.0
 [0.5.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.5.0
 [0.4.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.4.0

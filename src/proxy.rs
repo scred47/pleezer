@@ -185,29 +185,29 @@ impl Http {
     }
 }
 
+/// Parses proxy configuration from URL string.
+///
+/// Format: `[http|https]://[user:pass@]host:port`
+///
+/// # Examples
+///
+/// ```rust
+/// // Simple proxy
+/// let proxy: Http = "http://proxy:8080".parse()?;
+///
+/// // With authentication
+/// let proxy: Http = "http://user:pass@proxy:8080".parse()?;
+/// ```
+///
+/// # Errors
+///
+/// Returns error if:
+/// * URL is invalid
+/// * Scheme is not http/https
+/// * Required components missing
 impl FromStr for Http {
     type Err = Error;
 
-    /// Parses proxy configuration from URL string.
-    ///
-    /// Format: `[http|https]://[user:pass@]host:port`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Simple proxy
-    /// let proxy: Http = "http://proxy:8080".parse()?;
-    ///
-    /// // With authentication
-    /// let proxy: Http = "http://user:pass@proxy:8080".parse()?;
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns error if:
-    /// * URL is invalid
-    /// * Scheme is not http/https
-    /// * Required components missing
     fn from_str(proxy_str: &str) -> std::result::Result<Self, Self::Err> {
         let url = Url::parse(proxy_str)?;
         let addr = &url[Position::BeforeHost..Position::AfterPort];
@@ -237,11 +237,11 @@ impl FromStr for Http {
     }
 }
 
+/// Formats proxy as `host:port` string.
+///
+/// Note: Authentication credentials are not included
+/// in the output for security.
 impl Display for Http {
-    /// Formats proxy as `host:port` string.
-    ///
-    /// Note: Authentication credentials are not included
-    /// in the output for security.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.url)
     }

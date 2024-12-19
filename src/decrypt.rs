@@ -121,33 +121,33 @@ pub type RawKey = [u8; KEY_LENGTH];
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Key(RawKey);
 
+/// Parses a string into a decryption key.
+///
+/// The string must be exactly 16 bytes long, as required by
+/// Blowfish and Deezer's encryption format.
+///
+/// # Errors
+///
+/// Returns `Error::OutOfRange` if the string length isn't
+/// exactly 16 bytes.
+///
+/// # Examples
+///
+/// ```rust
+/// use pleezer::decrypt::Key;
+///
+/// // Valid 16-byte key
+/// let key: Key = "1234567890123456".parse()?;
+///
+/// // Too short
+/// assert!("12345".parse::<Key>().is_err());
+///
+/// // Too long
+/// assert!("12345678901234567".parse::<Key>().is_err());
+/// ```
 impl FromStr for Key {
     type Err = Error;
 
-    /// Parses a string into a decryption key.
-    ///
-    /// The string must be exactly 16 bytes long, as required by
-    /// Blowfish and Deezer's encryption format.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::OutOfRange` if the string length isn't
-    /// exactly 16 bytes.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use pleezer::decrypt::Key;
-    ///
-    /// // Valid 16-byte key
-    /// let key: Key = "1234567890123456".parse()?;
-    ///
-    /// // Too short
-    /// assert!("12345".parse::<Key>().is_err());
-    ///
-    /// // Too long
-    /// assert!("12345678901234567".parse::<Key>().is_err());
-    /// ```
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let len = s.len();
         if len != KEY_LENGTH {
@@ -164,27 +164,27 @@ impl FromStr for Key {
     }
 }
 
+/// Provides read-only access to the raw key bytes.
+///
+/// This allows using the key with cryptographic functions
+/// that expect byte arrays while maintaining key encapsulation.
+///
+/// # Examples
+///
+/// ```rust
+/// use pleezer::decrypt::Key;
+///
+/// let key: Key = "1234567890123456".parse()?;
+///
+/// // Access raw bytes
+/// assert_eq!(&*key, b"1234567890123456");
+///
+/// // Use with crypto functions
+/// let cipher = Blowfish::new_from_slice(&*key)?;
+/// ```
 impl Deref for Key {
     type Target = RawKey;
 
-    /// Provides read-only access to the raw key bytes.
-    ///
-    /// This allows using the key with cryptographic functions
-    /// that expect byte arrays while maintaining key encapsulation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use pleezer::decrypt::Key;
-    ///
-    /// let key: Key = "1234567890123456".parse()?;
-    ///
-    /// // Access raw bytes
-    /// assert_eq!(&*key, b"1234567890123456");
-    ///
-    /// // Use with crypto functions
-    /// let cipher = Blowfish::new_from_slice(&*key)?;
-    /// ```
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -271,13 +271,13 @@ impl Decrypt {
     }
 }
 
+/// Seeks within the decrypted stream.
+///
+/// Handles:
+/// * Block boundary calculation
+/// * Buffer management
+/// * Decryption of new blocks
 impl Seek for Decrypt {
-    /// Seeks within the decrypted stream.
-    ///
-    /// Handles:
-    /// * Block boundary calculation
-    /// * Buffer management
-    /// * Decryption of new blocks
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         // If the track is not encrypted, we can seek directly.
         if self.cipher == Cipher::NONE {
@@ -385,14 +385,14 @@ impl Seek for Decrypt {
     }
 }
 
+/// Reads decrypted data from the stream.
+///
+/// For unencrypted tracks, passes through directly to the
+/// underlying stream. For encrypted tracks:
+/// 1. Fills internal buffer if empty
+/// 2. Decrypts blocks as needed
+/// 3. Returns requested number of bytes
 impl Read for Decrypt {
-    /// Reads decrypted data from the stream.
-    ///
-    /// For unencrypted tracks, passes through directly to the
-    /// underlying stream. For encrypted tracks:
-    /// 1. Fills internal buffer if empty
-    /// 2. Decrypts blocks as needed
-    /// 3. Returns requested number of bytes
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // If the track is not encrypted, we can read directly.
         if self.cipher == Cipher::NONE {

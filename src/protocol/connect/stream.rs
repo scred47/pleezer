@@ -370,36 +370,36 @@ impl Ident {
     const LIMITATION: &'static str = "LIMITATION";
 }
 
+/// Formats stream contents for display, showing action and track.
+///
+/// # Examples
+///
+/// ```rust
+/// let contents = Contents {
+///     action: Action::Play,
+///     ident: Ident::Limitation,
+///     value: Value { /* ... */ },
+/// };
+/// // Prints: "PLAY 987654321"
+/// println!("{contents}");
+/// ```
 impl fmt::Display for Contents {
-    /// Formats stream contents for display, showing action and track.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let contents = Contents {
-    ///     action: Action::Play,
-    ///     ident: Ident::Limitation,
-    ///     value: Value { /* ... */ },
-    /// };
-    /// // Prints: "PLAY 987654321"
-    /// println!("{contents}");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.action, self.value.track_id)
     }
 }
 
+/// Formats the action for wire protocol transmission.
+///
+/// Actions are formatted as uppercase strings:
+/// * `Play` -> `"PLAY"`
+///
+/// # Examples
+///
+/// ```rust
+/// assert_eq!(Action::Play.to_string(), "PLAY");
+/// ```
 impl fmt::Display for Action {
-    /// Formats the action for wire protocol transmission.
-    ///
-    /// Actions are formatted as uppercase strings:
-    /// * `Play` -> `"PLAY"`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// assert_eq!(Action::Play.to_string(), "PLAY");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Play => write!(f, "{}", Self::PLAY),
@@ -407,24 +407,24 @@ impl fmt::Display for Action {
     }
 }
 
+/// Parses an action from its wire format string.
+///
+/// # Examples
+///
+/// ```rust
+/// let action: Action = "PLAY".parse()?;
+/// assert_eq!(action, Action::Play);
+///
+/// // Unknown actions return an error
+/// assert!("UNKNOWN".parse::<Action>().is_err());
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if the string doesn't match a known action.
 impl FromStr for Action {
     type Err = Error;
 
-    /// Parses an action from its wire format string.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let action: Action = "PLAY".parse()?;
-    /// assert_eq!(action, Action::Play);
-    ///
-    /// // Unknown actions return an error
-    /// assert!("UNKNOWN".parse::<Action>().is_err());
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the string doesn't match a known action.
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let variant = match s {
             Self::PLAY => Self::Play,
@@ -435,17 +435,17 @@ impl FromStr for Action {
     }
 }
 
+/// Formats the identifier for wire protocol transmission.
+///
+/// Identifiers are formatted as uppercase strings:
+/// * `Limitation` -> `"LIMITATION"`
+///
+/// # Examples
+///
+/// ```rust
+/// assert_eq!(Ident::Limitation.to_string(), "LIMITATION");
+/// ```
 impl fmt::Display for Ident {
-    /// Formats the identifier for wire protocol transmission.
-    ///
-    /// Identifiers are formatted as uppercase strings:
-    /// * `Limitation` -> `"LIMITATION"`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// assert_eq!(Ident::Limitation.to_string(), "LIMITATION");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Limitation => write!(f, "{}", Self::LIMITATION),
@@ -453,24 +453,24 @@ impl fmt::Display for Ident {
     }
 }
 
+/// Parses an identifier from its wire format string.
+///
+/// # Examples
+///
+/// ```rust
+/// let ident: Ident = "LIMITATION".parse()?;
+/// assert_eq!(ident, Ident::Limitation);
+///
+/// // Unknown identifiers return an error
+/// assert!("UNKNOWN".parse::<Ident>().is_err());
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if the string doesn't match a known identifier.
 impl FromStr for Ident {
     type Err = Error;
 
-    /// Parses an identifier from its wire format string.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let ident: Ident = "LIMITATION".parse()?;
-    /// assert_eq!(ident, Ident::Limitation);
-    ///
-    /// // Unknown identifiers return an error
-    /// assert!("UNKNOWN".parse::<Ident>().is_err());
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the string doesn't match a known identifier.
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let variant = match s {
             Self::LIMITATION => Self::Limitation,

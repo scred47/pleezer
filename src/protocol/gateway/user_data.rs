@@ -46,14 +46,14 @@ use crate::protocol::{self, connect::UserId};
 
 use super::{Method, StringOrUnknown};
 
+/// Gateway method name for retrieving user data.
+///
+/// Returns complete user information including:
+/// * Profile and preferences
+/// * Authentication tokens
+/// * Feature flags
+/// * Media server configuration
 impl Method for UserData {
-    /// Gateway method name for retrieving user data.
-    ///
-    /// Returns complete user information including:
-    /// * Profile and preferences
-    /// * Authentication tokens
-    /// * Feature flags
-    /// * Media server configuration
     const METHOD: &'static str = "deezer.getUserData";
 }
 
@@ -102,63 +102,63 @@ pub struct UserData {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
 pub struct MediaUrl(pub Url);
 
+/// Provides read-only access to the underlying URL.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::gateway::MediaUrl;
+///
+/// let url = MediaUrl::default();
+/// assert_eq!(url.scheme(), "https");
+/// assert_eq!(url.host_str(), Some("media.deezer.com"));
+/// ```
 impl Deref for MediaUrl {
     type Target = Url;
 
-    /// Provides read-only access to the underlying URL.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::gateway::MediaUrl;
-    ///
-    /// let url = MediaUrl::default();
-    /// assert_eq!(url.scheme(), "https");
-    /// assert_eq!(url.host_str(), Some("media.deezer.com"));
-    /// ```
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
+/// Converts a `MediaUrl` into a standard `Url`.
+///
+/// This conversion consumes the `MediaUrl` wrapper and returns
+/// the underlying URL.
+///
+/// # Examples
+///
+/// ```rust
+/// use url::Url;
+/// use deezer::gateway::MediaUrl;
+///
+/// let media_url = MediaUrl::default();
+/// let url: Url = media_url.into();
+/// ```
 impl From<MediaUrl> for Url {
-    /// Converts a `MediaUrl` into a standard `Url`.
-    ///
-    /// This conversion consumes the `MediaUrl` wrapper and returns
-    /// the underlying URL.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use url::Url;
-    /// use deezer::gateway::MediaUrl;
-    ///
-    /// let media_url = MediaUrl::default();
-    /// let url: Url = media_url.into();
-    /// ```
     fn from(url: MediaUrl) -> Self {
         url.0
     }
 }
 
+/// Creates the default Deezer media server URL.
+///
+/// Returns a `MediaUrl` wrapping "<https://media.deezer.com>".
+/// This URL is used when none is specified in the API response.
+///
+/// # Panics
+///
+/// Never panics as the URL is statically validated.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::gateway::MediaUrl;
+///
+/// let url = MediaUrl::default();
+/// assert_eq!(url.as_str(), "https://media.deezer.com");
+/// ```
 impl Default for MediaUrl {
-    /// Creates the default Deezer media server URL.
-    ///
-    /// Returns a `MediaUrl` wrapping "<https://media.deezer.com>".
-    /// This URL is used when none is specified in the API response.
-    ///
-    /// # Panics
-    ///
-    /// Never panics as the URL is statically validated.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::gateway::MediaUrl;
-    ///
-    /// let url = MediaUrl::default();
-    /// assert_eq!(url.as_str(), "https://media.deezer.com");
-    /// ```
     fn default() -> Self {
         let media_url = Url::from_str("https://media.deezer.com").expect("invalid media url");
         Self(media_url)
@@ -225,20 +225,20 @@ pub struct Gatekeeps {
     pub remote_control: bool,
 }
 
+/// Creates default feature flags.
+///
+/// By default:
+/// * Remote control is enabled (`true`)
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::gateway::Gatekeeps;
+///
+/// let flags = Gatekeeps::default();
+/// assert!(flags.remote_control);
+/// ```
 impl Default for Gatekeeps {
-    /// Creates default feature flags.
-    ///
-    /// By default:
-    /// * Remote control is enabled (`true`)
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::gateway::Gatekeeps;
-    ///
-    /// let flags = Gatekeeps::default();
-    /// assert!(flags.remote_control);
-    /// ```
     fn default() -> Self {
         Self {
             remote_control: true,
@@ -259,20 +259,20 @@ pub struct Gain {
     pub target: i64,
 }
 
+/// Creates default volume normalization settings.
+///
+/// Sets a target loudness of -15 dB, which is Deezer's
+/// standard normalization target.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::gateway::Gain;
+///
+/// let gain = Gain::default();
+/// assert_eq!(gain.target, -15);
+/// ```
 impl Default for Gain {
-    /// Creates default volume normalization settings.
-    ///
-    /// Sets a target loudness of -15 dB, which is Deezer's
-    /// standard normalization target.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::gateway::Gain;
-    ///
-    /// let gain = Gain::default();
-    /// assert_eq!(gain.target, -15);
-    /// ```
     fn default() -> Self {
         Self { target: -15 }
     }

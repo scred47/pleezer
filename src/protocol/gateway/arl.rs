@@ -25,30 +25,30 @@ use veil::Redact;
 
 use super::Method;
 
+/// Gateway method name for retrieving an Authentication Reference Link.
+///
+/// This endpoint returns a new or refreshed ARL token for authentication.
+/// The method name follows Deezer's dot-notation format:
+/// - `user`: The API domain
+/// - `getArl`: The specific operation
+///
+/// # API Response
+///
+/// Returns a response containing the ARL token:
+/// ```json
+/// {
+///     "error": {},
+///     "results": {
+///         "arl": "abcdef123456..."  // Actual token is much longer
+///     }
+/// }
+/// ```
+///
+/// # Security Note
+///
+/// Access to this endpoint should be restricted as it provides
+/// authentication credentials.
 impl Method for Arl {
-    /// Gateway method name for retrieving an Authentication Reference Link.
-    ///
-    /// This endpoint returns a new or refreshed ARL token for authentication.
-    /// The method name follows Deezer's dot-notation format:
-    /// - `user`: The API domain
-    /// - `getArl`: The specific operation
-    ///
-    /// # API Response
-    ///
-    /// Returns a response containing the ARL token:
-    /// ```json
-    /// {
-    ///     "error": {},
-    ///     "results": {
-    ///         "arl": "abcdef123456..."  // Actual token is much longer
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// # Security Note
-    ///
-    /// Access to this endpoint should be restricted as it provides
-    /// authentication credentials.
     const METHOD: &'static str = "user.getArl";
 }
 

@@ -152,30 +152,30 @@ pub enum Message {
     },
 }
 
+/// Formats a message for display, showing direction and contents.
+///
+/// The output format depends on the message type:
+/// * Content/Stream messages: `"{channel} {direction} {contents}"`
+/// * Subscriptions: `"subscribing to {channel}"`/`"unsubscribing from {channel}"`
+///
+/// The channel identifier is padded to 14 characters for alignment.
+///
+/// # Examples
+///
+/// ```rust
+/// let msg = Message::Send { /* ... */ };
+/// // Prints: "RemoteCommand  -> PlaybackProgress"
+/// println!("{msg}");
+///
+/// let msg = Message::Subscribe { /* ... */ };
+/// // Prints: "subscribing to RemoteCommand"
+/// println!("{msg}");
+/// ```
+///
+/// # Notes
+///
+/// Currently has a known limitation where padding is not respected.
 impl fmt::Display for Message {
-    /// Formats a message for display, showing direction and contents.
-    ///
-    /// The output format depends on the message type:
-    /// * Content/Stream messages: `"{channel} {direction} {contents}"`
-    /// * Subscriptions: `"subscribing to {channel}"`/`"unsubscribing from {channel}"`
-    ///
-    /// The channel identifier is padded to 14 characters for alignment.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let msg = Message::Send { /* ... */ };
-    /// // Prints: "RemoteCommand  -> PlaybackProgress"
-    /// println!("{msg}");
-    ///
-    /// let msg = Message::Subscribe { /* ... */ };
-    /// // Prints: "subscribing to RemoteCommand"
-    /// println!("{msg}");
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// Currently has a known limitation where padding is not respected.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // FIXME: padding is not respected.
         match self {
@@ -197,22 +197,22 @@ impl fmt::Display for Message {
     }
 }
 
+/// Serializes a message into its wire format representation.
+///
+/// # Examples
+///
+/// ```rust
+/// let msg = Message::Send { /* ... */ };
+/// let json = serde_json::to_string(&msg)?;
+/// // Results in: ["send", "channel", {...}]
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * Channel and content identifiers don't match
+/// * JSON serialization fails
 impl Serialize for Message {
-    /// Serializes a message into its wire format representation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let msg = Message::Send { /* ... */ };
-    /// let json = serde_json::to_string(&msg)?;
-    /// // Results in: ["send", "channel", {...}]
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * Channel and content identifiers don't match
-    /// * JSON serialization fails
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let wire_message =
             WireMessage::try_from(self.clone()).map_err(serde::ser::Error::custom)?;
@@ -220,22 +220,22 @@ impl Serialize for Message {
     }
 }
 
+/// Deserializes a message from its wire format representation.
+///
+/// # Examples
+///
+/// ```rust
+/// // Wire format: ["send", "channel", {...}]
+/// let msg: Message = serde_json::from_str(json)?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * JSON is malformed
+/// * Channel and content identifiers don't match
+/// * Message format is invalid
 impl<'de> Deserialize<'de> for Message {
-    /// Deserializes a message from its wire format representation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Wire format: ["send", "channel", {...}]
-    /// let msg: Message = serde_json::from_str(json)?;
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * JSON is malformed
-    /// * Channel and content identifiers don't match
-    /// * Message format is invalid
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let wire_message = WireMessage::deserialize(deserializer)?;
         Self::try_from(wire_message).map_err(serde::de::Error::custom)
@@ -423,25 +423,25 @@ impl fmt::Display for Stanza {
     }
 }
 
+/// Converts a [`Message`] into its wire format representation.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * Channel identifier doesn't match content identifier in content messages
+///
+/// # Examples
+///
+/// ```rust
+/// let msg = Message::Send {
+///     channel: Channel::new(Ident::RemoteCommand),
+///     contents: Contents { /* ... */ },
+/// };
+/// let wire_msg = WireMessage::try_from(msg)?;
+/// ```
 impl TryFrom<Message> for WireMessage {
     type Error = Error;
 
-    /// Converts a [`Message`] into its wire format representation.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * Channel identifier doesn't match content identifier in content messages
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let msg = Message::Send {
-    ///     channel: Channel::new(Ident::RemoteCommand),
-    ///     contents: Contents { /* ... */ },
-    /// };
-    /// let wire_msg = WireMessage::try_from(msg)?;
-    /// ```
     fn try_from(message: Message) -> Result<Self, Self::Error> {
         let wire_message = match message {
             Message::Receive { channel, contents } => {
@@ -485,27 +485,27 @@ impl TryFrom<Message> for WireMessage {
     }
 }
 
+/// Converts a wire format message into a [`Message`].
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * Channel identifier doesn't match content identifier in content messages
+/// * Stanza type doesn't match message format (e.g., `Subscribe` stanza with contents)
+///
+/// # Examples
+///
+/// ```rust
+/// let wire_msg = WireMessage::WithContents(
+///     Stanza::Send,
+///     Channel::new(Ident::RemoteCommand),
+///     Contents { /* ... */ },
+/// );
+/// let msg = Message::try_from(wire_msg)?;
+/// ```
 impl TryFrom<WireMessage> for Message {
     type Error = Error;
 
-    /// Converts a wire format message into a [`Message`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * Channel identifier doesn't match content identifier in content messages
-    /// * Stanza type doesn't match message format (e.g., `Subscribe` stanza with contents)
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let wire_msg = WireMessage::WithContents(
-    ///     Stanza::Send,
-    ///     Channel::new(Ident::RemoteCommand),
-    ///     Contents { /* ... */ },
-    /// );
-    /// let msg = Message::try_from(wire_msg)?;
-    /// ```
     fn try_from(wire_message: WireMessage) -> Result<Self, Self::Error> {
         let message = match wire_message {
             WireMessage::WithContents(stanza, channel, contents) => {

@@ -42,14 +42,14 @@ use crate::track::TrackId;
 
 use super::{Method, StringOrUnknown};
 
+/// Gateway method name for retrieving track information.
+///
+/// This endpoint returns detailed track data including:
+/// * Metadata (titles, artists, albums)
+/// * Playback information (duration, gain)
+/// * Authentication tokens
+/// * Media asset identifiers
 impl Method for ListData {
-    /// Gateway method name for retrieving track information.
-    ///
-    /// This endpoint returns detailed track data including:
-    /// * Metadata (titles, artists, albums)
-    /// * Playback information (duration, gain)
-    /// * Authentication tokens
-    /// * Media asset identifiers
     const METHOD: &'static str = "song.getListData";
 }
 

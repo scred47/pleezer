@@ -16,7 +16,7 @@
 //!
 //! This design prevents ALSA from acquiring the device until it's actually needed.
 //!
-//! //! # Audio Pipeline
+//! # Audio Pipeline
 //!
 //! The playback pipeline consists of:
 //! 1. Track download and decryption
@@ -1341,8 +1341,8 @@ impl Player {
     }
 }
 
+/// Ensures proper cleanup of audio device resources when player is dropped.
 impl Drop for Player {
-    /// Ensures the audio device is properly closed when the player is dropped.
     fn drop(&mut self) {
         self.stop();
     }

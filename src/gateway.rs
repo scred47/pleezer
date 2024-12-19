@@ -82,24 +82,44 @@ impl Gateway {
     const COOKIE_ORIGIN: &'static str = "https://www.deezer.com";
 
     /// Gateway API endpoint URL.
+    ///
+    /// Base URL for all gateway API requests.
     const GATEWAY_URL: &'static str = "https://www.deezer.com/ajax/gw-light.php";
 
     /// Gateway API version string.
+    ///
+    /// Protocol version identifier included in all requests.
+    /// Matches the version supported by official Deezer clients.
     const GATEWAY_VERSION: &'static str = "1.0";
 
     /// Gateway API input type identifier.
+    ///
+    /// Input type code that identifies the request format.
+    /// Type 3 represents the standard gateway request format.
     const GATEWAY_INPUT: usize = 3;
 
     /// OAuth client ID for authentication.
+    ///
+    /// Application identifier used during OAuth authentication flow.
+    /// Registered client ID for web application access.
     const OAUTH_CLIENT_ID: usize = 447_462;
 
     /// OAuth password hashing salt.
+    ///
+    /// Salt value used in password hash calculation during login.
+    /// Combined with client ID and user credentials for secure authentication.
     const OAUTH_SALT: &'static str = "a83bf7f38ad2f137e444727cfc3775cf";
 
     /// OAuth session ID endpoint.
+    ///
+    /// URL for initiating OAuth authentication flow.
+    /// Used to obtain a session ID before login.
     const OAUTH_SID_URL: &'static str = "https://connect.deezer.com/oauth/auth.php";
 
     /// OAuth login endpoint.
+    ///
+    /// URL for performing OAuth login with credentials.
+    /// Returns access token on successful authentication.
     const OAUTH_LOGIN_URL: &'static str = "https://connect.deezer.com/oauth/user_auth.php";
 
     /// Content type for gateway requests.
@@ -109,6 +129,9 @@ impl Gateway {
     const PLAIN_TEXT_CONTENT: HeaderValue = HeaderValue::from_static("text/plain;charset=UTF-8");
 
     /// Default empty JSON body for requests.
+    ///
+    /// Used when a request requires a body but has no parameters.
+    /// Prevents having to create empty JSON objects repeatedly.
     const EMPTY_JSON_OBJECT: &'static str = "{}";
 
     /// Returns the cookie origin URL for Deezer services.

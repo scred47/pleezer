@@ -688,14 +688,14 @@ impl Track {
     }
 }
 
+/// Creates a Track from gateway list data.
+///
+/// Initializes track with:
+/// * Basic metadata (ID, title, artist, etc)
+/// * Default quality (Standard)
+/// * Default cipher (`BF_CBC_STRIPE`)
+/// * Empty download state
 impl From<gateway::ListData> for Track {
-    /// Creates a Track from gateway list data.
-    ///
-    /// Initializes track with:
-    /// * Basic metadata (ID, title, artist, etc)
-    /// * Default quality (Standard)
-    /// * Default cipher (`BF_CBC_STRIPE`)
-    /// * Empty download state
     fn from(item: gateway::ListData) -> Self {
         Self {
             id: item.track_id,
@@ -716,16 +716,16 @@ impl From<gateway::ListData> for Track {
     }
 }
 
+/// Formats track for display, showing ID, artist and title.
+///
+/// Format: "{id}: "{artist} - {title}""
+///
+/// # Example
+///
+/// ```text
+/// 12345: "Artist Name - Track Title"
+/// ```
 impl fmt::Display for Track {
-    /// Formats track for display, showing ID, artist and title.
-    ///
-    /// Format: "{id}: "{artist} - {title}""
-    ///
-    /// # Example
-    ///
-    /// ```text
-    /// 12345: "Artist Name - Track Title"
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}: \"{} - {}\"", self.id, self.artist, self.title)
     }

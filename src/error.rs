@@ -522,40 +522,40 @@ impl Error {
     }
 }
 
+/// Returns the underlying error source.
+///
+/// This allows error chains to be examined for root causes.
 impl std::error::Error for Error {
-    /// Returns the underlying error source.
-    ///
-    /// This allows error chains to be examined for root causes.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.error.source()
     }
 }
 
+/// Formats the error for display, showing both kind and details.
+///
+/// Format: "{kind}: {details}"
+///
+/// # Examples
+///
+/// ```rust
+/// let err = Error::not_found("user not found");
+/// assert_eq!(err.to_string(), "Not found: user not found");
+/// ```
 impl fmt::Display for Error {
-    /// Formats the error for display, showing both kind and details.
-    ///
-    /// Format: "{kind}: {details}"
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let err = Error::not_found("user not found");
-    /// assert_eq!(err.to_string(), "Not found: user not found");
-    /// ```
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(fmt, "{}: ", self.kind)?;
         self.error.fmt(fmt)
     }
 }
 
+/// Converts IO errors into appropriate error kinds.
+///
+/// Maps standard IO errors to their logical equivalents:
+/// * `NotFound` -> `NotFound`
+/// * `PermissionDenied` -> `PermissionDenied`
+/// * `ConnectionReset` -> `Aborted`
+/// * etc.
 impl From<std::io::Error> for Error {
-    /// Converts IO errors into appropriate error kinds.
-    ///
-    /// Maps standard IO errors to their logical equivalents:
-    /// * `NotFound` -> `NotFound`
-    /// * `PermissionDenied` -> `PermissionDenied`
-    /// * `ConnectionReset` -> `Aborted`
-    /// * etc.
     fn from(err: std::io::Error) -> Self {
         use std::io::ErrorKind::*;
         match err.kind() {
@@ -574,15 +574,15 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// Converts HTTP client errors into appropriate error kinds.
+///
+/// Maps HTTP errors based on their nature:
+/// * Body errors -> `DataLoss`
+/// * Decode errors -> `InvalidArgument`
+/// * Connect errors -> `Unavailable`
+/// * Timeout errors -> `DeadlineExceeded`
+/// * etc.
 impl From<reqwest::Error> for Error {
-    /// Converts HTTP client errors into appropriate error kinds.
-    ///
-    /// Maps HTTP errors based on their nature:
-    /// * Body errors -> `DataLoss`
-    /// * Decode errors -> `InvalidArgument`
-    /// * Connect errors -> `Unavailable`
-    /// * Timeout errors -> `DeadlineExceeded`
-    /// * etc.
     fn from(err: reqwest::Error) -> Self {
         if err.is_body() {
             return Self::data_loss(err);
@@ -616,22 +616,22 @@ impl From<reqwest::Error> for Error {
     }
 }
 
+/// Converts version parsing errors to `InvalidArgument`.
 impl From<semver::Error> for Error {
-    /// Converts version parsing errors to `InvalidArgument`.
     fn from(err: semver::Error) -> Self {
         Self::invalid_argument(err)
     }
 }
 
+/// Converts WebSocket errors into appropriate error kinds.
+///
+/// Maps WebSocket errors based on their type:
+/// * `ConnectionClosed` -> `Cancelled`
+/// * `AlreadyClosed` -> `Unavailable`
+/// * `Capacity` -> `OutOfRange`
+/// * `Utf8` -> `InvalidArgument`
+/// * etc.
 impl From<tokio_tungstenite::tungstenite::Error> for Error {
-    /// Converts WebSocket errors into appropriate error kinds.
-    ///
-    /// Maps WebSocket errors based on their type:
-    /// * `ConnectionClosed` -> `Cancelled`
-    /// * `AlreadyClosed` -> `Unavailable`
-    /// * `Capacity` -> `OutOfRange`
-    /// * `Utf8` -> `InvalidArgument`
-    /// * etc.
     fn from(err: tokio_tungstenite::tungstenite::Error) -> Self {
         use tokio_tungstenite::tungstenite::Error::*;
         match err {
@@ -651,98 +651,98 @@ impl From<tokio_tungstenite::tungstenite::Error> for Error {
     }
 }
 
+/// Converts JSON errors through IO error mapping.
+///
+/// JSON errors are first converted to IO errors, then mapped
+/// using the IO error conversion rules.
 impl From<serde_json::Error> for Error {
-    /// Converts JSON errors through IO error mapping.
-    ///
-    /// JSON errors are first converted to IO errors, then mapped
-    /// using the IO error conversion rules.
     fn from(err: serde_json::Error) -> Self {
         std::io::Error::from(err).into()
     }
 }
 
+/// Converts header size errors to `OutOfRange`.
 impl From<http::header::MaxSizeReached> for Error {
-    /// Converts header size errors to `OutOfRange`.
     fn from(e: http::header::MaxSizeReached) -> Self {
         Self::out_of_range(e.to_string())
     }
 }
 
+/// Converts invalid header errors to `Internal`.
 impl From<http::header::InvalidHeaderValue> for Error {
-    /// Converts invalid header errors to `Internal`.
     fn from(e: http::header::InvalidHeaderValue) -> Self {
         Self::internal(e.to_string())
     }
 }
 
+/// Converts URL parsing errors to `Internal`.
 impl From<url::ParseError> for Error {
-    /// Converts URL parsing errors to `Internal`.
     fn from(e: url::ParseError) -> Self {
         Self::internal(e.to_string())
     }
 }
 
+/// Converts URI parsing errors to `Internal`.
 impl From<http::uri::InvalidUri> for Error {
-    /// Converts URI parsing errors to `Internal`.
     fn from(e: http::uri::InvalidUri) -> Self {
         Self::internal(e.to_string())
     }
 }
 
+/// Converts formatting errors to `Unknown`.
 impl From<std::fmt::Error> for Error {
-    /// Converts formatting errors to `Unknown`.
     fn from(e: std::fmt::Error) -> Self {
         Self::unknown(e.to_string())
     }
 }
 
+/// Converts decompression errors to `DataLoss`.
 impl From<flate2::DecompressError> for Error {
-    /// Converts decompression errors to `DataLoss`.
     fn from(e: flate2::DecompressError) -> Self {
         Self::data_loss(e.to_string())
     }
 }
 
+/// Converts Base64 decoding errors to `InvalidArgument`.
 impl From<base64::DecodeError> for Error {
-    /// Converts Base64 decoding errors to `InvalidArgument`.
     fn from(e: base64::DecodeError) -> Self {
         Self::invalid_argument(e.to_string())
     }
 }
 
+/// Converts integer parsing errors to `InvalidArgument`.
 impl From<std::num::ParseIntError> for Error {
-    /// Converts integer parsing errors to `InvalidArgument`.
     fn from(e: std::num::ParseIntError) -> Self {
         Self::invalid_argument(e.to_string())
     }
 }
 
+/// Converts mutex poisoning errors to `Internal`.
 impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for Error {
-    /// Converts mutex poisoning errors to `Internal`.
     fn from(e: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>) -> Self {
         Self::internal(e.to_string())
     }
 }
 
+/// Converts stream initialization errors to `Internal`.
 impl<S> From<stream_download::StreamInitializationError<S>> for Error
 where
     S: stream_download::source::SourceStream,
 {
-    /// Converts stream initialization errors to `Internal`.
     fn from(e: stream_download::StreamInitializationError<S>) -> Self {
         Self::internal(e.to_string())
     }
 }
 
+/// Converts HTTP stream errors based on their type.
+///
+/// Maps stream errors:
+/// * `FetchFailure` -> `DataLoss`
+/// * `ResponseFailure` -> `Unavailable`
 impl<C> From<stream_download::http::HttpStreamError<C>> for Error
 where
     C: stream_download::http::Client,
 {
-    /// Converts HTTP stream errors based on their type.
-    ///
-    /// Maps stream errors:
-    /// * `FetchFailure` -> `DataLoss`
-    /// * `ResponseFailure` -> `Unavailable`
     fn from(e: stream_download::http::HttpStreamError<C>) -> Self {
         use stream_download::http::HttpStreamError::*;
         match e {
@@ -752,13 +752,13 @@ where
     }
 }
 
+/// Converts audio stream errors into appropriate error kinds.
+///
+/// Maps audio errors:
+/// * `PlayStreamError` -> `Unavailable`
+/// * `NoDevice` -> `NotFound`
+/// * etc.
 impl From<rodio::StreamError> for Error {
-    /// Converts audio stream errors into appropriate error kinds.
-    ///
-    /// Maps audio errors:
-    /// * `PlayStreamError` -> `Unavailable`
-    /// * `NoDevice` -> `NotFound`
-    /// * etc.
     fn from(e: rodio::StreamError) -> Self {
         use rodio::StreamError::*;
         match e {
@@ -771,20 +771,20 @@ impl From<rodio::StreamError> for Error {
     }
 }
 
+/// Converts audio device errors to `Unknown`.
 impl From<rodio::DevicesError> for Error {
-    /// Converts audio device errors to `Unknown`.
     fn from(e: rodio::DevicesError) -> Self {
         Self::unknown(e.to_string())
     }
 }
 
+/// Converts audio config errors into appropriate error kinds.
+///
+/// Maps config errors:
+/// * `DeviceNotAvailable` -> `Unavailable`
+/// * `InvalidArgument` -> `InvalidArgument`
+/// * `BackendSpecific` -> `Unknown`
 impl From<cpal::SupportedStreamConfigsError> for Error {
-    /// Converts audio config errors into appropriate error kinds.
-    ///
-    /// Maps config errors:
-    /// * `DeviceNotAvailable` -> `Unavailable`
-    /// * `InvalidArgument` -> `InvalidArgument`
-    /// * `BackendSpecific` -> `Unknown`
     fn from(e: cpal::SupportedStreamConfigsError) -> Self {
         use cpal::SupportedStreamConfigsError::*;
         match e {
@@ -795,12 +795,12 @@ impl From<cpal::SupportedStreamConfigsError> for Error {
     }
 }
 
+/// Converts playback errors into appropriate error kinds.
+///
+/// Maps playback errors:
+/// * `DecoderError` -> `DataLoss`
+/// * `NoDevice` -> `NotFound`
 impl From<rodio::PlayError> for Error {
-    /// Converts playback errors into appropriate error kinds.
-    ///
-    /// Maps playback errors:
-    /// * `DecoderError` -> `DataLoss`
-    /// * `NoDevice` -> `NotFound`
     fn from(e: rodio::PlayError) -> Self {
         use rodio::PlayError::*;
         match e {
@@ -810,13 +810,13 @@ impl From<rodio::PlayError> for Error {
     }
 }
 
+/// Converts seek errors into appropriate error kinds.
+///
+/// Maps seek errors:
+/// * `NotSupported` -> `Unimplemented`
+/// * `SymphoniaDecoder` -> `DataLoss`
+/// * Others -> `Unknown`
 impl From<rodio::source::SeekError> for Error {
-    /// Converts seek errors into appropriate error kinds.
-    ///
-    /// Maps seek errors:
-    /// * `NotSupported` -> `Unimplemented`
-    /// * `SymphoniaDecoder` -> `DataLoss`
-    /// * Others -> `Unknown`
     fn from(e: rodio::source::SeekError) -> Self {
         use rodio::source::SeekError::*;
         match e {
@@ -827,16 +827,16 @@ impl From<rodio::source::SeekError> for Error {
     }
 }
 
+/// Converts decoder errors into appropriate error kinds.
+///
+/// Maps decoder errors:
+/// * `UnrecognizedFormat` -> `Unknown`
+/// * `IoError` -> `DataLoss`
+/// * `DecodeError` -> `DataLoss`
+/// * `LimitError` -> `ResourceExhausted`
+/// * `NoStreams` -> `NotFound`
+/// * etc.
 impl From<rodio::decoder::DecoderError> for Error {
-    /// Converts decoder errors into appropriate error kinds.
-    ///
-    /// Maps decoder errors:
-    /// * `UnrecognizedFormat` -> `Unknown`
-    /// * `IoError` -> `DataLoss`
-    /// * `DecodeError` -> `DataLoss`
-    /// * `LimitError` -> `ResourceExhausted`
-    /// * `NoStreams` -> `NotFound`
-    /// * etc.
     fn from(e: rodio::decoder::DecoderError) -> Self {
         use rodio::decoder::DecoderError::*;
         match e {
@@ -850,15 +850,15 @@ impl From<rodio::decoder::DecoderError> for Error {
     }
 }
 
+/// Converts timeout errors to `DeadlineExceeded`.
 impl From<tokio::time::error::Elapsed> for Error {
-    /// Converts timeout errors to `DeadlineExceeded`.
     fn from(e: tokio::time::error::Elapsed) -> Self {
         Self::deadline_exceeded(e.to_string())
     }
 }
 
+/// Converts UUID errors to `InvalidArgument`.
 impl From<uuid::Error> for Error {
-    /// Converts UUID errors to `InvalidArgument`.
     fn from(e: uuid::Error) -> Self {
         Self::invalid_argument(e.to_string())
     }

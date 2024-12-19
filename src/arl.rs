@@ -92,6 +92,17 @@ impl Arl {
     }
 }
 
+/// Provides read-only access to the validated ARL string.
+///
+/// # Examples
+///
+/// ```rust
+/// use pleezer::arl::Arl;
+///
+/// let arl = Arl::new("token123".to_string())?;
+/// assert_eq!(arl.len(), 8);  // Access String methods
+/// assert_eq!(&*arl, "token123");  // Direct string access
+/// ```
 impl Deref for Arl {
     /// Target type for deref coercion.
     ///
@@ -99,81 +110,70 @@ impl Deref for Arl {
     /// validation invariants.
     type Target = String;
 
-    /// Provides read-only access to the validated ARL string.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use pleezer::arl::Arl;
-    ///
-    /// let arl = Arl::new("token123".to_string())?;
-    /// assert_eq!(arl.len(), 8);  // Access String methods
-    /// assert_eq!(&*arl, "token123");  // Direct string access
-    /// ```
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
+/// Formats the ARL for string representation.
+///
+/// Note: While this implementation allows displaying the token,
+/// this should only be used when absolutely necessary, as it
+/// exposes sensitive credentials.
+///
+/// # Examples
+///
+/// ```rust
+/// use pleezer::arl::Arl;
+///
+/// let arl = Arl::new("token123".to_string())?;
+///
+/// // Avoid this in production code:
+/// println!("{}", arl);  // Prints: token123
+///
+/// // Debug output is safely redacted:
+/// println!("{:?}", arl);  // Prints: Arl("REDACTED")
+/// ```
 impl fmt::Display for Arl {
-    /// Formats the ARL for string representation.
-    ///
-    /// Note: While this implementation allows displaying the token,
-    /// this should only be used when absolutely necessary, as it
-    /// exposes sensitive credentials.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use pleezer::arl::Arl;
-    ///
-    /// let arl = Arl::new("token123".to_string())?;
-    ///
-    /// // Avoid this in production code:
-    /// println!("{}", arl);  // Prints: token123
-    ///
-    /// // Debug output is safely redacted:
-    /// println!("{:?}", arl);  // Prints: Arl("REDACTED")
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
+/// Parses and validates an ARL from a string.
+///
+/// This implementation:
+/// 1. Extracts the token from callback URLs if present
+/// 2. Validates all characters for cookie safety
+/// 3. Creates a new validated ARL instance
+///
+/// # Examples
+///
+/// ```rust
+/// use std::str::FromStr;
+/// use pleezer::arl::Arl;
+///
+/// // Direct token
+/// let arl = Arl::from_str("valid_token")?;
+///
+/// // From callback URL
+/// let arl = Arl::from_str("deezer://autolog/valid_token")?;
+///
+/// // Invalid characters
+/// assert!(Arl::from_str("invalid;token").is_err());
+/// ```
+///
+/// # Errors
+///
+/// Returns `Error::InvalidArgument` if:
+/// * The string contains non-cookie-safe characters:
+///   - Non-ASCII characters
+///   - Control characters
+///   - Whitespace
+///   - Special characters (`"`, `,`, `;`, `\`)
 impl FromStr for Arl {
     type Err = Error;
 
-    /// Parses and validates an ARL from a string.
-    ///
-    /// This implementation:
-    /// 1. Extracts the token from callback URLs if present
-    /// 2. Validates all characters for cookie safety
-    /// 3. Creates a new validated ARL instance
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::str::FromStr;
-    /// use pleezer::arl::Arl;
-    ///
-    /// // Direct token
-    /// let arl = Arl::from_str("valid_token")?;
-    ///
-    /// // From callback URL
-    /// let arl = Arl::from_str("deezer://autolog/valid_token")?;
-    ///
-    /// // Invalid characters
-    /// assert!(Arl::from_str("invalid;token").is_err());
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::InvalidArgument` if:
-    /// * The string contains non-cookie-safe characters:
-    ///   - Non-ASCII characters
-    ///   - Control characters
-    ///   - Whitespace
-    ///   - Special characters (`"`, `,`, `;`, `\`)
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let mut arl = s;
 

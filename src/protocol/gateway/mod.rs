@@ -239,67 +239,67 @@ pub struct Paginated<T> {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
 pub struct StringOrUnknown(pub String);
 
+/// Provides read-only access to the underlying string.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::gateway::StringOrUnknown;
+///
+/// let value = StringOrUnknown("test".to_string());
+/// assert_eq!(value.len(), 4);  // Uses String's len() method
+/// assert_eq!(&*value, "test"); // Direct access to string content
+/// ```
 impl Deref for StringOrUnknown {
     /// Target type for deref coercion.
     ///
     /// Allows `StringOrUnknown` to be used anywhere a `String` reference is expected.
     type Target = String;
 
-    /// Provides read-only access to the underlying string.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::gateway::StringOrUnknown;
-    ///
-    /// let value = StringOrUnknown("test".to_string());
-    /// assert_eq!(value.len(), 4);  // Uses String's len() method
-    /// assert_eq!(&*value, "test"); // Direct access to string content
-    /// ```
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
+/// Creates a `StringOrUnknown` from a string slice.
+///
+/// Simply wraps the input in a new `String`. Cannot fail.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::str::FromStr;
+/// use deezer::gateway::StringOrUnknown;
+///
+/// let value = StringOrUnknown::from_str("test")?;
+/// assert_eq!(&*value, "test");
+///
+/// // Also works with string literals
+/// let value: StringOrUnknown = "test".parse()?;
+/// assert_eq!(&*value, "test");
+/// ```
 impl FromStr for StringOrUnknown {
     /// This implementation never fails, ensuring robust parsing.
     type Err = Infallible;
 
-    /// Creates a `StringOrUnknown` from a string slice.
-    ///
-    /// Simply wraps the input in a new `String`. Cannot fail.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use std::str::FromStr;
-    /// use deezer::gateway::StringOrUnknown;
-    ///
-    /// let value = StringOrUnknown::from_str("test")?;
-    /// assert_eq!(&*value, "test");
-    ///
-    /// // Also works with string literals
-    /// let value: StringOrUnknown = "test".parse()?;
-    /// assert_eq!(&*value, "test");
-    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self(s.to_string()))
     }
 }
 
+/// Creates a new `StringOrUnknown` with the value "UNKNOWN".
+///
+/// Used when a string value cannot be properly parsed or is missing.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::gateway::StringOrUnknown;
+///
+/// let value = StringOrUnknown::default();
+/// assert_eq!(&*value, "UNKNOWN");
+/// ```
 impl Default for StringOrUnknown {
-    /// Creates a new `StringOrUnknown` with the value "UNKNOWN".
-    ///
-    /// Used when a string value cannot be properly parsed or is missing.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::gateway::StringOrUnknown;
-    ///
-    /// let value = StringOrUnknown::default();
-    /// assert_eq!(&*value, "UNKNOWN");
-    /// ```
     fn default() -> Self {
         Self(String::from("UNKNOWN"))
     }

@@ -67,13 +67,24 @@ pub struct Client {
 }
 
 impl Client {
-    /// Standard rate limit interval (5 seconds).
+    /// Standard rate limit interval for Deezer's API.
+    ///
+    /// The API enforces a rolling window of 5 seconds during which
+    /// a maximum number of calls can be made.
     const RATE_LIMIT_INTERVAL: Duration = Duration::from_secs(5);
 
-    /// Maximum calls allowed per interval (50).
+    /// Maximum allowed API calls per interval.
+    ///
+    /// Deezer's API allows up to 50 calls within each 5-second window.
+    /// Requests beyond this limit will be automatically delayed.
     const RATE_LIMIT_CALLS_PER_INTERVAL: u8 = 50;
 
-    /// Request timeout (60 seconds).
+    /// HTTP request timeout duration.
+    ///
+    /// Requests that take longer than 60 seconds will be aborted to:
+    /// * Prevent hanging connections
+    /// * Allow retry attempts
+    /// * Maintain responsive behavior
     const TIMEOUT: Duration = Duration::from_secs(60);
 
     /// Creates a new client with optional cookie storage.

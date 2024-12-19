@@ -167,26 +167,26 @@ impl UserToken {
     }
 }
 
+/// Formats the token as a string, returning just the token value.
+///
+/// This implementation is used when the token needs to be included in
+/// request headers or other contexts where only the token string is needed.
+///
+/// # Example
+///
+/// ```rust
+/// use pleezer::tokens::UserToken;
+/// use std::time::{SystemTime, Duration};
+///
+/// let token = UserToken {
+///     user_id: 123456789,
+///     token: "secret_token".to_string(),
+///     expires_at: SystemTime::now() + Duration::from_secs(3600),
+/// };
+///
+/// assert_eq!(token.to_string(), "secret_token");
+/// ```
 impl fmt::Display for UserToken {
-    /// Formats the token as a string, returning just the token value.
-    ///
-    /// This implementation is used when the token needs to be included in
-    /// request headers or other contexts where only the token string is needed.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use pleezer::tokens::UserToken;
-    /// use std::time::{SystemTime, Duration};
-    ///
-    /// let token = UserToken {
-    ///     user_id: 123456789,
-    ///     token: "secret_token".to_string(),
-    ///     expires_at: SystemTime::now() + Duration::from_secs(3600),
-    /// };
-    ///
-    /// assert_eq!(token.to_string(), "secret_token");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.token)
     }

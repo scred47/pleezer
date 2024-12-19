@@ -198,39 +198,39 @@ pub struct Contents {
     pub body: Body,
 }
 
+/// Formats message contents for display, showing the message type with fixed-width padding.
+///
+/// This implementation provides a consistent display format for logging and debugging
+/// purposes. The message type is left-aligned with 16 characters of padding.
+///
+/// # Examples
+///
+/// ```rust
+/// let contents = Contents {
+///     ident: Ident::RemoteCommand,
+///     headers: Headers {
+///         from: DeviceId::default(),
+///         destination: None,
+///     },
+///     body: Body::PlaybackProgress { /* ... */ },
+/// };
+///
+/// // Displays as: "PlaybackProgress "
+/// println!("{}", contents);
+/// ```
+///
+/// Different message types maintain consistent alignment:
+/// ```text
+/// PlaybackProgress
+/// Ping
+/// Stop
+/// ```
+///
+/// # Notes
+///
+/// The current implementation has a known limitation where padding may not
+/// be respected in all contexts. This is marked for future improvement.
 impl fmt::Display for Contents {
-    /// Formats message contents for display, showing the message type with fixed-width padding.
-    ///
-    /// This implementation provides a consistent display format for logging and debugging
-    /// purposes. The message type is left-aligned with 16 characters of padding.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let contents = Contents {
-    ///     ident: Ident::RemoteCommand,
-    ///     headers: Headers {
-    ///         from: DeviceId::default(),
-    ///         destination: None,
-    ///     },
-    ///     body: Body::PlaybackProgress { /* ... */ },
-    /// };
-    ///
-    /// // Displays as: "PlaybackProgress "
-    /// println!("{}", contents);
-    /// ```
-    ///
-    /// Different message types maintain consistent alignment:
-    /// ```text
-    /// PlaybackProgress
-    /// Ping
-    /// Stop
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// The current implementation has a known limitation where padding may not
-    /// be respected in all contexts. This is marked for future improvement.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // FIXME: padding is not respected.
         write!(f, "{:<16}", self.body.message_type())
@@ -304,30 +304,30 @@ pub struct Headers {
     pub destination: Option<DeviceId>,
 }
 
+/// Formats the headers in a human-readable format.
+///
+/// The output format is:
+/// * For broadcast: "from {device-id}"
+/// * For targeted: "from {device-id} to {target-id}"
+///
+/// # Examples
+///
+/// ```rust
+/// // Broadcast headers
+/// let headers = Headers {
+///     from: DeviceId::default(),
+///     destination: None,
+/// };
+/// println!("{}", headers);  // "from 550e8400-e29b-41d4-a716-446655440000"
+///
+/// // Targeted headers
+/// let headers = Headers {
+///     from: DeviceId::default(),
+///     destination: Some(DeviceId::Other("target-123".to_string())),
+/// };
+/// println!("{}", headers);  // "from 550e8400-e29b-41d4-a716-446655440000 to target-123"
+/// ```
 impl fmt::Display for Headers {
-    /// Formats the headers in a human-readable format.
-    ///
-    /// The output format is:
-    /// * For broadcast: "from {device-id}"
-    /// * For targeted: "from {device-id} to {target-id}"
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Broadcast headers
-    /// let headers = Headers {
-    ///     from: DeviceId::default(),
-    ///     destination: None,
-    /// };
-    /// println!("{}", headers);  // "from 550e8400-e29b-41d4-a716-446655440000"
-    ///
-    /// // Targeted headers
-    /// let headers = Headers {
-    ///     from: DeviceId::default(),
-    ///     destination: Some(DeviceId::Other("target-123".to_string())),
-    /// };
-    /// println!("{}", headers);  // "from 550e8400-e29b-41d4-a716-446655440000 to target-123"
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "from {}", self.from)?;
 
@@ -402,66 +402,66 @@ pub enum DeviceId {
     Other(String),
 }
 
+/// Creates a new random UUID device identifier.
+///
+/// This is the recommended default for new devices joining
+/// the protocol.
+///
+/// # Examples
+///
+/// ```rust
+/// let device = DeviceId::default();
+/// assert!(matches!(device, DeviceId::Uuid(_)));
+/// ```
 impl Default for DeviceId {
-    /// Creates a new random UUID device identifier.
-    ///
-    /// This is the recommended default for new devices joining
-    /// the protocol.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let device = DeviceId::default();
-    /// assert!(matches!(device, DeviceId::Uuid(_)));
-    /// ```
     fn default() -> Self {
         Self::Uuid(crate::Uuid::fast_v4().into())
     }
 }
 
+/// Creates a device ID from a UUID.
+///
+/// This provides convenient conversion from standard UUIDs.
+///
+/// # Examples
+///
+/// ```rust
+/// use uuid::Uuid;
+///
+/// let uuid = Uuid::new_v4();
+/// let device: DeviceId = uuid.into();
+/// ```
 impl From<Uuid> for DeviceId {
-    /// Creates a device ID from a UUID.
-    ///
-    /// This provides convenient conversion from standard UUIDs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use uuid::Uuid;
-    ///
-    /// let uuid = Uuid::new_v4();
-    /// let device: DeviceId = uuid.into();
-    /// ```
     fn from(uuid: Uuid) -> Self {
         Self::Uuid(uuid)
     }
 }
 
+/// Parses a device ID from its string representation.
+///
+/// The parser attempts to interpret the string as a UUID first.
+/// If that fails, it treats it as a platform-specific format.
+///
+/// # Examples
+///
+/// ```rust
+/// // Parse UUID format
+/// let device: DeviceId = "550e8400-e29b-41d4-a716-446655440000".parse()?;
+///
+/// // Parse platform-specific format
+/// let device: DeviceId = "android-device-123".parse()?;
+///
+/// // Both hyphenated and non-hyphenated UUIDs work
+/// let device: DeviceId = "550e8400e29b41d4a716446655440000".parse()?;
+/// ```
+///
+/// # Error Handling
+///
+/// This implementation never returns an error, as any string that isn't
+/// a valid UUID is accepted as an `Other` variant.
 impl FromStr for DeviceId {
     type Err = Infallible;
 
-    /// Parses a device ID from its string representation.
-    ///
-    /// The parser attempts to interpret the string as a UUID first.
-    /// If that fails, it treats it as a platform-specific format.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Parse UUID format
-    /// let device: DeviceId = "550e8400-e29b-41d4-a716-446655440000".parse()?;
-    ///
-    /// // Parse platform-specific format
-    /// let device: DeviceId = "android-device-123".parse()?;
-    ///
-    /// // Both hyphenated and non-hyphenated UUIDs work
-    /// let device: DeviceId = "550e8400e29b41d4a716446655440000".parse()?;
-    /// ```
-    ///
-    /// # Error Handling
-    ///
-    /// This implementation never returns an error, as any string that isn't
-    /// a valid UUID is accepted as an `Other` variant.
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let device = match Uuid::try_parse(s) {
             Ok(uuid) => Self::from(uuid),
@@ -472,25 +472,25 @@ impl FromStr for DeviceId {
     }
 }
 
+/// Formats a device ID for the wire protocol.
+///
+/// The output format depends on the variant:
+/// * `Uuid`: Standard UUID string format
+/// * `Other`: The platform-specific string as-is
+///
+/// # Examples
+///
+/// ```rust
+/// use uuid::Uuid;
+///
+/// let uuid = Uuid::new_v4();
+/// let device = DeviceId::Uuid(uuid);
+/// assert_eq!(device.to_string(), uuid.to_string());
+///
+/// let device = DeviceId::Other("android-123".to_string());
+/// assert_eq!(device.to_string(), "android-123");
+/// ```
 impl fmt::Display for DeviceId {
-    /// Formats a device ID for the wire protocol.
-    ///
-    /// The output format depends on the variant:
-    /// * `Uuid`: Standard UUID string format
-    /// * `Other`: The platform-specific string as-is
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use uuid::Uuid;
-    ///
-    /// let uuid = Uuid::new_v4();
-    /// let device = DeviceId::Uuid(uuid);
-    /// assert_eq!(device.to_string(), uuid.to_string());
-    ///
-    /// let device = DeviceId::Other("android-123".to_string());
-    /// assert_eq!(device.to_string(), "android-123");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Uuid(uuid) => write!(f, "{uuid}"),
@@ -931,18 +931,18 @@ pub enum Status {
     Error = 1,
 }
 
+/// Formats the status for human-readable output.
+///
+/// # Examples
+///
+/// ```rust
+/// assert_eq!(Status::OK.to_string(), "Ok");
+/// assert_eq!(Status::Error.to_string(), "Err");
+///
+/// // Useful for logging
+/// println!("Command completed with status: {}", Status::OK);
+/// ```
 impl fmt::Display for Status {
-    /// Formats the status for human-readable output.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// assert_eq!(Status::OK.to_string(), "Ok");
-    /// assert_eq!(Status::Error.to_string(), "Err");
-    ///
-    /// // Useful for logging
-    /// println!("Command completed with status: {}", Status::OK);
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Status::OK => write!(f, "Ok"),
@@ -1027,16 +1027,16 @@ pub enum RepeatMode {
     Unrecognized = -1,
 }
 
+/// Formats the repeat mode for human-readable output.
+///
+/// # Examples
+///
+/// ```rust
+/// assert_eq!(RepeatMode::None.to_string(), "None");
+/// assert_eq!(RepeatMode::All.to_string(), "All");
+/// assert_eq!(RepeatMode::One.to_string(), "One");
+/// assert_eq!(RepeatMode::Unrecognized.to_string(), "Unrecognized");
 impl fmt::Display for RepeatMode {
-    /// Formats the repeat mode for human-readable output.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// assert_eq!(RepeatMode::None.to_string(), "None");
-    /// assert_eq!(RepeatMode::All.to_string(), "All");
-    /// assert_eq!(RepeatMode::One.to_string(), "One");
-    /// assert_eq!(RepeatMode::Unrecognized.to_string(), "Unrecognized");
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RepeatMode::None => write!(f, "None"),
@@ -1162,18 +1162,18 @@ pub enum AudioQuality {
     Unknown = -1,
 }
 
+/// Formats the audio quality for human-readable output.
+///
+/// # Examples
+///
+/// ```rust
+/// assert_eq!(AudioQuality::Basic.to_string(), "Basic");
+/// assert_eq!(AudioQuality::Standard.to_string(), "Standard");
+/// assert_eq!(AudioQuality::High.to_string(), "High Quality");
+/// assert_eq!(AudioQuality::Lossless.to_string(), "High Fidelity");
+/// assert_eq!(AudioQuality::Unknown.to_string(), "Unknown");
+/// ```
 impl fmt::Display for AudioQuality {
-    /// Formats the audio quality for human-readable output.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// assert_eq!(AudioQuality::Basic.to_string(), "Basic");
-    /// assert_eq!(AudioQuality::Standard.to_string(), "Standard");
-    /// assert_eq!(AudioQuality::High.to_string(), "High Quality");
-    /// assert_eq!(AudioQuality::Lossless.to_string(), "High Fidelity");
-    /// assert_eq!(AudioQuality::Unknown.to_string(), "Unknown");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AudioQuality::Basic => write!(f, "Basic"),
@@ -1185,24 +1185,24 @@ impl fmt::Display for AudioQuality {
     }
 }
 
+/// Parses a string into an audio quality level.
+///
+/// Accepts common quality level names and aliases.
+///
+/// # Examples
+///
+/// ```rust
+/// assert_eq!("low".parse()?, AudioQuality::Basic);
+/// assert_eq!("standard".parse()?, AudioQuality::Standard);
+/// assert_eq!("high".parse()?, AudioQuality::High);
+/// assert_eq!("lossless".parse()?, AudioQuality::Lossless);
+///
+/// // Unknown values parse to Unknown
+/// assert_eq!("invalid".parse()?, AudioQuality::Unknown);
+/// ```
 impl FromStr for AudioQuality {
     type Err = Infallible;
 
-    /// Parses a string into an audio quality level.
-    ///
-    /// Accepts common quality level names and aliases.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// assert_eq!("low".parse()?, AudioQuality::Basic);
-    /// assert_eq!("standard".parse()?, AudioQuality::Standard);
-    /// assert_eq!("high".parse()?, AudioQuality::High);
-    /// assert_eq!("lossless".parse()?, AudioQuality::Lossless);
-    ///
-    /// // Unknown values parse to Unknown
-    /// assert_eq!("invalid".parse()?, AudioQuality::Unknown);
-    /// ```
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let variant = match s {
             "low" => AudioQuality::Basic,
@@ -1444,42 +1444,42 @@ impl Percentage {
     }
 }
 
+/// Compares two percentages for equality.
+///
+/// Uses floating point epsilon comparison to handle imprecise representations.
+/// Two percentages are considered equal if their absolute difference is less
+/// than `f64::EPSILON` (approximately 2.22e-16).
+///
+/// # Examples
+/// ```
+/// let p1 = Percentage::from_ratio_f64(0.5);
+/// let p2 = Percentage::from_ratio_f64(0.5);
+/// assert_eq!(p1, p2);
+///
+/// // Small differences are handled
+/// let p3 = Percentage::from_ratio_f64(0.5 + f64::EPSILON / 2.0);
+/// assert_eq!(p1, p3);
+/// ```
 impl PartialEq for Percentage {
-    /// Compares two percentages for equality.
-    ///
-    /// Uses floating point epsilon comparison to handle imprecise representations.
-    /// Two percentages are considered equal if their absolute difference is less
-    /// than `f64::EPSILON` (approximately 2.22e-16).
-    ///
-    /// # Examples
-    /// ```
-    /// let p1 = Percentage::from_ratio_f64(0.5);
-    /// let p2 = Percentage::from_ratio_f64(0.5);
-    /// assert_eq!(p1, p2);
-    ///
-    /// // Small differences are handled
-    /// let p3 = Percentage::from_ratio_f64(0.5 + f64::EPSILON / 2.0);
-    /// assert_eq!(p1, p3);
-    /// ```
     fn eq(&self, other: &Self) -> bool {
         (self.0 - other.0).abs() < f64::EPSILON
     }
 }
 
+/// Formats the value as a percentage with one decimal place.
+///
+/// The output format is "XX.X%" (e.g., "75.3%").
+///
+/// # Examples
+///
+/// ```rust
+/// let p = Percentage::from_ratio_f32(0.753);
+/// assert_eq!(p.to_string(), "75.3%");
+///
+/// let p = Percentage::from_ratio_f32(1.0);
+/// assert_eq!(p.to_string(), "100.0%");
+/// ```
 impl fmt::Display for Percentage {
-    /// Formats the value as a percentage with one decimal place.
-    ///
-    /// The output format is "XX.X%" (e.g., "75.3%").
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let p = Percentage::from_ratio_f32(0.753);
-    /// assert_eq!(p.to_string(), "75.3%");
-    ///
-    /// let p = Percentage::from_ratio_f32(1.0);
-    /// assert_eq!(p.to_string(), "100.0%");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:.1}%", self.as_percent_f32())
     }
@@ -1576,22 +1576,22 @@ impl QueueItem {
     const SEPARATOR: char = '-';
 }
 
+/// Formats a queue item for wire protocol transmission.
+///
+/// The output format is: `<queue-uuid>-<track-id>-<position>`
+///
+/// # Examples
+///
+/// ```rust
+/// let item = QueueItem {
+///     queue_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+///     track_id: 12345.into(),
+///     position: 0,
+/// };
+///
+/// assert_eq!(item.to_string(), "550e8400-e29b-41d4-a716-446655440000-12345-0");
+/// ```
 impl fmt::Display for QueueItem {
-    /// Formats a queue item for wire protocol transmission.
-    ///
-    /// The output format is: `<queue-uuid>-<track-id>-<position>`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let item = QueueItem {
-    ///     queue_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
-    ///     track_id: 12345.into(),
-    ///     position: 0,
-    /// };
-    ///
-    /// assert_eq!(item.to_string(), "550e8400-e29b-41d4-a716-446655440000-12345-0");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -1605,34 +1605,34 @@ impl fmt::Display for QueueItem {
     }
 }
 
+/// Parses a queue item from its wire format string.
+///
+/// # Format
+///
+/// Expects a string in the format: `<queue-uuid>-<track-id>-<position>`
+///
+/// # Examples
+///
+/// ```rust
+/// // Normal track
+/// let s = "550e8400-e29b-41d4-a716-446655440000-12345-0";
+/// let item: QueueItem = s.parse()?;
+///
+/// // User-uploaded track
+/// let s = "550e8400-e29b-41d4-a716-446655440000--12345-1";
+/// let item: QueueItem = s.parse()?;
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * The queue ID is not a valid UUID
+/// * The track ID is not a valid integer
+/// * The position is not a valid integer
+/// * The string format is invalid
 impl FromStr for QueueItem {
     type Err = Error;
 
-    /// Parses a queue item from its wire format string.
-    ///
-    /// # Format
-    ///
-    /// Expects a string in the format: `<queue-uuid>-<track-id>-<position>`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Normal track
-    /// let s = "550e8400-e29b-41d4-a716-446655440000-12345-0";
-    /// let item: QueueItem = s.parse()?;
-    ///
-    /// // User-uploaded track
-    /// let s = "550e8400-e29b-41d4-a716-446655440000--12345-1";
-    /// let item: QueueItem = s.parse()?;
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * The queue ID is not a valid UUID
-    /// * The track ID is not a valid integer
-    /// * The position is not a valid integer
-    /// * The string format is invalid
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let mut parts = s.split(Self::SEPARATOR);
 
@@ -1695,76 +1695,76 @@ impl FromStr for QueueItem {
     }
 }
 
+/// Serializes a message body for wire transmission.
+///
+/// This implementation converts the `Body` into a [`WireBody`] before
+/// serialization to ensure proper wire format encoding. The process handles:
+/// * JSON encoding for most messages
+/// * Protocol Buffer encoding for queue messages
+/// * Base64 encoding of payloads
+/// * DEFLATE compression when required
+///
+/// # Examples
+///
+/// ```rust
+/// let body = Body::Ping {
+///     message_id: "msg123".to_string()
+/// };
+///
+/// let json = serde_json::to_string(&body)?;
+/// // Results in a wire format message with Base64-encoded payload
+/// ```
+///
+/// [JSON]: https://www.json.org/
+/// [`WireBody`]: struct.WireBody.html
 // For syntactic sugar this could be changed into `serde_with::SerializeAs` but
 // this now follows the same idiom as serializing a `Message`.
 impl Serialize for Body {
-    /// Serializes a message body for wire transmission.
-    ///
-    /// This implementation converts the `Body` into a [`WireBody`] before
-    /// serialization to ensure proper wire format encoding. The process handles:
-    /// * JSON encoding for most messages
-    /// * Protocol Buffer encoding for queue messages
-    /// * Base64 encoding of payloads
-    /// * DEFLATE compression when required
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let body = Body::Ping {
-    ///     message_id: "msg123".to_string()
-    /// };
-    ///
-    /// let json = serde_json::to_string(&body)?;
-    /// // Results in a wire format message with Base64-encoded payload
-    /// ```
-    ///
-    /// [JSON]: https://www.json.org/
-    /// [`WireBody`]: struct.WireBody.html
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         let wire_body = WireBody::from(self.clone());
         wire_body.serialize(serializer)
     }
 }
 
+/// Deserializes a message body from wire format.
+///
+/// This implementation first deserializes into a [`WireBody`], then
+/// converts it into the appropriate `Body` variant. The process handles:
+/// * Base64 decoding of payloads
+/// * JSON parsing for most messages
+/// * Protocol Buffer parsing for queue messages
+/// * DEFLATE decompression when required
+///
+/// # Examples
+///
+/// ```rust
+/// // Wire format JSON with Base64-encoded payload
+/// let json = r#"{
+///     "messageId": "msg123",
+///     "messageType": "ping",
+///     "protocolVersion": "com.deezer.remote.command.proto1",
+///     "payload": "base64data",
+///     "clock": {}
+/// }"#;
+///
+/// let body: Body = serde_json::from_str(json)?;
+/// assert!(matches!(body, Body::Ping { .. }));
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * The wire format is invalid
+/// * Base64 decoding fails
+/// * JSON parsing fails
+/// * Protocol Buffer parsing fails
+/// * Message type is unknown
+///
+/// [JSON]: https://www.json.org/
+/// [`WireBody`]: struct.WireBody.html
 // For syntactic sugar this could be changed into `serde_with::DeserializeAs` but
 // this now follows the same idiom as deserializing a `Message`.
 impl<'de> Deserialize<'de> for Body {
-    /// Deserializes a message body from wire format.
-    ///
-    /// This implementation first deserializes into a [`WireBody`], then
-    /// converts it into the appropriate `Body` variant. The process handles:
-    /// * Base64 decoding of payloads
-    /// * JSON parsing for most messages
-    /// * Protocol Buffer parsing for queue messages
-    /// * DEFLATE decompression when required
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Wire format JSON with Base64-encoded payload
-    /// let json = r#"{
-    ///     "messageId": "msg123",
-    ///     "messageType": "ping",
-    ///     "protocolVersion": "com.deezer.remote.command.proto1",
-    ///     "payload": "base64data",
-    ///     "clock": {}
-    /// }"#;
-    ///
-    /// let body: Body = serde_json::from_str(json)?;
-    /// assert!(matches!(body, Body::Ping { .. }));
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * The wire format is invalid
-    /// * Base64 decoding fails
-    /// * JSON parsing fails
-    /// * Protocol Buffer parsing fails
-    /// * Message type is unknown
-    ///
-    /// [JSON]: https://www.json.org/
-    /// [`WireBody`]: struct.WireBody.html
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         let wire_body = WireBody::deserialize(deserializer)?;
         Self::try_from(wire_body).map_err(serde::de::Error::custom)
@@ -2340,6 +2340,16 @@ pub enum DeviceType {
     Unknown,
 }
 
+/// Formats the device type as a lowercase string for the wire protocol.
+///
+/// # Examples
+/// ```rust
+/// assert_eq!(DeviceType::Desktop.to_string(), "desktop");
+/// assert_eq!(DeviceType::Mobile.to_string(), "mobile");
+/// assert_eq!(DeviceType::Tablet.to_string(), "tablet");
+/// assert_eq!(DeviceType::Web.to_string(), "web");
+/// assert_eq!(DeviceType::Unknown.to_string(), "unknown");
+/// ```
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -2352,6 +2362,20 @@ impl fmt::Display for DeviceType {
     }
 }
 
+/// Parses a device type from a string, case-insensitively.
+///
+/// Any unrecognized device type is parsed as `DeviceType::Unknown`,
+/// providing forward compatibility with new device types.
+///
+/// # Examples
+/// ```rust
+/// use std::str::FromStr;
+///
+/// assert_eq!(DeviceType::from_str("desktop")?, DeviceType::Desktop);
+/// assert_eq!(DeviceType::from_str("MOBILE")?, DeviceType::Mobile);
+/// assert_eq!(DeviceType::from_str("unknown")?, DeviceType::Unknown);
+/// assert_eq!(DeviceType::from_str("future_device")?, DeviceType::Unknown);
+/// ```
 impl FromStr for DeviceType {
     type Err = Infallible;
 
@@ -2366,35 +2390,35 @@ impl FromStr for DeviceType {
     }
 }
 
+/// Formats the payload for wire transmission.
+///
+/// The output format depends on the payload type:
+/// * `PublishQueue` - DEFLATE-compressed Protocol Buffer, Base64-encoded
+/// * Other variants - JSON string, Base64-encoded
+/// * Empty payloads - Empty string
+///
+/// # Examples
+///
+/// ```rust
+/// // Empty payload
+/// let payload = Payload::String(None);
+/// assert_eq!(payload.to_string(), "");
+///
+/// // JSON payload
+/// let payload = Payload::Status {
+///     command_id: "cmd123".to_string(),
+///     status: Status::OK,
+/// };
+/// // Results in Base64-encoded JSON
+/// ```
+///
+/// # Errors
+///
+/// Returns a formatting error if:
+/// * JSON serialization fails
+/// * Protocol Buffer serialization fails
+/// * DEFLATE compression fails
 impl fmt::Display for Payload {
-    /// Formats the payload for wire transmission.
-    ///
-    /// The output format depends on the payload type:
-    /// * `PublishQueue` - DEFLATE-compressed Protocol Buffer, Base64-encoded
-    /// * Other variants - JSON string, Base64-encoded
-    /// * Empty payloads - Empty string
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Empty payload
-    /// let payload = Payload::String(None);
-    /// assert_eq!(payload.to_string(), "");
-    ///
-    /// // JSON payload
-    /// let payload = Payload::Status {
-    ///     command_id: "cmd123".to_string(),
-    ///     status: Status::OK,
-    /// };
-    /// // Results in Base64-encoded JSON
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns a formatting error if:
-    /// * JSON serialization fails
-    /// * Protocol Buffer serialization fails
-    /// * DEFLATE compression fails
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut buffer: Vec<u8> = vec![];
 
@@ -2430,65 +2454,65 @@ impl fmt::Display for Payload {
     }
 }
 
+/// Parses a wire format payload string into a `Payload`.
+///
+/// This implementation handles the various payload encoding formats:
+/// * Base64-encoded JSON for most messages
+/// * Base64-encoded, DEFLATE-compressed Protocol Buffers for queue data
+/// * Empty strings for payloads without data
+///
+/// # Format Detection
+///
+/// The parser attempts to determine the correct format:
+/// 1. If empty or "{}" → `Payload::String(None)`
+/// 2. If valid UTF-8 after Base64 decode → Parse as JSON
+/// 3. Otherwise → Try to parse as compressed Protocol Buffer
+///
+/// # Examples
+///
+/// Empty payload:
+/// ```rust
+/// let payload: Payload = "".parse()?;
+/// assert!(matches!(payload, Payload::String(None)));
+///
+/// let payload: Payload = "{}".parse()?;
+/// assert!(matches!(payload, Payload::String(None)));
+/// ```
+///
+/// JSON payload:
+/// ```rust
+/// // Base64-encoded JSON: {"commandId":"cmd123","status":0}
+/// let encoded = "eyJjb21tYW5kSWQiOiJjbWQxMjMiLCJzdGF0dXMiOjB9";
+/// let payload: Payload = encoded.parse()?;
+/// assert!(matches!(payload, Payload::Status { .. }));
+/// ```
+///
+/// Protocol Buffer payload:
+/// ```rust
+/// // Base64-encoded, DEFLATE-compressed Protocol Buffer
+/// let payload: Payload = compressed_base64.parse()?;
+/// assert!(matches!(payload, Payload::PublishQueue(_)));
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * Base64 decoding fails
+/// * JSON parsing fails for JSON payloads
+/// * Protocol Buffer parsing fails for queue data
+/// * Compressed data cannot be decompressed
+/// * Data format doesn't match any known payload type
+///
+/// # Notes
+///
+/// The implementation includes special handling for queue data to maintain
+/// compatibility with different Deezer Connect clients:
+/// * iOS and Android clients may send queue data differently
+/// * Queue order may be explicit or implicit
+/// * Shuffled queues require special handling (currently logged but not processed)
 impl FromStr for Payload {
     type Err = Error;
 
-    /// Parses a wire format payload string into a `Payload`.
-    ///
-    /// This implementation handles the various payload encoding formats:
-    /// * Base64-encoded JSON for most messages
-    /// * Base64-encoded, DEFLATE-compressed Protocol Buffers for queue data
-    /// * Empty strings for payloads without data
-    ///
-    /// # Format Detection
-    ///
-    /// The parser attempts to determine the correct format:
-    /// 1. If empty or "{}" → `Payload::String(None)`
-    /// 2. If valid UTF-8 after Base64 decode → Parse as JSON
-    /// 3. Otherwise → Try to parse as compressed Protocol Buffer
-    ///
-    /// # Examples
-    ///
-    /// Empty payload:
-    /// ```rust
-    /// let payload: Payload = "".parse()?;
-    /// assert!(matches!(payload, Payload::String(None)));
-    ///
-    /// let payload: Payload = "{}".parse()?;
-    /// assert!(matches!(payload, Payload::String(None)));
-    /// ```
-    ///
-    /// JSON payload:
-    /// ```rust
-    /// // Base64-encoded JSON: {"commandId":"cmd123","status":0}
-    /// let encoded = "eyJjb21tYW5kSWQiOiJjbWQxMjMiLCJzdGF0dXMiOjB9";
-    /// let payload: Payload = encoded.parse()?;
-    /// assert!(matches!(payload, Payload::Status { .. }));
-    /// ```
-    ///
-    /// Protocol Buffer payload:
-    /// ```rust
-    /// // Base64-encoded, DEFLATE-compressed Protocol Buffer
-    /// let payload: Payload = compressed_base64.parse()?;
-    /// assert!(matches!(payload, Payload::PublishQueue(_)));
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * Base64 decoding fails
-    /// * JSON parsing fails for JSON payloads
-    /// * Protocol Buffer parsing fails for queue data
-    /// * Compressed data cannot be decompressed
-    /// * Data format doesn't match any known payload type
-    ///
-    /// # Notes
-    ///
-    /// The implementation includes special handling for queue data to maintain
-    /// compatibility with different Deezer Connect clients:
-    /// * iOS and Android clients may send queue data differently
-    /// * Queue order may be explicit or implicit
-    /// * Shuffled queues require special handling (currently logged but not processed)
     // TODO : first decode base64 in fromstr, then deserialize json with traits
     fn from_str(encoded: &str) -> std::result::Result<Self, Self::Err> {
         let decoded = BASE64_STANDARD.decode(encoded)?;
@@ -2578,25 +2602,25 @@ impl WireBody {
     }
 }
 
+/// Converts a high-level [`Body`] into its wire format representation.
+///
+/// This conversion handles:
+/// * Protocol version selection
+/// * Payload encoding
+/// * Message type mapping
+///
+/// # Examples
+///
+/// ```rust
+/// let body = Body::Ping {
+///     message_id: "msg123".to_string(),
+/// };
+/// let wire_body = WireBody::from(body);
+///
+/// assert_eq!(wire_body.message_type, MessageType::Ping);
+/// assert_eq!(wire_body.protocol_version, WireBody::COMMAND_VERSION);
+/// ```
 impl From<Body> for WireBody {
-    /// Converts a high-level [`Body`] into its wire format representation.
-    ///
-    /// This conversion handles:
-    /// * Protocol version selection
-    /// * Payload encoding
-    /// * Message type mapping
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let body = Body::Ping {
-    ///     message_id: "msg123".to_string(),
-    /// };
-    /// let wire_body = WireBody::from(body);
-    ///
-    /// assert_eq!(wire_body.message_type, MessageType::Ping);
-    /// assert_eq!(wire_body.protocol_version, WireBody::COMMAND_VERSION);
-    /// ```
     #[expect(clippy::too_many_lines)]
     fn from(body: Body) -> Self {
         let clock: HashMap<String, serde_json::Value> = HashMap::new();
@@ -2784,74 +2808,74 @@ impl From<Body> for WireBody {
     }
 }
 
+/// Attempts to convert a wire format message into a high-level [`Body`].
+///
+/// This conversion handles:
+/// * Protocol version validation
+/// * Payload decoding
+/// * Message type verification
+/// * Data structure validation
+///
+/// # Protocol Version Handling
+///
+/// While unknown protocol versions generate a warning, they don't cause
+/// conversion failure. This allows for forward compatibility with newer
+/// protocol versions.
+///
+/// # Examples
+///
+/// Success case:
+/// ```rust
+/// let wire_body = WireBody {
+///     message_id: "msg123".to_string(),
+///     message_type: MessageType::Ping,
+///     protocol_version: WireBody::COMMAND_VERSION.to_string(),
+///     payload: Payload::String(None),
+///     clock: HashMap::new(),
+/// };
+///
+/// let body = Body::try_from(wire_body)?;
+/// assert!(matches!(body, Body::Ping { .. }));
+/// ```
+///
+/// Protocol version warning:
+/// ```rust
+/// let wire_body = WireBody {
+///     protocol_version: "com.deezer.remote.command.proto2".to_string(),
+///     // ... other fields ...
+/// };
+///
+/// // Conversion still succeeds but logs a warning
+/// let body = Body::try_from(wire_body)?;
+/// ```
+///
+/// Payload mismatch:
+/// ```rust
+/// let wire_body = WireBody {
+///     message_type: MessageType::Ping,
+///     payload: Payload::PlaybackProgress { .. },  // Wrong payload type
+///     // ... other fields ...
+/// };
+///
+/// assert!(Body::try_from(wire_body).is_err());
+/// ```
+///
+/// # Errors
+///
+/// Returns an error if:
+/// * Message payload doesn't match its declared type
+/// * Required payload fields are missing
+/// * Payload data is malformed
+/// * Message type is unknown or unsupported
+///
+/// # Notes
+///
+/// The conversion is intentionally permissive with protocol versions to
+/// maintain compatibility with future protocol updates. However, it's
+/// strict about payload structure to ensure data integrity.
 impl TryFrom<WireBody> for Body {
     type Error = Error;
 
-    /// Attempts to convert a wire format message into a high-level [`Body`].
-    ///
-    /// This conversion handles:
-    /// * Protocol version validation
-    /// * Payload decoding
-    /// * Message type verification
-    /// * Data structure validation
-    ///
-    /// # Protocol Version Handling
-    ///
-    /// While unknown protocol versions generate a warning, they don't cause
-    /// conversion failure. This allows for forward compatibility with newer
-    /// protocol versions.
-    ///
-    /// # Examples
-    ///
-    /// Success case:
-    /// ```rust
-    /// let wire_body = WireBody {
-    ///     message_id: "msg123".to_string(),
-    ///     message_type: MessageType::Ping,
-    ///     protocol_version: WireBody::COMMAND_VERSION.to_string(),
-    ///     payload: Payload::String(None),
-    ///     clock: HashMap::new(),
-    /// };
-    ///
-    /// let body = Body::try_from(wire_body)?;
-    /// assert!(matches!(body, Body::Ping { .. }));
-    /// ```
-    ///
-    /// Protocol version warning:
-    /// ```rust
-    /// let wire_body = WireBody {
-    ///     protocol_version: "com.deezer.remote.command.proto2".to_string(),
-    ///     // ... other fields ...
-    /// };
-    ///
-    /// // Conversion still succeeds but logs a warning
-    /// let body = Body::try_from(wire_body)?;
-    /// ```
-    ///
-    /// Payload mismatch:
-    /// ```rust
-    /// let wire_body = WireBody {
-    ///     message_type: MessageType::Ping,
-    ///     payload: Payload::PlaybackProgress { .. },  // Wrong payload type
-    ///     // ... other fields ...
-    /// };
-    ///
-    /// assert!(Body::try_from(wire_body).is_err());
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * Message payload doesn't match its declared type
-    /// * Required payload fields are missing
-    /// * Payload data is malformed
-    /// * Message type is unknown or unsupported
-    ///
-    /// # Notes
-    ///
-    /// The conversion is intentionally permissive with protocol versions to
-    /// maintain compatibility with future protocol updates. However, it's
-    /// strict about payload structure to ensure data integrity.
     #[expect(clippy::too_many_lines)]
     fn try_from(wire_body: WireBody) -> std::result::Result<Self, Self::Error> {
         if !wire_body.supported_protocol_version() {
@@ -3061,21 +3085,21 @@ impl TryFrom<WireBody> for Body {
     }
 }
 
+/// Formats the message type as its variant name.
+///
+/// This implementation is primarily used for logging and debugging.
+/// For wire format serialization, use the `Serialize` implementation.
+///
+/// # Examples
+///
+/// ```rust
+/// assert_eq!(MessageType::Ping.to_string(), "Ping");
+/// assert_eq!(MessageType::PlaybackProgress.to_string(), "PlaybackProgress");
+///
+/// // Useful for logging
+/// println!("Received message type: {}", MessageType::ConnectionOffer);
+/// ```
 impl fmt::Display for MessageType {
-    /// Formats the message type as its variant name.
-    ///
-    /// This implementation is primarily used for logging and debugging.
-    /// For wire format serialization, use the `Serialize` implementation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// assert_eq!(MessageType::Ping.to_string(), "Ping");
-    /// assert_eq!(MessageType::PlaybackProgress.to_string(), "PlaybackProgress");
-    ///
-    /// // Useful for logging
-    /// println!("Received message type: {}", MessageType::ConnectionOffer);
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }

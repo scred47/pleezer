@@ -98,20 +98,20 @@ pub enum Type {
     PREVIEW,
 }
 
+/// Formats the media type for display.
+///
+/// Shows either "FULL" or "PREVIEW" matching the protocol's
+/// string representation.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::protocol::media::Type;
+///
+/// assert_eq!(Type::FULL.to_string(), "FULL");
+/// assert_eq!(Type::PREVIEW.to_string(), "PREVIEW");
+/// ```
 impl fmt::Display for Type {
-    /// Formats the media type for display.
-    ///
-    /// Shows either "FULL" or "PREVIEW" matching the protocol's
-    /// string representation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::protocol::media::Type;
-    ///
-    /// assert_eq!(Type::FULL.to_string(), "FULL");
-    /// assert_eq!(Type::PREVIEW.to_string(), "PREVIEW");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -144,20 +144,20 @@ pub enum Cipher {
     NONE,
 }
 
+/// Formats the cipher type for display.
+///
+/// Shows either "`BF_CBC_STRIPE`" or "NONE" matching the protocol's
+/// string representation.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::protocol::media::Cipher;
+///
+/// assert_eq!(Cipher::BF_CBC_STRIPE.to_string(), "BF_CBC_STRIPE");
+/// assert_eq!(Cipher::NONE.to_string(), "NONE");
+/// ```
 impl fmt::Display for Cipher {
-    /// Formats the cipher type for display.
-    ///
-    /// Shows either "`BF_CBC_STRIPE`" or "NONE" matching the protocol's
-    /// string representation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::protocol::media::Cipher;
-    ///
-    /// assert_eq!(Cipher::BF_CBC_STRIPE.to_string(), "BF_CBC_STRIPE");
-    /// assert_eq!(Cipher::NONE.to_string(), "NONE");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -188,44 +188,44 @@ pub enum Format {
     MP3_MISC = 0,
 }
 
+/// Formats the audio format for display.
+///
+/// Shows the format name (e.g., "`MP3_320`", "FLAC") matching
+/// the protocol's string representation.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::protocol::media::Format;
+///
+/// assert_eq!(Format::MP3_320.to_string(), "MP3_320");
+/// assert_eq!(Format::FLAC.to_string(), "FLAC");
+/// ```
 impl fmt::Display for Format {
-    /// Formats the audio format for display.
-    ///
-    /// Shows the format name (e.g., "`MP3_320`", "FLAC") matching
-    /// the protocol's string representation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::protocol::media::Format;
-    ///
-    /// assert_eq!(Format::MP3_320.to_string(), "MP3_320");
-    /// assert_eq!(Format::FLAC.to_string(), "FLAC");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }
 
+/// Converts a media format to its corresponding audio quality level.
+///
+/// Maps format types to quality levels:
+/// * `MP3_64` -> Basic (64 kbps)
+/// * `MP3_128` -> Standard (128 kbps)
+/// * `MP3_320` -> High (320 kbps)
+/// * FLAC -> Lossless
+/// * Others -> Unknown
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::protocol::{media::Format, connect::AudioQuality};
+///
+/// assert_eq!(AudioQuality::from(Format::MP3_320), AudioQuality::High);
+/// assert_eq!(AudioQuality::from(Format::FLAC), AudioQuality::Lossless);
+/// assert_eq!(AudioQuality::from(Format::EXTERNAL), AudioQuality::Unknown);
+/// ```
 impl From<Format> for AudioQuality {
-    /// Converts a media format to its corresponding audio quality level.
-    ///
-    /// Maps format types to quality levels:
-    /// * `MP3_64` -> Basic (64 kbps)
-    /// * `MP3_128` -> Standard (128 kbps)
-    /// * `MP3_320` -> High (320 kbps)
-    /// * FLAC -> Lossless
-    /// * Others -> Unknown
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::protocol::{media::Format, connect::AudioQuality};
-    ///
-    /// assert_eq!(AudioQuality::from(Format::MP3_320), AudioQuality::High);
-    /// assert_eq!(AudioQuality::from(Format::FLAC), AudioQuality::Lossless);
-    /// assert_eq!(AudioQuality::from(Format::EXTERNAL), AudioQuality::Unknown);
-    /// ```
     fn from(format: Format) -> Self {
         match format {
             Format::MP3_64 => AudioQuality::Basic,
@@ -242,6 +242,7 @@ impl From<Format> for AudioQuality {
 /// Contains either media URLs or error information.
 #[derive(Clone, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 pub struct Response {
+    /// Collection of media data or errors from the server
     pub data: Vec<Data>,
 }
 
@@ -251,7 +252,9 @@ pub struct Response {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
 #[serde(untagged)]
 pub enum Data {
+    /// Contains media information including URLs and format details
     Media { media: Vec<Medium> },
+    /// Contains error information when media access fails
     Errors { errors: Vec<Error> },
 }
 
@@ -292,23 +295,23 @@ pub struct Error {
     message: String,
 }
 
+/// Formats an error for display.
+///
+/// Shows both the error message and code in the format:
+/// `"{message} ({code})"`
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::protocol::media::Error;
+///
+/// let error = Error {
+///     code: 404,
+///     message: "Not found".to_string(),
+/// };
+/// assert_eq!(error.to_string(), "Not found (404)");
+/// ```
 impl fmt::Display for Error {
-    /// Formats an error for display.
-    ///
-    /// Shows both the error message and code in the format:
-    /// `"{message} ({code})"`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use deezer::protocol::media::Error;
-    ///
-    /// let error = Error {
-    ///     code: 404,
-    ///     message: "Not found".to_string(),
-    /// };
-    /// assert_eq!(error.to_string(), "Not found (404)");
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} ({})", self.message, self.code)
     }
