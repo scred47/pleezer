@@ -58,7 +58,13 @@
 //! client.start().await?;
 //! ```
 
-use std::{collections::HashSet, ops::ControlFlow, pin::Pin, process::Command, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::ControlFlow,
+    pin::Pin,
+    process::Command,
+    time::Duration,
+};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use log::Level;
@@ -140,8 +146,10 @@ pub struct Client {
 
     /// Cache of discovery session IDs to prevent duplicate offers within a single connection
     ///
-    /// Cleared when client starts/restarts to prevent memory exhaustion across reconnections.
-    discovery_sessions: HashSet<String>,
+    /// Maps controller device IDs to their current discovery session ID. Cleared when client
+    /// starts/restarts to prevent memory exhaustion across reconnections. This caches by
+    /// device rather than session since the same controllers typically reconnect multiple times.
+    discovery_sessions: HashMap<DeviceId, String>,
 
     /// Channel for receiving player and control events
     event_rx: tokio::sync::mpsc::UnboundedReceiver<Event>,
@@ -377,7 +385,7 @@ impl Client {
             reporting_timer: Box::pin(reporting_timer),
 
             discovery_state: DiscoveryState::Available,
-            discovery_sessions: HashSet::new(),
+            discovery_sessions: HashMap::new(),
 
             initial_volume,
             interruptions: config.interruptions,
@@ -511,7 +519,7 @@ impl Client {
     /// * Message handling fails critically
     pub async fn start(&mut self) -> Result<()> {
         // Purge discovery sessions from any previous session to prevent memory exhaustion.
-        self.discovery_sessions = HashSet::new();
+        self.discovery_sessions = HashMap::new();
 
         if let Credentials::Login { email, password } = &self.credentials.clone() {
             info!("logging in with email and password");
@@ -926,7 +934,8 @@ impl Client {
     /// Handles device discovery request from a controller.
     ///
     /// Creates and caches a connection offer, then sends it to the requesting controller.
-    /// Caches discovery session IDs to prevent duplicate offers showing up in older Deezer apps.
+    /// Caches the controller's discovery session to prevent duplicate offers showing up
+    /// in older Deezer apps.
     ///
     /// # Arguments
     ///
@@ -938,12 +947,12 @@ impl Client {
     /// Controllers send discovery requests approximately every 2 seconds until accepting an offer.
     /// To prevent older Deezer app versions from showing duplicate remote entries, this method:
     ///
-    /// 1. Checks if discovery session ID is already cached
-    /// 2. Only generates and sends new offer if session is new
-    /// 3. Caches session ID after sending offer
+    /// 1. Checks if controller already has a cached session
+    /// 2. Only generates and sends new offer if controller hasn't been seen
+    /// 3. Caches session ID mapped to controller ID
     ///
-    /// Newer app versions automatically deduplicate offers from the same remote,
-    /// but this caching is needed for backwards compatibility.
+    /// Caching by device ID rather than session ID is more memory efficient since the same
+    /// controllers typically reconnect multiple times with different session IDs.
     ///
     /// # Errors
     ///
@@ -953,7 +962,11 @@ impl Client {
         from: DeviceId,
         discovery_session_id: String,
     ) -> Result<()> {
-        if !self.discovery_sessions.contains(&discovery_session_id) {
+        if self
+            .discovery_sessions
+            .get(&from)
+            .is_none_or(|session_id| *session_id != discovery_session_id)
+        {
             // Controllers keep sending discovery requests about every two seconds
             // until it accepts some offer. Sometimes they take up on old requests,
             // and we don't really care as long as it is directed to us.
@@ -964,13 +977,13 @@ impl Client {
                 device_type: self.device_type,
             };
 
-            let discover = self.discover(from, offer);
+            let discover = self.discover(from.clone(), offer);
             self.send_message(discover).await?;
 
             // Cache the discovery session ID to prevent multiple offers showing up in the Deezer
             // app. Newer versions of the app will ignore multiple offers from the same remote, but
             // older versions will show the same remote multiple times.
-            self.discovery_sessions.insert(discovery_session_id);
+            self.discovery_sessions.insert(from, discovery_session_id);
         }
 
         Ok(())
