@@ -1,0 +1,1000 @@
+{
+  "error": [],
+  "results": {
+    "USER": {
+      "USER_ID": 1234567890,
+      "USER_PICTURE": "1234567890abcdef1234567890abcdef",
+      "INSCRIPTION_DATE": "2022-01-10",
+      "TRY_AND_BUY": {
+        "AVAILABLE": true,
+        "ACTIVE": "0",
+        "DATE_START": "2024-12-14 11:44:21",
+        "DATE_END": "2025-01-14 12:07:53",
+        "PLATEFORM": "ogone",
+        "DAYS_LEFT_MOB": 0
+      },
+      "PARTNERS": "0",
+      "TOOLBAR": [],
+      "OPTIONS": {
+        "mobile_preview": true,
+        "mobile_radio": true,
+        "mobile_streaming": true,
+        "mobile_streaming_duration": 0,
+        "mobile_offline": true,
+        "mobile_sound_quality": {
+          "low": true,
+          "standard": true,
+          "high": true,
+          "lossless": true,
+          "reality": true
+        },
+        "default_download_on_mobile_network": true,
+        "mobile_hq": true,
+        "mobile_lossless": true,
+        "tablet_sound_quality": {
+          "low": true,
+          "standard": true,
+          "high": true,
+          "lossless": true,
+          "reality": true
+        },
+        "audio_quality_default_preset": "balanced",
+        "web_preview": true,
+        "web_radio": true,
+        "web_streaming": true,
+        "web_streaming_duration": 0,
+        "web_offline": true,
+        "web_hq": true,
+        "web_lossless": true,
+        "web_sound_quality": {
+          "low": true,
+          "standard": true,
+          "high": true,
+          "lossless": true,
+          "reality": true
+        },
+        "license_token": "AAAAAexj8nKmP5TRHklNwxYpSrJhzlmno4MqBvpSFTY6bQBWkRGHj8NzBjCmk2Dmj472WzPw94qpMWpcVrKz9RyyXkxPpSzn8FqRkm3CYqD626pH7GWnjvRmwx2yNXSKTCmn1SybPkYFvK4m8ypLwV4kLmV9zN18mP5",
+        "expiration_timestamp": 1736283658,
+        "license_country": "NL",
+        "ads_display": false,
+        "ads_audio": false,
+        "dj": false,
+        "nb_devices": "3",
+        "multi_account": true,
+        "multi_account_max_allowed": 6,
+        "radio_skips": 0,
+        "too_many_devices": false,
+        "business": false,
+        "business_mod": false,
+        "business_box_owner": false,
+        "business_box_manager": false,
+        "business_box": false,
+        "business_no_right": false,
+        "allow_subscription": false,
+        "allow_trial_mobile": "1",
+        "timestamp": 1734987658,
+        "can_subscribe": false,
+        "can_subscribe_family": false,
+        "show_subscription_section": true,
+        "streaming_group": "sub",
+        "queuelist_edition": true,
+        "mobile_streaming_used": 0,
+        "web_streaming_used": 0,
+        "streaming_used": 0,
+        "ads": false,
+        "multiaccount_max_children": 0,
+        "audio_qualities": {
+          "mobile_download": ["standard", "standard", "high"],
+          "mobile_streaming": ["standard", "standard", "high"],
+          "wifi_download": ["standard", "high", "high"],
+          "wifi_streaming": ["standard", "high", "high"]
+        },
+        "hq": false,
+        "lossless": false,
+        "offline": false,
+        "preview": false,
+        "radio": false,
+        "streaming": false,
+        "streaming_duration": 0,
+        "sound_quality": {
+          "low": false,
+          "standard": true,
+          "high": false,
+          "lossless": false,
+          "reality": false
+        }
+      },
+      "AUDIO_SETTINGS": {
+        "default_preset": "balanced",
+        "default_download_on_mobile_network": false,
+        "presets": [
+          {
+            "mobile_download": "standard",
+            "mobile_streaming": "standard",
+            "wifi_download": "standard",
+            "wifi_streaming": "standard",
+            "id": "fast",
+            "title": "Compact",
+            "description": "Adjust audio quality to reduce data usage."
+          },
+          {
+            "mobile_download": "standard",
+            "mobile_streaming": "standard",
+            "wifi_download": "high",
+            "wifi_streaming": "high",
+            "id": "balanced",
+            "title": "Balanced",
+            "description": "Improve audio quality when connected to WiFi."
+          },
+          {
+            "mobile_download": "high",
+            "mobile_streaming": "high",
+            "wifi_download": "high",
+            "wifi_streaming": "high",
+            "id": "quality",
+            "title": "Better",
+            "description": "Best audio quality available."
+          }
+        ],
+        "connected_device_streaming_preset": "lossless"
+      },
+      "SETTING": {
+        "newsletter": {
+          "editor": true,
+          "talk": true,
+          "special_offer": true,
+          "event": false,
+          "game": false,
+          "panel": false
+        },
+        "global": {
+          "language": "en",
+          "onboarding_progress": 1024,
+          "popup_unload": false,
+          "filter_explicit_lyrics": false,
+          "is_kid": false,
+          "has_up_next": true,
+          "dark_mode": "on",
+          "onboarding": false,
+          "cookie_consent_string": "",
+          "has_root_consent": 0,
+          "happy_hour": "",
+          "recommendation_country": "NL",
+          "has_joined_family": false,
+          "explicit_level_forced": false,
+          "social": true,
+          "onboarding_musictogether": false,
+          "onboarding_musictogether_progress": 8192,
+          "has_already_tried_premium": false
+        },
+        "site": {
+          "version": "5",
+          "player_hq": true,
+          "player_audio_quality": "lossless",
+          "livebar_state": "close",
+          "livebar_tab": "ticker",
+          "push_mobile": 0,
+          "howto_step": 0,
+          "edito_tag": 0,
+          "display_confirm_discovery": 0,
+          "player_repeat": 0,
+          "player_normalize": false,
+          "triforce": false,
+          "cast_audio_quality": "lossless"
+        },
+        "optin_mail": {
+          "update": 1,
+          "special_offer": 1,
+          "social": 1,
+          "event": 0,
+          "third_party": 0,
+          "survey": 0
+        },
+        "optin_push": {
+          "update": 1,
+          "special_offer": 1,
+          "social": 1,
+          "event": 0,
+          "third_party": 0,
+          "survey": 0
+        },
+        "optin_inapp": {
+          "update": 1,
+          "special_offer": 1,
+          "social": 1,
+          "event": 0,
+          "third_party": 0,
+          "survey": 0
+        },
+        "optin_sms": {
+          "update": 1,
+          "special_offer": 1,
+          "social": 1,
+          "event": 0,
+          "third_party": 0,
+          "survey": 0
+        },
+        "notification_mail": {
+          "artist_new_release": true,
+          "share": true,
+          "friend_follow": true,
+          "playlist_comment": true,
+          "playlist_follow": true,
+          "new_message": true,
+          "artist_status": false
+        },
+        "notification_mobile": {
+          "artist_new_release": true,
+          "share": true,
+          "friend_follow": true,
+          "playlist_comment": true,
+          "playlist_follow": true,
+          "new_message": true,
+          "artist_status": false
+        },
+        "adjust": {
+          "registration_date": 1641818303,
+          "devicesInfo": {
+            "00000000-0000-0000-0000-000000000000": {
+              "identifier_type": "idfa"
+            },
+            "123ABC45-67DE-4F89-B0C1-23456789ABCD": {
+              "identifier_type": "idfa",
+              "has_adid": "1"
+            },
+            "A1B2C3D4-5678-40EF-9012-34567890ABCD": {
+              "identifier_type": "idfa",
+              "has_adid": "1"
+            },
+            "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6": {
+              "identifier_type": "adid",
+              "platform": "ios",
+              "device_identifier": "A1B2C3D4-5678-40EF-9012-34567890ABCD",
+              "device_identifier_type": "idfa"
+            },
+            "123456789abcdef123456789abcdef12": {
+              "identifier_type": "adid",
+              "platform": "ios",
+              "device_identifier": "123ABC45-67DE-4F89-B0C1-23456789EFAB",
+              "device_identifier_type": "idfa"
+            },
+            "b5c6d7e8-9012-45ab-c345-678901234567": {
+              "identifier_type": "gps_adid",
+              "has_adid": "1"
+            },
+            "1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p": {
+              "identifier_type": "adid",
+              "platform": "android",
+              "device_identifier": "1a2b3c4d-5ef6-40gh-i789-0123456789ab",
+              "device_identifier_type": "gps_adid"
+            },
+            "F1E2D3C4-B5A6-4987-B654-321FEDCBA098": {
+              "identifier_type": "idfa"
+            }
+          },
+          "d0_stream": "123456789",
+          "d7_stream": "1234567"
+        },
+        "twitter": {
+          "share_comment": true,
+          "share_favourite": true,
+          "share_loved": true,
+          "share_share": true
+        },
+        "facebook": {
+          "share_comment": true,
+          "share_favourite": true,
+          "share_loved": true,
+          "share_listen": true,
+          "share_share": true
+        },
+        "google": {
+          "share_comment": false,
+          "share_favourite": false,
+          "share_loved": false,
+          "share_listen": false,
+          "share_share": false,
+          "country_store": false
+        },
+        "beta_user": {
+          "ios": false,
+          "android": false,
+          "windowsphone": false,
+          "windows": false
+        },
+        "tips": {
+          "player": false,
+          "flow": true,
+          "add_to_library": true,
+          "lyrics": 2,
+          "up_next": true
+        },
+        "audio_quality_settings": {
+          "preset": "balanced",
+          "download_on_mobile_network": false,
+          "connected_device_streaming_preset": "lossless"
+        },
+        "ads": {
+          "featurefm_token": {
+            "token": "12345678-9abc-4def-b123-456789abcdef",
+            "date": "2022-01-10 12:38:35",
+            "api_url": "https://api.ffmapi.com"
+          },
+          "test_format": false,
+          "force_adsource": "auto",
+          "force_mediation": "auto"
+        },
+        "webviews": {
+          "domain": false
+        },
+        "triggers": {
+          "reg_d1": {
+            "ios": true,
+            "desktop": true
+          },
+          "reg_d3": {
+            "desktop": true
+          }
+        },
+        "customer_message": {
+          "push_notification_activation_interstitial": {
+            "properties": [],
+            "display_count": 4,
+            "last_display": "2024-06-27"
+          },
+          "apprating_unsubscribed": {
+            "last_display": "1731314302",
+            "display_count": 2
+          }
+        },
+        "partner": {
+          "partner_ids": "[]"
+        }
+      },
+      "LASTFM": {},
+      "TWITTER": {},
+      "FACEBOOK": {},
+      "GOOGLEPLUS": {},
+      "FAVORITE_TAG": 0,
+      "ABTEST": {
+        "triforce_queuelist_ui": {
+          "id": "triforce_queuelist_ui",
+          "option": "default",
+          "behaviour": "Cloud based queue list deactivated",
+          "percent": 100
+        },
+        "share_android_image_preview": {
+          "id": "share_android_image_preview",
+          "option": "A",
+          "behaviour": "image preview sharing",
+          "percent": 50
+        },
+        "module_library_abtest_qa": {
+          "id": "module_library_abtest_qa",
+          "option": "B",
+          "behaviour": "switch module",
+          "percent": 100
+        },
+        "unlogged_hp_0824": {
+          "id": "unlogged_hp_0824",
+          "option": "control",
+          "behaviour": "\"SEO\" led Homepage",
+          "percent": 100
+        },
+        "contextual_menu_download_app": {
+          "id": "contextual_menu_download_app",
+          "option": "control",
+          "behaviour": "Normal behaviour no changes the menu app",
+          "percent": 50
+        }
+      },
+      "MULTI_ACCOUNT": {
+        "ENABLED": true,
+        "ACTIVE": true,
+        "CHILD_COUNT": 5,
+        "MAX_CHILDREN": 5,
+        "PARENT": null,
+        "IS_KID": false,
+        "IS_SUB_ACCOUNT": false
+      },
+      "ONBOARDING_MODAL": false,
+      "ADS_OFFER": "0",
+      "ENTRYPOINTS": {},
+      "ADS_TEST_FORMAT": "",
+      "NEW_USER": false,
+      "CONSENT_STRING": [],
+      "RECOMMENDATION_COUNTRY": "NL",
+      "CAN_BE_CONVERTED_TO_INDEPENDENT": false,
+      "IS_FREEMIUM_COUNTRY": 0,
+      "HARDBOUNCED_EMAIL": false,
+      "EXPLICIT_CONTENT_LEVEL": "explicit_display",
+      "EXPLICIT_CONTENT_LEVELS_AVAILABLE": [
+        "explicit_display",
+        "explicit_no_recommendation",
+        "explicit_hide"
+      ],
+      "CAN_EDIT_EXPLICIT_CONTENT_LEVEL": true,
+      "BLOG_NAME": "John",
+      "FIRSTNAME": "",
+      "LASTNAME": "",
+      "USER_GENDER": "M",
+      "USER_AGE": "42",
+      "EMAIL": "john.doe@example.com",
+      "DEVICES_COUNT": 7,
+      "HAS_UPNEXT": true,
+      "LOVEDTRACKS_ID": "1234567890",
+      "OPTINS": {
+        "channel": [
+          {
+            "name": "optin_push",
+            "label": "Mobile push notifications",
+            "description": "Messages that pop up on your mobile device, even when the app is closed"
+          },
+          {
+            "name": "optin_mail",
+            "label": "Emails",
+            "description": "Emails sent to your account address"
+          },
+          {
+            "name": "optin_sms",
+            "label": "Text messages",
+            "description": "Sent by SMS to the phone number associated with your account"
+          }
+        ],
+        "group": [
+          {
+            "name": "music",
+            "label": "Music",
+            "description": ""
+          },
+          {
+            "name": "podcasts",
+            "label": "Podcasts",
+            "description": "Podcasts are only available in certain countries for now."
+          },
+          {
+            "name": "extras",
+            "label": "Extras",
+            "description": ""
+          }
+        ],
+        "optin": [
+          {
+            "name": "edito_reco_music",
+            "label": "Music recommendations",
+            "description": "Latest discoveries & Deezer Originals curated by the editorial team",
+            "channel": {
+              "optin_push": true,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "music",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "algo_favorite_artists",
+            "label": "Artists I like",
+            "description": "Fresh tracks & news about the artists I like or might like",
+            "channel": {
+              "optin_push": true,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "music",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "algo_favorite_playlists",
+            "label": "Playlists I like",
+            "description": "Fresh tracks & updates about the playlists I like or might like",
+            "channel": {
+              "optin_push": true,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "music",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "social",
+            "label": "Social updates",
+            "description": "Updates about users I follow",
+            "channel": {
+              "optin_push": true,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "music",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "reco_podcasts",
+            "label": "Podcast recommendations",
+            "description": "Latest discoveries & recommendations just for me",
+            "channel": {
+              "optin_push": false,
+              "optin_sms": false,
+              "optin_mail": false
+            },
+            "group": "podcasts",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "listening_stats",
+            "label": "Listening habits",
+            "description": "Including my listening stats, interactive features and exclusive launches",
+            "channel": {
+              "optin_push": true,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "music",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "news_offers",
+            "label": "News, offers & great deals",
+            "description": "Be the first to hear about Deezer news, insider tips and offers",
+            "channel": {
+              "optin_push": true,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "extras",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "product_features",
+            "label": "Product tips & tricks",
+            "description": "Know more about Deezer apps, features and the beta community",
+            "channel": {
+              "optin_push": true,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "extras",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "compet_events",
+            "label": "Competitions & concerts",
+            "description": "Win tickets & find out more about events",
+            "channel": {
+              "optin_push": false,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "extras",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "feedback",
+            "label": "My feedback",
+            "description": "Give my feedback to improve the Deezer experience",
+            "channel": {
+              "optin_push": true,
+              "optin_sms": true,
+              "optin_mail": true
+            },
+            "group": "extras",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "partners",
+            "label": "News from our partners",
+            "description": "Hear from associated music labels, providers & retailers",
+            "channel": {
+              "optin_push": false,
+              "optin_sms": false,
+              "optin_mail": false
+            },
+            "group": "extras",
+            "channels_requiring_validation": []
+          },
+          {
+            "name": "transactional",
+            "label": "My account status",
+            "description": "Get instant messages on account status & changes",
+            "channel": {
+              "optin_whatsapp": false
+            },
+            "group": "extras",
+            "channels_requiring_validation": []
+          }
+        ],
+        "service_name": "deezer"
+      }
+    },
+    "SETTING_LANG": "us",
+    "SETTING_LOCALE": "en-US",
+    "DIRECTION": "ltr",
+    "SESSION_ID": "fr456d7e8f90abcdef123456789abcdef01234a5",
+    "USER_TOKEN": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedc",
+    "PLAYLIST_WELCOME_ID": "12345678",
+    "OFFER_ID": 1000006,
+    "OFFER_NAME": "Deezer Family",
+    "OFFER_ELIGIBILITIES": [],
+    "COUNTRY": "NL",
+    "COUNTRY_CATEGORY": "default",
+    "MIN_LEGAL_AGE": 16,
+    "FAMILY_KIDS_AGE": 12,
+    "SERVER_TIMESTAMP": 1734987658,
+    "PLAYER_TOKEN": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+    "checkForm": "kYJGhSTUVwxWb3pqr5My.nOhkbZvwxy-",
+    "FROM_ONBOARDING": "false",
+    "CUSTO": "",
+    "SETTING_REFERER_UPLOAD": "FR",
+    "REG_FLOW": ["email"],
+    "LOGIN_FLOW": ["email"],
+    "__DZR_GATEKEEPS__": {
+      "audiobook_favorites_sync_write": true,
+      "audiobook_author_favorites_sync_write": true,
+      "audiobook_on_deck_sync_write": true,
+      "audiobook_data_sync_read": true,
+      "disable_change_email": false,
+      "secured_change_password": true,
+      "secured_change_email": true,
+      "authentication_phone": false,
+      "msisdn_login_first": false,
+      "register_no_emoji": true,
+      "gender_nonbinary": true,
+      "privacy_and_transfer_data_needed": false,
+      "siwa_disabled": false,
+      "new_social_connect_errors": true,
+      "ads_transparency_report": false,
+      "ad_native_banner": false,
+      "ad_collect_rec_logs": false,
+      "ad_audio_player": false,
+      "ad_check_flag_show_is_advertising_allowed": true,
+      "ab_test_enhanced_audio_ad_view,": false,
+      "adblock_bait_file": true,
+      "ad_display_hubvisor": true,
+      "ad_audio_break_hubvisor": true,
+      "ad_audio_break_multiple": false,
+      "ad_audio_break_backend_mediation": false,
+      "ad_audio_break_vast_audio": false,
+      "audiobreak_late_call": false,
+      "enable_adjust_affiliation_unique_id_param": false,
+      "android_auth_module_integration": false,
+      "auth_ui_integration": false,
+      "appcusto_testing": false,
+      "appcusto_audio_settings": false,
+      "appcusto_subscription_renewal": true,
+      "like_track_braze_event": false,
+      "appcusto_homepod_settings": true,
+      "recaptcha_signup": true,
+      "recaptcha_login": true,
+      "is_recaptcha_blocker": true,
+      "braze_test_mode": false,
+      "cdp_item_added_to_collection": true,
+      "cdp_authentication_started": true,
+      "cdp_search_trendings": true,
+      "cdp_player_item_clicked_tmp": false,
+      "cdp_play_clicked": true,
+      "activate_segment": false,
+      "disable_conversion_boxes_family": true,
+      "appcusto_conversion_box": false,
+      "disable_customer_message_in_user_auth": false,
+      "catalog_pages_paywall_before_content": false,
+      "flexible_getmarketingurl": false,
+      "disable_device_limitation": false,
+      "family_b2c": true,
+      "haas_project": true,
+      "free_xp_happy_hour": false,
+      "reset_queuelist_on_switch_to_free": false,
+      "force_homepage_redirection_to_hifi_page": false,
+      "block_braze_in_app_search": true,
+      "block_braze_content_cards": false,
+      "log_inapppurchase_step": false,
+      "use_storeKit2": false,
+      "fetch_on_background_queue": true,
+      "braze_customer_message_enabled": false,
+      "inbox_v0": true,
+      "metric.merged_uniq_id": true,
+      "metric.mparticle.idsync_monitoring": false,
+      "metric.mparticle.tracking_migration": true,
+      "metric.auth_vitals": true,
+      "metric.timetocaptcha": true,
+      "metric.account_vitals": true,
+      "activate_mparticle_sdk": false,
+      "activate_mparticle_events": false,
+      "activate_mparticle_complex_retry": false,
+      "activate_mparticle_unauthenticated_event": true,
+      "enable_optin_access": false,
+      "premium_box": false,
+      "activate_qualtrics_sdk": false,
+      "ios_settings_ratings_hidden": false,
+      "android_settings_ratings_hidden": false,
+      "disable_lyrics_feature": false,
+      "restricted_shuffle": false,
+      "ios_settings_revamp": false,
+      "tcfv2_vendor_list_v3": false,
+      "tcfv2_consent_screen_webview": true,
+      "30s_track_preview_test_conversion_dominant": false,
+      "content_page_test_reduced_step_conversion": false,
+      "content_page_test_masthead_playback_conversion_interception": false,
+      "ios_app_tracking_transparency": false,
+      "batch_utm_logs": false,
+      "30s_preview": false,
+      "30s_preview_artist_disco": false,
+      "lego_adapter_album_page": false,
+      "user_fav_albums_page_refacto": false,
+      "linear_track_preview_album_page": true,
+      "public_api_album": true,
+      "design_system_declarative_ui_album": false,
+      "android_labs": false,
+      "android_sponge": false,
+      "android_jukebox": false,
+      "media_provider_api": false,
+      "exo_player_2": false,
+      "new_bottomtabbar": false,
+      "playing_queue_refacto": false,
+      "read_buffer_v2": false,
+      "api_mob_ssl": true,
+      "artist_video": true,
+      "artist_essentials": false,
+      "artist_highlight": true,
+      "artist_mix_as_feature": false,
+      "fullwidth_artist_masthead": false,
+      "lego_adapter_artist_page": false,
+      "linear_track_preview_artist_page": true,
+      "migration_discography": false,
+      "public_api_visible_test": true,
+      "artist_page_albums_sorted_by_rank": true,
+      "inapp_audiobooks": false,
+      "carplay": false,
+      "concert_page": false,
+      "concerts_hub": true,
+      "public_api_concert": true,
+      "context_menu_refactoring": false,
+      "curator_edito": false,
+      "curator_local": false,
+      "curator_partner": false,
+      "curator_feature": false,
+      "dark_mode": true,
+      "datagrid_refacto": true,
+      "dynamic_page_v21": true,
+      "podcast_tab_explore_switch": false,
+      "dynamic_pages_sponsored_items": false,
+      "revamp_remove_direct_play_button": false,
+      "dynamic_calculated_smartcache": true,
+      "christmas_easter_egg_player": true,
+      "employee_feature": false,
+      "open_explicit_display": true,
+      "family_profile_migration": false,
+      "family_picker_with_sub_accounts": true,
+      "family_account_invitation": true,
+      "favorites_tab_redesign": false,
+      "mymusic_recently_played": true,
+      "mymusic_display_dislikes": true,
+      "mymusic_masthead": true,
+      "mymusic_nodatas": true,
+      "mymusic_tests_2016aug": true,
+      "smartcollections_artists_filters": false,
+      "refacto_favorite_artists": false,
+      "refacto_favorite_playlists": false,
+      "artist_page_favorite_content": true,
+      "feed_empty": false,
+      "flow_back_queuelist": true,
+      "flow_in_homepage": true,
+      "flow_module": false,
+      "flow_multi_flow": false,
+      "tab_flow_v1": false,
+      "flow_multi_wheels": false,
+      "tuner_flow_config": true,
+      "abtest_flow_directplay": false,
+      "close_block_feature": true,
+      "contextual_menu_blindtest": true,
+      "genplaylist_feature_open": false,
+      "googleanalytics_on_contentpages": false,
+      "ios_new_filter_swift": false,
+      "ios_developer_menu": false,
+      "cell_add_to_library": false,
+      "mobile_mod_player": false,
+      "remove_lasttab": true,
+      "library_importer_tmm": true,
+      "display_competitor_logos_tmm": true,
+      "dynamic_page_event_card_live_event": false,
+      "livestream_page": true,
+      "livestream_current_track_updater_relive": false,
+      "lyrics_refacto": true,
+      "lyrics_report_problem": true,
+      "public_api_track_lyrics": false,
+      "mobile_masthead_v2": false,
+      "batch_requests": true,
+      "use_media_service": true,
+      "use_url_generation": false,
+      "mena_launch": false,
+      "metric.dynamic_page_loading": true,
+      "metric.dynamic_content.screen_view": true,
+      "metric.dynamic_content.item_clicked": true,
+      "metric.dynamic_content.view_all_clicked": true,
+      "metric.dynamic_content.play_clicked": true,
+      "metric.playlist_page_loading": true,
+      "metric.product.analytics": false,
+      "metric.product.analytics.multi_flow_selection": false,
+      "metric.product.analytics.negative_feedback": false,
+      "metric.product.analytics.audio_output": false,
+      "metric.product.analytics.favorite_tracks": false,
+      "metric.product.analytics.playback_speed_selection": false,
+      "metric.favorite_tracks_page_loading": true,
+      "metric.deezer_story.ui_performance": false,
+      "metric.deezer_story.loading": true,
+      "metric.start_time": false,
+      "metric.storage": false,
+      "metric.timetoauth": false,
+      "metric.timetoplay": true,
+      "metric.memoryusage": false,
+      "metric.memory.warnings": false,
+      "metric.remote_control": true,
+      "metric.the_reichenbach_fall": false,
+      "metric.media_request_errors": true,
+      "metric.podcastdownload": false,
+      "metric.api": false,
+      "cdn_metrics": true,
+      "metric.playback_errors": true,
+      "metric.playback_attempts": false,
+      "metric.search_actions": false,
+      "metric.mobile_page_performance": false,
+      "metric.performances_ios": false,
+      "music_together": true,
+      "music_together_join": true,
+      "music_together_create": true,
+      "music_together_relive": true,
+      "navbar_partnerlogo": false,
+      "public_api_onboarding": false,
+      "android_pipe_selected_artist_onboarding": true,
+      "onboarding_artists": true,
+      "launch_onboarding": true,
+      "deeplink_skips_onboarding": false,
+      "onboarding_channels": true,
+      "onboarding_split": false,
+      "onboarding_recall_artist_covers": false,
+      "avaudioengine": false,
+      "change_chunk_size": true,
+      "dzplayer_refacto": false,
+      "gapless_playback": false,
+      "prefetch_multiple_tracks": false,
+      "triforce_queuelist_messages": true,
+      "triforce_queuelist_ui": true,
+      "volume_normalization": true,
+      "mediaprovider_synchronizer_migration": false,
+      "kmp_queue_synchronizer": false,
+      "queue_synchronizer": false,
+      "player_sponsored_tracks_discovery_mode": false,
+      "linear_track_preview_playlist_page": true,
+      "playlist_page_with_lego": false,
+      "playlist_create": false,
+      "playlist_assistant": false,
+      "playlist_limit_2000": false,
+      "songcatcher_playlist": false,
+      "new_track_cells_playlists": false,
+      "playlist_refacto_2024": false,
+      "user_fav_playlists_page_refacto": false,
+      "talk": true,
+      "tab_podcast": true,
+      "podcast_page_refacto": false,
+      "downloaded_podcast_episodes": false,
+      "talk_latest_playlist": true,
+      "podcast_notifications_enabled": false,
+      "podcast_notifications_disabled": true,
+      "episode_download_in_player": false,
+      "latest_episodes": true,
+      "podcast_playback_speed_selection": false,
+      "profile_compare_tab": false,
+      "recommendation_country": true,
+      "network_status_bar": true,
+      "network_reachability_precheck_disabled": false,
+      "remote_control": true,
+      "remote_control_sonos": false,
+      "remote_control_release": false,
+      "revamp2023": true,
+      "screenshot_detection": false,
+      "offline_search": false,
+      "search_autocorrect": true,
+      "search_enriched_topresult": false,
+      "search_query_suggestions": true,
+      "search_refacto": false,
+      "search_tag": false,
+      "search_topresult": false,
+      "search_page_filter_type": false,
+      "trending_queries": true,
+      "search_home_new_channels": false,
+      "search_by_lyrics_mobile": false,
+      "search_remove_duplicates_track": true,
+      "search_instant_search": true,
+      "search_refacto_2024": true,
+      "search_refacto_2024_version_B": false,
+      "revamp_best_results": false,
+      "explicit_user_settings": true,
+      "share_facebook_story": true,
+      "share_whatsapp_direct": false,
+      "share_instagram_story": false,
+      "share_lyrics_instagram_story": false,
+      "share_snapchat_story": false,
+      "share_whatsapp_card": false,
+      "animated_sharing_icon": false,
+      "sharing_link_new_design": false,
+      "universal_link_sharing": false,
+      "single_instance_playback": false,
+      "single_instance_playback_relive": true,
+      "songcatcher": false,
+      "songcatcher_humming": false,
+      "story_video_background": false,
+      "test_dynamic_gatekeep": false,
+      "new_track_cell": false,
+      "public_api_track_contributors": false,
+      "public_api_track": true,
+      "unlimited_favorite_tracks": true,
+      "unlimited_favorite_tracks_parallel_fetch": true,
+      "useractions_favoritetracks": false,
+      "2024_refacto_user_downloads_page": false,
+      "2024_suggested_downloads": false,
+      "console_log": false,
+      "deeztools": false,
+      "sentry": false,
+      "relive_webSocket": false,
+      "websocket_logger_relive": false,
+      "remote_websocket_relive": false,
+      "legacy_websocket_killed": false,
+      "android_auto": true,
+      "conversion_entrypoints_ng": true,
+      "electron_html5_playback": true,
+      "filter_content_for_verified_artists": true,
+      "fnac_migration": true,
+      "GDPR": true,
+      "multi_account": true,
+      "multi_account_subscribe": true,
+      "native_reg_wp": true,
+      "notification_center": true,
+      "onboarding_handle_genre": true,
+      "player_ng": true,
+      "up_next": true,
+      "partner_activation_journey": false,
+      "hhe_enabled": false,
+      "ios_homepod_setup": false,
+      "watch_control_remote_volume_disable": false,
+      "dynamic_splashscreen": false,
+      "cast_receiver_v5": false,
+      "cast_receiver_v5_360": false,
+      "free_on_cast": false,
+      "gcast_force_beta": false,
+      "siri_platform_service": false,
+      "waze": false
+    },
+    "thirdParty": {
+      "facebook": {
+        "appData": {
+          "id": 123456789012,
+          "namespace": "deezer-app",
+          "scope": "email,user_birthday",
+          "version": "17.0",
+          "channel": "https://www.deezer.com/fbgateway.html"
+        },
+        "lang": "en_US"
+      },
+      "googleplus": {
+        "appData": {
+          "client_id": "123456789012-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6.apps.googleusercontent.com",
+          "client_key": "AIzaSyA12BcD3EfGhIjKlMnOpQrStUvWxYz4_5p",
+          "name": "Deezer",
+          "scope": "https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/user.emails.read https://www.googleapis.com/auth/user.birthday.read",
+          "redirect_uri": "postmessage",
+          "access_type": "offline",
+          "cookie_policy": "single_host_origin",
+          "request_visible_actions": "http://schemas.google.com/AddActivity http://schemas.google.com/ListenActivity http://schemas.google.com/CommentActivity",
+          "version": "v1"
+        }
+      },
+      "braze": {
+        "apiKey": "a123b456-7890-4c5d-e6f7-89012345abcd",
+        "isAvailable": true
+      }
+    },
+    "URL_MEDIA": "https://media.deezer.com",
+    "GAIN": {
+      "TARGET": "-15",
+      "ADS": "-13"
+    }
+  }
+}

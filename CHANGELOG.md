@@ -8,6 +8,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
+- [docs] Add anonymized API response fixtures as reference documentation
 - [gateway] Check for Free accounts and prevent connecting due to audio ads limitation
 
 ### Changed
