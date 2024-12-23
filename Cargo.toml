@@ -10,8 +10,16 @@ readme = "README.md"
 repository = "https://github.com/roderickvd/pleezer/"
 categories = ["multimedia::audio"]
 keywords = ["audio", "deezer", "player"]
-exclude = ["secrets.toml"]
 documentation = "https://docs.rs/pleezer"
+include = [
+    "src/**/*",
+    "build.rs",
+    "Cargo.lock",
+    "Cargo.toml",
+    "LICENSE.md",
+    "README.md",
+    "secrets.toml.example",
+]
 
 [badges]
 maintenance = { status = "actively-developed" }
