@@ -206,6 +206,10 @@ pub struct Options {
     /// License expiration time
     #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
     pub expiration_timestamp: SystemTime,
+
+    /// Whether to play ads in audio streams
+    #[serde(default)]
+    pub ads_audio: bool,
 }
 
 /// Audio quality settings.

@@ -99,6 +99,8 @@ Before installing **pleezer**, ensure your system has the necessary build enviro
 
 ## Usage
 
+**Important:** A paid Deezer subscription is required to use pleezer. The player will not appear as an available device in the Deezer app if you're using a Deezer Free account.
+
 **pleezer** acts as a remote playback device that can be controlled from the Deezer mobile app using [Deezer Connect](https://support.deezer.com/hc/en-gb/articles/5449309457949-Deezer-Connect). Note that Deezer Connect only works *from* mobile devices - you cannot control **pleezer** from desktop apps or the web player.
 
 Following the official Deezer Connect instructions, here's how to control **pleezer** from your mobile device:

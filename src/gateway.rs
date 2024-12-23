@@ -245,13 +245,17 @@ impl Gateway {
                 if let Some(data) = response.first() {
                     if !data.gatekeeps.remote_control {
                         return Err(Error::permission_denied(
-                            "remote control is disabled for this account".to_string(),
+                            "remote control is disabled for this account; upgrade your Deezer subscription",
                         ));
                     }
                     if data.user.options.too_many_devices {
                         return Err(Error::permission_denied(
-                            "too many devices; remove one or more in your account settings"
-                                .to_string(),
+                            "too many devices; remove one or more in your account settings",
+                        ));
+                    }
+                    if data.user.options.ads_audio {
+                        return Err(Error::unimplemented(
+                            "ads are not implemented; upgrade your Deezer subscription",
                         ));
                     }
                     self.set_user_data(data.clone());

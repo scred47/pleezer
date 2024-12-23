@@ -7,6 +7,15 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- [gateway] Check for Free accounts and prevent connecting due to audio ads limitation
+
+### Changed
+- [gateway] More descriptive error messages for subscription-related issues
+- [protocol] Add `ads_audio` field to user options structure
+
+## [0.6.2] - 2024-12-19
+
 ### Changed
 - [docs] Improve documentation coverage
 - [remote] Configure websocket message size limits to prevent memory exhaustion
