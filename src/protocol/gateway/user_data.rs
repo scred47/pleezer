@@ -17,7 +17,8 @@
 //!         "OPTIONS": {
 //!             "license_token": "secret",
 //!             "too_many_devices": false,
-//!             "expiration_timestamp": 1234567890
+//!             "expiration_timestamp": 1234567890,
+//!             "ads_audio": false
 //!         },
 //!         "AUDIO_SETTINGS": {
 //!             "connected_device_streaming_preset": "lossless"
@@ -192,6 +193,11 @@ pub struct User {
 }
 
 /// User license and device management options.
+///
+/// Contains settings related to:
+/// * License tokens and expiration
+/// * Device limitations
+/// * Audio ads configuration
 #[serde_as]
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Redact, Hash)]
 pub struct Options {
