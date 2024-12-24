@@ -73,6 +73,7 @@ use crate::{
     error::{Error, Result},
     http,
     protocol::{
+        self,
         connect::AudioQuality,
         gateway,
         media::{self, Cipher, CipherFormat, Data, Format, Medium},
@@ -420,8 +421,10 @@ impl Track {
         let get_url = media_url.join(Self::MEDIA_ENDPOINT)?;
         let body = serde_json::to_string(&request)?;
         let request = client.post(get_url, body);
+
         let response = client.execute(request).await?;
-        let result = response.json::<media::Response>().await?;
+        let body = response.text().await?;
+        let result: media::Response = protocol::json(&body, Self::MEDIA_ENDPOINT)?;
 
         // Deezer only sends a single media object.
         let result = match result.data.first() {
@@ -438,8 +441,6 @@ impl Track {
             },
             None => return Err(Error::not_found(format!("no media data for track {self}"))),
         };
-
-        trace!("get_url: {result:#?}");
 
         let available_quality = AudioQuality::from(result.format);
 

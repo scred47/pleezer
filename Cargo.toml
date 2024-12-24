@@ -65,7 +65,6 @@ reqwest = { version = "0.12", default-features = false, features = [
     "brotli",
     "cookies",
     "gzip",
-    "json",
     "rustls-tls-native-roots",
     "stream",
 ] }

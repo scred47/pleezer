@@ -15,6 +15,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [build] Switch from exclude to include for more precise package contents
 - [gateway] More descriptive error messages for subscription-related issues
 - [protocol] Add `ads_audio` field to user options structure
+- [protocol] Centralize JSON response parsing and logging
 
 ## [0.6.2] - 2024-12-19
 

@@ -43,6 +43,7 @@ use crate::{
     error::{Error, ErrorKind, Result},
     http::Client as HttpClient,
     protocol::{
+        self, auth,
         connect::{
             queue::{self, TrackType},
             AudioQuality, UserId,
@@ -342,23 +343,7 @@ impl Gateway {
         let response = self.http_client.execute(request).await?;
         let body = response.text().await?;
 
-        let result: gateway::Response<T> = match serde_json::from_str(&body) {
-            Ok(result) => {
-                trace!("{}: {result:#?}", T::METHOD);
-                result
-            }
-            Err(e) => {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                    trace!("{}: {json:#?}", T::METHOD);
-                } else {
-                    error!("{}: failed parsing response ({e:?})", T::METHOD);
-                    trace!("{body}");
-                }
-                return Err(e.into());
-            }
-        };
-
-        Ok(result)
+        protocol::json(&body, T::METHOD)
     }
 
     /// Returns the current license token if available.
@@ -635,16 +620,13 @@ impl Gateway {
             Self::OAUTH_CLIENT_ID,
         ))?;
 
-        let request = self.http_client.get(query, "");
+        let request = self.http_client.get(query.clone(), "");
         let response = self.http_client.execute(request).await?;
-
-        let json = response.json::<serde_json::Value>().await?;
-        let access_token = json
-            .get("access_token")
-            .and_then(|token| token.as_str())
-            .ok_or_else(|| Error::permission_denied("email or password incorrect".to_string()))?;
+        let body = response.text().await?;
+        let result: auth::User = protocol::json(&body, query.path())
+            .map_err(|_| Error::permission_denied("email or password incorrect"))?;
 
         // Finally use the access token to get an ARL.
-        self.get_arl(access_token).await
+        self.get_arl(&result.access_token).await
     }
 }
