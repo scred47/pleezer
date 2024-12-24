@@ -249,7 +249,7 @@ impl Gateway {
                         ));
                     }
                     if data.user.options.too_many_devices {
-                        return Err(Error::permission_denied(
+                        return Err(Error::resource_exhausted(
                             "too many devices; remove one or more in your account settings",
                         ));
                     }
@@ -258,6 +258,7 @@ impl Gateway {
                             "ads are not implemented; upgrade your Deezer subscription",
                         ));
                     }
+
                     self.set_user_data(data.clone());
                 } else {
                     return Err(Error::not_found("no user data received".to_string()));

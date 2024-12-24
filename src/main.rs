@@ -285,6 +285,8 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
 /// * Configuration is invalid
 /// * Authentication fails
 /// * Device initialization fails
+/// * Too many devices are registered
+/// * Resource limits are exceeded
 /// * Unrecoverable network error occurs
 ///
 /// Network errors that might be temporary will trigger retry instead.
@@ -456,8 +458,14 @@ async fn run(args: Args) -> Result<()> {
                         Ok(result) => return Ok(result),
                         Err(e) => {
                             match e.kind {
-                                ErrorKind::PermissionDenied => {
-                                    // Bail out if the user is not able to login.
+                                // Bail out if the user is:
+                                // - not able to login
+                                // - not allowed to use remote control
+                                ErrorKind::PermissionDenied |
+                                // - using too many devices
+                                ErrorKind::ResourceExhausted |
+                                // - on a free-tier account
+                                ErrorKind::Unimplemented => {
                                     return Err(e);
                                 },
                                 ErrorKind::DeadlineExceeded => {
