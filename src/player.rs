@@ -23,6 +23,7 @@
 //! 2. Audio format decoding (MP3/FLAC)
 //! 3. Volume normalization (optional)
 //! 4. Logarithmic volume control
+//! 5. Fade-out processing for smooth transitions
 //! 6. Audio device output
 //!
 //! # Features
@@ -76,6 +77,7 @@ use crate::{
         gateway::{self, MediaUrl},
     },
     track::{Track, TrackId},
+    util::ToF32,
 };
 
 /// Audio sample type used by the decoder.
@@ -235,6 +237,12 @@ impl Player {
     /// Equal to ln(1000) ≈ 6.907755279
     /// Constant used in volume scaling calculations.
     const LOG_VOLUME_GROWTH_RATE: f32 = 6.907_755_4;
+
+    /// Duration of the fade-out when clearing playback to prevent audio popping.
+    ///
+    /// A short fade-out (20ms) is applied when stopping or changing tracks to avoid
+    /// sudden audio cutoffs that can cause popping sounds.
+    const FADE_OUT_DURATION: Duration = Duration::from_millis(20);
 
     /// Creates a new player instance.
     ///
@@ -1061,7 +1069,8 @@ impl Player {
     /// Clears the playback state.
     ///
     /// When sink is active:
-    /// * Drains output queue gracefully to prevent audio popping
+    /// * Applies a short fade-out over 20ms to prevent popping
+    /// * Drains output queue gracefully
     /// * Creates new empty source queue
     /// * Maintains playback state
     ///
@@ -1069,6 +1078,31 @@ impl Player {
     /// * Resets track downloads
     /// * Resets internal playback state (position, receivers)
     pub fn clear(&mut self) {
+        // Fade out the volume over the duration of the fade out. This prevents popping sounds.
+        if self.is_playing() {
+            let original_volume = self.volume().as_ratio_f32();
+            let millis = Self::FADE_OUT_DURATION.as_millis();
+            let fade_out = original_volume / millis.to_f32_lossy();
+
+            for i in 0..millis {
+                let faded_volume = original_volume - fade_out * i.to_f32_lossy();
+                if self
+                    .sink_mut()
+                    .map(|sink| sink.set_volume(faded_volume))
+                    .is_err()
+                {
+                    break;
+                }
+
+                // This blocks the current thread for 1 ms, but is better than making the
+                // function async and waiting for the future to complete.
+                std::thread::sleep(Duration::from_millis(1));
+            }
+
+            // Restore the original volume.
+            let _ = self.sink_mut().map(|sink| sink.set_volume(original_volume));
+        }
+
         if let Ok(sink) = self.sink_mut() {
             // Don't clear the sink, because that makes Rodio:
             // - drop the entire output queue

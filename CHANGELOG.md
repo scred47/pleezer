@@ -22,6 +22,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Fixed
 - [player] Prevent audio popping when changing tracks or stopping playback
 
+### Fixed
+- [player] Prevent audio popping when changing tracks or stopping playback
+
 ## [0.6.2] - 2024-12-19
 
 ### Changed
