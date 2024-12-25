@@ -69,8 +69,8 @@ use protobuf::Message;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::{
-    json::JsonString, serde_as, DeserializeFromStr, DisplayFromStr, DurationSeconds,
-    NoneAsEmptyString, SerializeDisplay,
+    formats::Flexible, json::JsonString, serde_as, DeserializeFromStr, DisplayFromStr,
+    DurationSeconds, NoneAsEmptyString, SerializeDisplay,
 };
 use uuid::Uuid;
 
@@ -2071,10 +2071,10 @@ pub enum Payload {
         /// Currently playing track
         element_id: QueueItem,
         /// Total track duration
-        #[serde_as(as = "DurationSeconds<u64>")]
+        #[serde_as(as = "DurationSeconds<u64, Flexible>")]
         duration: Duration,
         /// Amount of audio buffered
-        #[serde_as(as = "DurationSeconds<u64>")]
+        #[serde_as(as = "DurationSeconds<u64, Flexible>")]
         buffered: Duration,
         /// Current playback position (0.0 to 1.0)
         progress: Option<Percentage>,

@@ -16,6 +16,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [gateway] More descriptive error messages for subscription-related issues
 - [protocol] Add `ads_audio` field to user options structure
 - [protocol] Centralize JSON response parsing and logging
+- [protocol] Make duration parsing more flexible to handle non-standard time formats
 
 ### Fixed
 - [player] Prevent audio popping when changing tracks or stopping playback
