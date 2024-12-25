@@ -41,12 +41,12 @@ pub struct User {
     /// How long the token remains valid
     ///
     /// Note: Currently always returns 0 in Deezer responses
-    #[serde_as(as = "DurationSeconds<u64>")]
-    pub expire: Duration,
+    #[serde_as(as = "Option<DurationSeconds<u64, Flexible>>")]
+    pub expire: Option<Duration>,
 
     /// When the token will expire
     ///
     /// Note: Currently always returns 0 in Deezer responses
-    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
-    pub expires: SystemTime,
+    #[serde_as(as = "Option<TimestampSeconds<i64, Flexible>>")]
+    pub expires: Option<SystemTime>,
 }
