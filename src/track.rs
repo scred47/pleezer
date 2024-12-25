@@ -636,7 +636,8 @@ impl Track {
             TempStorageProvider::default(),
             stream_download::Settings::default()
                 .on_progress(callback)
-                .prefetch_bytes(prefetch_size),
+                .prefetch_bytes(prefetch_size)
+                .cancel_on_drop(true),
         )
         .await?;
 

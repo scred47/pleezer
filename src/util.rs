@@ -54,3 +54,31 @@ impl ToF32 for f64 {
         self.clamp(f64::from(f32::MIN), f64::from(f32::MAX)) as f32
     }
 }
+
+/// Implements conversion from `u128` to `f32` with range clamping.
+///
+/// Clamps the value to the valid `f32` range before truncating:
+/// * `u128` values beyond `f32::MAX` become `f32::MAX`
+/// * `u128` values below `f32::MIN` (0) are impossible due to unsigned type
+///
+/// # Example
+///
+/// ```rust
+/// use pleezer::util::ToF32;
+///
+/// let too_large = u128::MAX;
+/// let clamped = too_large.to_f32_lossy();
+/// assert!(clamped == f32::MAX);
+/// ```
+impl ToF32 for u128 {
+    #[expect(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_sign_loss)]
+    fn to_f32_lossy(self) -> f32 {
+        if self > f32::MAX as u128 {
+            f32::MAX
+        } else {
+            self as f32
+        }
+    }
+}
