@@ -60,6 +60,7 @@ pub type Queue = Vec<ListData>;
 ///
 /// Contains all the metadata and authentication information needed
 /// to play a track, including titles, tokens, and media assets.
+/// Some fields like duration may be missing or invalid and will use defaults.
 ///
 /// # Fields
 ///
@@ -136,6 +137,8 @@ pub struct ListData {
     ///
     /// The actual playback length of the track, parsed from seconds.
     /// Used for progress calculation and UI display.
+    /// Defaults to zero duration if not provided or invalid.
+    #[serde(default)]
     #[serde_as(as = "DurationSeconds<String, Flexible>")]
     pub duration: Duration,
 

@@ -1184,21 +1184,28 @@ impl Player {
 
     /// Returns current playback progress.
     ///
-    /// Returns None if no track is playing.
+    /// Returns None if no track is playing or track duration is unknown.
     /// Progress is calculated as:
     /// * Current sink position (or zero if device not open)
     /// * Minus track start time
     /// * Divided by track duration
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
-        // The progress is the difference between the current position of the sink, which is the
-        // total duration played, and the time the current track started playing.
-        let progress = self.get_pos().saturating_sub(self.playing_since);
+        if let Some(track) = self.track() {
+            let duration = track.duration();
+            if duration.is_zero() {
+                return None;
+            }
 
-        self.track().map(|track| {
-            let ratio = progress.div_duration_f32(track.duration());
-            Percentage::from_ratio_f32(ratio)
-        })
+            // The progress is the difference between the current position of the sink, which is the
+            // total duration played, and the time the current track started playing.
+            let progress = self.get_pos().saturating_sub(self.playing_since);
+            return Some(Percentage::from_ratio_f32(
+                progress.div_duration_f32(duration),
+            ));
+        }
+
+        None
     }
 
     /// Sets playback position within current track.
