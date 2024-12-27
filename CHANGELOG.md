@@ -20,10 +20,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [protocol] Make track duration handling more robust for missing or invalid metadata
 
 ### Fixed
-- [player] Prevent audio popping when changing tracks or stopping playback
-
-### Fixed
-- [player] Prevent audio popping when changing tracks or stopping playback
+- [player] Prevent audio popping when changing tracks or stopping playback by adding volume ramping
 
 ## [0.6.2] - 2024-12-19
 

@@ -238,11 +238,12 @@ impl Player {
     /// Constant used in volume scaling calculations.
     const LOG_VOLUME_GROWTH_RATE: f32 = 6.907_755_4;
 
-    /// Duration of the fade-out when clearing playback to prevent audio popping.
+    /// Duration of the fade to prevent audio popping when clearing the queue
+    /// or changing volume.
     ///
-    /// A short fade-out (20ms) is applied when stopping or changing tracks to avoid
+    /// A short linear ramp (25ms) is applied to avoid abrupt changes and
     /// sudden audio cutoffs that can cause popping sounds.
-    const FADE_OUT_DURATION: Duration = Duration::from_millis(20);
+    const FADE_DURATION: Duration = Duration::from_millis(25);
 
     /// Creates a new player instance.
     ///
@@ -1069,39 +1070,18 @@ impl Player {
     /// Clears the playback state.
     ///
     /// When sink is active:
-    /// * Applies a short fade-out over 20ms to prevent popping
+    /// * Applies a short fade-out ramp to prevent audio popping
     /// * Drains output queue gracefully
     /// * Creates new empty source queue
+    /// * Restores original volume after fade
     /// * Maintains playback state
     ///
     /// Also:
     /// * Resets track downloads
     /// * Resets internal playback state (position, receivers)
     pub fn clear(&mut self) {
-        // Fade out the volume over the duration of the fade out. This prevents popping sounds.
-        if self.is_playing() {
-            let original_volume = self.volume().as_ratio_f32();
-            let millis = Self::FADE_OUT_DURATION.as_millis();
-            let fade_out = original_volume / millis.to_f32_lossy();
-
-            for i in 0..millis {
-                let faded_volume = original_volume - fade_out * i.to_f32_lossy();
-                if self
-                    .sink_mut()
-                    .map(|sink| sink.set_volume(faded_volume))
-                    .is_err()
-                {
-                    break;
-                }
-
-                // This blocks the current thread for 1 ms, but is better than making the
-                // function async and waiting for the future to complete.
-                std::thread::sleep(Duration::from_millis(1));
-            }
-
-            // Restore the original volume.
-            let _ = self.sink_mut().map(|sink| sink.set_volume(original_volume));
-        }
+        // Apply a short fade-out to prevent popping.
+        let original_volume = self.ramp_volume(0.0);
 
         if let Ok(sink) = self.sink_mut() {
             // Don't clear the sink, because that makes Rodio:
@@ -1109,11 +1089,14 @@ impl Player {
             // - pause playback
             //
             // Instead, signal Rodio to stop which will make it:
-            // - drain the output queue (preventing audio popping)
+            // - drain the output queue (preventing stale audio from playing)
             // - keep the playback state
             //
             // Because all sources are dropped, any downloads in progress will be cancelled.
             sink.stop();
+
+            // Restore the original volume, if any.
+            let _ = original_volume.inspect(|volume| sink.set_volume(*volume));
 
             // With Rodio having dropped the previous output queue, we need to create a new one.
             let (sources, output) = rodio::queue::queue(true);
@@ -1172,31 +1155,40 @@ impl Player {
     pub fn volume(&self) -> Percentage {
         self.volume
     }
+
     /// Sets playback volume with logarithmic scaling.
     ///
     /// The volume control uses a logarithmic scale that matches human perception:
     /// * Logarithmic scaling across a 60 dB dynamic range
     /// * Linear fade to zero for very low volumes (< 10%)
     /// * Smooth transitions across the entire range
+    /// * Gradual volume ramping to prevent audio popping
     ///
     /// No effect if new volume equals current volume.
     ///
+    /// # Returns
+    ///
+    /// Returns the previous volume, wrapped in `Result`.
+    ///
     /// # Arguments
     ///
-    /// * `volume` - Target volume percentage (0.0 to 1.0)
+    /// * `target` - Target volume percentage (0.0 to 1.0)
     ///
     /// # Errors
     ///
     /// Returns error if audio device is not open.
-    pub fn set_volume(&mut self, volume: Percentage) -> Result<()> {
-        if volume == self.volume() {
-            return Ok(());
+    pub fn set_volume(&mut self, target: Percentage) -> Result<Percentage> {
+        // Check if the volume is already set to the target value:
+        // Deezer sends the same volume on every status update, even if it hasn't changed.
+        let current = self.volume();
+        if target == current {
+            return Ok(current);
         }
 
-        info!("setting volume to {volume}");
-        self.volume = volume;
+        info!("setting volume to {target}");
 
-        let volume = volume.as_ratio_f32().clamp(0.0, 1.0);
+        // Clamp just in case the volume is set outside the valid range.
+        let volume = target.as_ratio_f32().clamp(0.0, 1.0);
         let mut amplitude = volume;
 
         // Apply logarithmic volume scaling with a smooth transition to zero.
@@ -1213,7 +1205,59 @@ impl Player {
             );
         }
 
-        self.sink_mut().map(|sink| sink.set_volume(amplitude))
+        match self.ramp_volume(amplitude).map(Percentage::from_ratio_f32) {
+            Ok(previous) => {
+                self.volume = target;
+                Ok(previous)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Gradually changes audio volume over a short duration to prevent popping.
+    ///
+    /// Applies a linear volume ramp between the current and target volumes over
+    /// `FADE_DURATION` milliseconds. This prevents audio artifacts that can occur
+    /// with sudden volume changes.
+    ///
+    /// # Arguments
+    ///
+    /// * `target` - Target volume level (0.0 to 1.0)
+    ///
+    /// # Returns
+    ///
+    /// Returns the original volume before ramping, wrapped in `Result`.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if audio device is not open.
+    ///
+    /// # Implementation Note
+    ///
+    /// Uses thread sleep for timing rather than async to ensure precise volume
+    /// transitions. The short sleep duration (25ms total) makes this acceptable.
+    fn ramp_volume(&mut self, target: f32) -> Result<f32> {
+        let sink_mut = self.sink_mut()?;
+        let original_volume = sink_mut.volume();
+
+        let millis = Self::FADE_DURATION.as_millis();
+        let fade_step = (target - original_volume) / millis.to_f32_lossy();
+
+        for i in 1..=millis {
+            let faded_volume = if i == millis {
+                target
+            } else {
+                original_volume + fade_step * i.to_f32_lossy()
+            };
+
+            sink_mut.set_volume(faded_volume);
+
+            // This blocks the current thread for 1 ms, but is better than making the
+            // function async and waiting for the future to complete.
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        Ok(original_volume)
     }
 
     /// Returns current playback progress.
