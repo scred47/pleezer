@@ -1,0 +1,33 @@
+{
+  "license_token": "AAAAAxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_x_xxxxxxxxx_xxxxxxxxxxxxxxxxx_xxxxxxxxxxxxx-xxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx28",
+  "media": [
+    {
+      "type": "FULL",
+      "formats": [
+        {
+          "cipher": "BF_CBC_STRIPE",
+          "format": "FLAC"
+        },
+        {
+          "cipher": "BF_CBC_STRIPE",
+          "format": "MP3_320"
+        },
+        {
+          "cipher": "BF_CBC_STRIPE",
+          "format": "MP3_128"
+        },
+        {
+          "cipher": "BF_CBC_STRIPE",
+          "format": "MP3_64"
+        },
+        {
+          "cipher": "BF_CBC_STRIPE",
+          "format": "MP3_MISC"
+        }
+      ]
+    }
+  ],
+  "track_tokens": [
+    "AAAAAxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxx_xxxxxxxxxxxxxxPw"
+  ]
+}

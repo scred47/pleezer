@@ -1,0 +1,66 @@
+{
+  "error": [],
+  "results": {
+    "data": [
+      {
+        "SNG_ID": -1234567890,
+        "TOKEN": "17f3bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx56",
+        "ALB_ID": 0,
+        "ALB_PICTURE": "59524xxxxxxxxxxxxxxxxxxxxxxxxx1f",
+        "ALB_TITLE": "Lorem Ipsum",
+        "ART_ID": "0",
+        "ART_NAME": "John Doe",
+        "DURATION": "48",
+        "ISRC": "",
+        "SNG_TITLE": "Neque Porro",
+        "TYPE": 1,
+        "UPLOAD_ID": 1234567890,
+        "USER_ID": "1234567890",
+        "MD5_ORIGIN": "0bddfxxxxxxxxxxxxxxxxxxxxxxxxx42.mp3",
+        "FILESIZE_MP3_MISC": "2154906",
+        "FILESIZE": "2154906",
+        "MEDIA_VERSION": "0",
+        "TRACK_TOKEN": "AAAAAxxxxxxxxxxxxxxxxxxxx-xxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-xxxx_xxxxxxxxxxxxxxxx_xxxxxxxxxxxx_xxxxxxxxxxNA",
+        "TRACK_TOKEN_EXPIRE": 1735239953,
+        "RIGHTS": {
+          "STREAM_ADS": "2022-01-17",
+          "STREAM_SUB": "2022-01-17",
+          "STREAM_ADS_AVAILABLE": true,
+          "STREAM_SUB_AVAILABLE": true
+        },
+        "__TYPE__": "song"
+      },
+      {
+        "SNG_ID": -9876543210,
+        "TOKEN": "17f3bxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx38",
+        "ALB_ID": 0,
+        "ALB_PICTURE": "59524xxxxxxxxxxxxxxxxxxxxxxxxx1f",
+        "ALB_TITLE": "Lorem Ipsum",
+        "ART_ID": "0",
+        "ART_NAME": "John Doe",
+        "DURATION": "170",
+        "ISRC": "",
+        "SNG_TITLE": "Quisquam Est",
+        "TYPE": 1,
+        "UPLOAD_ID": 9876543210,
+        "USER_ID": "1234567890",
+        "MD5_ORIGIN": "49922xxxxxxxxxxxxxxxxxxxxxxxxxfd.mp3",
+        "FILESIZE_MP3_MISC": "7013712",
+        "FILESIZE": "7013712",
+        "MEDIA_VERSION": "0",
+        "TRACK_TOKEN": "AAAAAxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxx_xxxxxxxx_xxxxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxug",
+        "TRACK_TOKEN_EXPIRE": 1735239953,
+        "RIGHTS": {
+          "STREAM_ADS": "2022-01-17",
+          "STREAM_SUB": "2022-01-17",
+          "STREAM_ADS_AVAILABLE": true,
+          "STREAM_SUB_AVAILABLE": true
+        },
+        "__TYPE__": "song"
+      }
+    ],
+    "count": 2,
+    "total": 2,
+    "filtered_count": 0
+  }
+}

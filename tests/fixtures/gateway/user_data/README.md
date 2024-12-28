@@ -4,18 +4,19 @@ This directory contains examples of Deezer user data API responses that have bee
 
 **IMPORTANT - ANONYMIZED DATA**
 
-All data in these files has been completely anonymized:
-- All tokens, IDs, and authentication data are fake and cannot be used to authenticate
-- Personal information has been replaced with dummy data
-- Device identifiers have been replaced with example values
-- All unique identifiers have been changed to non-existent values
+All data in these files has been deliberately anonymized with clearly artificial values:
+- All tokens and IDs use obvious placeholder patterns (e.g., "xxxxx")
+- Authentication data has been replaced with non-realistic values
+- Personal information uses generic placeholder data (e.g., "john.doe@example.com")
+- Device identifiers and unique IDs use obviously fake patterns
+- Sensitive keys and tokens are masked with 'x' characters while maintaining length patterns
 
-**Any attempt to use this data for authentication or user identification would be futile - these are reference examples only.**
+**These fixtures are intentionally constructed to be obviously non-functional and cannot be used for authentication.**
 
 ## File Overview
 
 - `free.json`: Response for a free-tier account that has never used the web player
-- `family_hifi.json`: Response for a Family HiFi subscription with web player history
+- `family.json`: Response for a Family subscription with web player history
 
 ## Response Characteristics
 
@@ -27,9 +28,9 @@ The responses vary in several ways:
 ### Important Notes
 
 - A `USER_ID` of "0" indicates no user is logged in (invalid session)
-- All identifiers, tokens, and personal information in these fixtures have been anonymized while maintaining the original format and structure
-- The structure of the responses is authentic, but all values are synthetic
+- All identifiers and tokens use obvious placeholder patterns (xxxxx) to clearly indicate they are non-functional
+- The structure of the responses is authentic, but all values are intentionally artificial
 
 ## Purpose
 
-These fixtures document the structure and variations of the Deezer user data API responses, helping developers understand the possible fields and values they might encounter when implementing API integrations. They are provided for reference only and cannot be used for actual authentication or user identification.
+These fixtures document the structure and variations of the Deezer user data API responses for development and testing purposes only. They maintain the format and structure of real responses while using clearly non-realistic values to prevent any potential misuse.

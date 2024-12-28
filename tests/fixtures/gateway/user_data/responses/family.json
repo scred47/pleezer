@@ -3,7 +3,7 @@
   "results": {
     "USER": {
       "USER_ID": 1234567890,
-      "USER_PICTURE": "1234567890abcdef1234567890abcdef",
+      "USER_PICTURE": "bf8f1xxxxxxxxxxxxxxxxxxxxxxxxx26",
       "INSCRIPTION_DATE": "2022-01-10",
       "TRY_AND_BUY": {
         "AVAILABLE": true,
@@ -53,7 +53,7 @@
           "lossless": true,
           "reality": true
         },
-        "license_token": "AAAAAexj8nKmP5TRHklNwxYpSrJhzlmno4MqBvpSFTY6bQBWkRGHj8NzBjCmk2Dmj472WzPw94qpMWpcVrKz9RyyXkxPpSzn8FqRkm3CYqD626pH7GWnjvRmwx2yNXSKTCmn1SybPkYFvK4m8ypLwV4kLmV9zN18mP5",
+        "license_token": "AAAAAxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxC0",
         "expiration_timestamp": 1736283658,
         "license_country": "NL",
         "ads_display": false,
@@ -235,40 +235,40 @@
         "adjust": {
           "registration_date": 1641818303,
           "devicesInfo": {
-            "00000000-0000-0000-0000-000000000000": {
+            "00000xxx-xxxx-xxxx-xxxx-xxxxxxxxxx00": {
               "identifier_type": "idfa"
             },
-            "123ABC45-67DE-4F89-B0C1-23456789ABCD": {
+            "271A8xxx-xxxx-xxxx-xxxx-xxxxxxxxxx47": {
               "identifier_type": "idfa",
               "has_adid": "1"
             },
-            "A1B2C3D4-5678-40EF-9012-34567890ABCD": {
+            "D9351xxx-xxxx-xxxx-xxxx-xxxxxxxxxxDF": {
               "identifier_type": "idfa",
               "has_adid": "1"
             },
-            "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6": {
+            "b3d75xxxxxxxxxxxxxxxxxxxxxxxxxc9": {
               "identifier_type": "adid",
               "platform": "ios",
-              "device_identifier": "A1B2C3D4-5678-40EF-9012-34567890ABCD",
+              "device_identifier": "D9351xxx-xxxx-xxxx-xxxx-xxxxxxxxxxDF",
               "device_identifier_type": "idfa"
             },
-            "123456789abcdef123456789abcdef12": {
+            "957baxxxxxxxxxxxxxxxxxxxxxxxxx69": {
               "identifier_type": "adid",
               "platform": "ios",
-              "device_identifier": "123ABC45-67DE-4F89-B0C1-23456789EFAB",
+              "device_identifier": "271A8xxx-xxxx-xxxx-xxxx-xxxxxxxxxx47",
               "device_identifier_type": "idfa"
             },
-            "b5c6d7e8-9012-45ab-c345-678901234567": {
+            "3a4eexxx-xxxx-xxxx-xxxx-xxxxxxxxxx89": {
               "identifier_type": "gps_adid",
               "has_adid": "1"
             },
-            "1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p": {
+            "0e7faxxxxxxxxxxxxxxxxxxxxxxxxx2b": {
               "identifier_type": "adid",
               "platform": "android",
-              "device_identifier": "1a2b3c4d-5ef6-40gh-i789-0123456789ab",
+              "device_identifier": "3a4eexxx-xxxx-xxxx-xxxx-xxxxxxxxxx89",
               "device_identifier_type": "gps_adid"
             },
-            "F1E2D3C4-B5A6-4987-B654-321FEDCBA098": {
+            "9DB21xxx-xxxx-xxxx-xxxx-xxxxxxxxxxC2": {
               "identifier_type": "idfa"
             }
           },
@@ -316,7 +316,7 @@
         },
         "ads": {
           "featurefm_token": {
-            "token": "12345678-9abc-4def-b123-456789abcdef",
+            "token": "64d06xxx-xxxx-xxxx-xxxx-xxxxxxxxxx7a",
             "date": "2022-01-10 12:38:35",
             "api_url": "https://api.ffmapi.com"
           },
@@ -418,7 +418,7 @@
       "FIRSTNAME": "",
       "LASTNAME": "",
       "USER_GENDER": "M",
-      "USER_AGE": "42",
+      "USER_AGE": "18",
       "EMAIL": "john.doe@example.com",
       "DEVICES_COUNT": 7,
       "HAS_UPNEXT": true,
@@ -608,8 +608,8 @@
     "SETTING_LANG": "us",
     "SETTING_LOCALE": "en-US",
     "DIRECTION": "ltr",
-    "SESSION_ID": "fr456d7e8f90abcdef123456789abcdef01234a5",
-    "USER_TOKEN": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedc",
+    "SESSION_ID": "fr1f3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx97",
+    "USER_TOKEN": "8758axxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx5f",
     "PLAYLIST_WELCOME_ID": "12345678",
     "OFFER_ID": 1000006,
     "OFFER_NAME": "Deezer Family",
@@ -619,8 +619,8 @@
     "MIN_LEGAL_AGE": 16,
     "FAMILY_KIDS_AGE": 12,
     "SERVER_TIMESTAMP": 1734987658,
-    "PLAYER_TOKEN": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
-    "checkForm": "kYJGhSTUVwxWb3pqr5My.nOhkbZvwxy-",
+    "PLAYER_TOKEN": "efe9cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx37",
+    "checkForm": "q.ko4xxxxxxxxxxxxx_xxxxxxxxxxx8r",
     "FROM_ONBOARDING": "false",
     "CUSTO": "",
     "SETTING_REFERER_UPLOAD": "FR",
@@ -975,8 +975,8 @@
       },
       "googleplus": {
         "appData": {
-          "client_id": "123456789012-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6.apps.googleusercontent.com",
-          "client_key": "AIzaSyA12BcD3EfGhIjKlMnOpQrStUvWxYz4_5p",
+          "client_id": "xxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com",
+          "client_key": "AIzaSxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxx_o",
           "name": "Deezer",
           "scope": "https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/user.emails.read https://www.googleapis.com/auth/user.birthday.read",
           "redirect_uri": "postmessage",
@@ -987,7 +987,7 @@
         }
       },
       "braze": {
-        "apiKey": "a123b456-7890-4c5d-e6f7-89012345abcd",
+        "apiKey": "f747bxxx-xxxx-xxxx-xxxx-xxxxxxxxxx21",
         "isAvailable": true
       }
     },

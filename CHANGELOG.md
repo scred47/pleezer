@@ -11,6 +11,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [main] Support for SIGHUP to reload configuration
 - [remote] Add audio format and bitrate to `track_changed` event
 - [signal] New module for unified signal handling across platforms
+- [tests] Add anonymized API response examples
 
 ### Changed
 - [docs] Enhanced documentation for signal handling and lifecycle management

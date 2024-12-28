@@ -1,0 +1,27 @@
+{
+  "data": [
+    {
+      "media": [
+        {
+          "media_type": "FULL",
+          "cipher": {
+            "type": "BF_CBC_STRIPE"
+          },
+          "format": "FLAC",
+          "sources": [
+            {
+              "url": "https://x-xxxx-stream.dzcdn.net/media/x/x/x/x/x/xxxxxxxxx/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.flac?xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "provider": "ecg"
+            },
+            {
+              "url": "https://xxxx-stream.dzcdn.net/media/x/x/x/x/x/xxxxxxxxx/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.flac?hdnea=exp=xxxxxxxxxx~acl=/media/x/x/x/x/x/xxxxxxxxx/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.flac*~data=user_id=xxxxxxxxxx~hmac=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "provider": "akg"
+            }
+          ],
+          "nbf": 1735209795,
+          "exp": 1735281795
+        }
+      ]
+    }
+  ]
+}

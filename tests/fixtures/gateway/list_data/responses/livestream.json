@@ -1,0 +1,33 @@
+{
+  "error": [],
+  "results": {
+    "LIVESTREAM_ID": "12345",
+    "LIVESTREAM_TITLE": "Lorem Ipsum",
+    "LIVESTREAM_DESCRIPTION": "",
+    "LIVESTREAM_IMAGE_MD5": "7e3ccxxxxxxxxxxxxxxxxxxxxxxxxx03",
+    "LIVESTREAM_IS_FINGERPRINTED": "0",
+    "LIVESTREAM_URLS": {
+      "data": {
+        "96": {
+          "mp3": "https://xxxxxxx.omroep.nl/xxxxxx-xx-xxx"
+        },
+        "192": {
+          "mp3": "https://xxxxxxx.omroep.nl/xxxxxx-xx-xxx"
+        },
+        "64": {
+          "aac": "https://xxxxxxx.omroep.nl/xxxxxx-xx-xxx"
+        },
+        "32": {
+          "aac": "https://xxxxxxx.omroep.nl/xxxxxx-xx-xxx"
+        }
+      },
+      "count": 4,
+      "total": 4,
+      "version": 1735116906,
+      "filtered_count": 0
+    },
+    "LIVESTREAM_COUNTRY": "nl",
+    "AVAILABLE": true,
+    "__TYPE__": "livestream"
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "error": [],
+  "results": {
+    "data": [
+      {
+        "ALB_ID": "12345678",
+        "ALB_PICTURE": "e4518xxxxxxxxxxxxxxxxxxxxxxxxx19",
+        "ALB_TITLE": "Lorem Ipsum",
+        "ART_ID": "1234567",
+        "ART_NAME": "John Doe",
+        "DURATION": "789",
+        "EXPLICIT_TRACK_CONTENT": {
+          "EXPLICIT_LYRICS_STATUS": 0,
+          "EXPLICIT_COVER_STATUS": 2
+        },
+        "ISRC": "XXXX91609302",
+        "LYRICS_ID": 0,
+        "SMARTRADIO": 0,
+        "SNG_ID": "123456789",
+        "SNG_TITLE": "Lorem Ipsum",
+        "STATUS": 1,
+        "TYPE": 0,
+        "TOKEN": "cafcexxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxbe",
+        "MD5_ORIGIN": "e9a07xxxxxxxxxxxxxxxxxxxxxxxxx9c",
+        "FILESIZE_AAC_64": "0",
+        "FILESIZE_MP3_64": "0",
+        "FILESIZE_MP3_128": "12626546",
+        "FILESIZE_MP3_256": "0",
+        "FILESIZE_MP3_320": "31566366",
+        "FILESIZE_MP4_RA1": "0",
+        "FILESIZE_MP4_RA2": "0",
+        "FILESIZE_MP4_RA3": "0",
+        "FILESIZE_FLAC": "90706265",
+        "FILESIZE": "12626546",
+        "GAIN": "-10.4",
+        "MEDIA_VERSION": "5",
+        "TRACK_TOKEN": "AAAAAxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxx_xxxxxxxxxxxxxxPw",
+        "TRACK_TOKEN_EXPIRE": 1735281795,
+        "MEDIA": [
+          {
+            "TYPE": "preview",
+            "HREF": "https://xxx-preview-x.dzcdn.net/stream/x-xxxxxxxxxxxxxxxxxxxxxxxxxxxxx-x.mp3"
+          }
+        ],
+        "RIGHTS": {
+          "STREAM_ADS_AVAILABLE": true,
+          "STREAM_ADS": "2000-01-01",
+          "STREAM_SUB_AVAILABLE": true,
+          "STREAM_SUB": "2000-01-01"
+        },
+        "__TYPE__": "song",
+        "__PAYLOAD__": {
+          "song_id": 123456789,
+          "product_track_id": 329090051,
+          "frodon_score": -0.56049377,
+          "country_rank": 10438,
+          "artist_ids": [1234567],
+          "rank": 181461,
+          "release_date_ts_seconds": 1459468800000,
+          "album_explicit_cover_status": 2,
+          "song_explicit_lyrics_status": 0,
+          "duration_seconds": 789,
+          "hotness": 0,
+          "is_back": false,
+          "is_close": false,
+          "is_fresh": false,
+          "collect_origin": "",
+          "similarity": 0.9974058270454407,
+          "position": 1,
+          "sng_origin": "frodon",
+          "chill_score": 0.022146285,
+          "motivation_score": 0.11768777,
+          "party_score": 0.34881923,
+          "focus_score": 0.00025,
+          "you_and_me_score": 0.48245752,
+          "melancholy_score": 0.29570594,
+          "nb_tracks_from_artist_in_library": 0,
+          "is_fav_artist": false,
+          "genre_prediction": [],
+          "origin_id": "hottrackmulti_509450642",
+          "algo_version": "flow_multiprofv2",
+          "is_sponsored": 0,
+          "flow_version": "default"
+        }
+      },
+      {
+        "ALB_ID": "987654321",
+        "ALB_PICTURE": "d8742xxxxxxxxxxxxxxxxxxxxxxxxxe5",
+        "ALB_TITLE": "de Finibus Bonorum et Malorum",
+        "ART_ID": "98765",
+        "ART_NAME": "Cicero",
+        "DURATION": "281",
+        "EXPLICIT_TRACK_CONTENT": {
+          "EXPLICIT_LYRICS_STATUS": 0,
+          "EXPLICIT_COVER_STATUS": 2
+        },
+        "ISRC": "XXX262214105",
+        "LYRICS_ID": 12345678,
+        "SMARTRADIO": 0,
+        "SNG_ID": "9876543210",
+        "SNG_TITLE": "de Finibus Bonorum et Malorum",
+        "STATUS": 1,
+        "TYPE": 0,
+        "VERSION": "",
+        "TOKEN": "4fb21xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx53",
+        "MD5_ORIGIN": "92f95xxxxxxxxxxxxxxxxxxxxxxxxx34",
+        "FILESIZE_AAC_64": "0",
+        "FILESIZE_MP3_64": "0",
+        "FILESIZE_MP3_128": "4512704",
+        "FILESIZE_MP3_256": "0",
+        "FILESIZE_MP3_320": "11281762",
+        "FILESIZE_MP4_RA1": "0",
+        "FILESIZE_MP4_RA2": "0",
+        "FILESIZE_MP4_RA3": "0",
+        "FILESIZE_FLAC": "36251179",
+        "FILESIZE": "4512704",
+        "GAIN": "-7.9",
+        "MEDIA_VERSION": "2",
+        "TRACK_TOKEN": "AAAAAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-xxx-xxxxxx_xxxxxxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxx-xxxxxxx_xx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxc0",
+        "TRACK_TOKEN_EXPIRE": 1735281795,
+        "MEDIA": [
+          {
+            "TYPE": "preview",
+            "HREF": "https://xxxx-preview.dzcdn.net/api/1/1/x/x/x/x/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.mp3?hdnea=exp=xxxxxxxxxx~acl=/api/1/1/x/x/x/x/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.mp3*~data=user_id=x,application_id=xx~hmac=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ],
+        "RIGHTS": {
+          "STREAM_ADS_AVAILABLE": true,
+          "STREAM_ADS": "2000-01-01",
+          "STREAM_SUB_AVAILABLE": true,
+          "STREAM_SUB": "2000-01-01"
+        },
+        "__TYPE__": "song",
+        "__PAYLOAD__": {
+          "song_id": 9876543210,
+          "product_track_id": 123944930,
+          "frodon_score": -0.2743096,
+          "country_rank": 68929,
+          "artist_ids": [98765],
+          "rank": 225548,
+          "release_date_ts_seconds": 1675987200000,
+          "album_explicit_cover_status": 2,
+          "song_explicit_lyrics_status": 0,
+          "duration_seconds": 281,
+          "hotness": 0,
+          "is_back": false,
+          "is_close": false,
+          "is_fresh": false,
+          "collect_origin": "",
+          "similarity": 0.9722596406936646,
+          "position": 6,
+          "sng_origin": "frodon",
+          "chill_score": 0.013093632,
+          "motivation_score": 0.48995882,
+          "party_score": 0.45660388,
+          "focus_score": 0.0059468253,
+          "you_and_me_score": 0.19088893,
+          "melancholy_score": 0.35800657,
+          "nb_tracks_from_artist_in_library": 1,
+          "is_fav_artist": true,
+          "genre_prediction": [
+            {
+              "label": "metal",
+              "score": 0.7836
+            }
+          ],
+          "origin_id": "hottrackmulti_19729241",
+          "algo_version": "flow_multiprofv2",
+          "is_sponsored": 0,
+          "flow_version": "default"
+        }
+      }
+    ],
+    "count": 2,
+    "total": 2,
+    "tuner": "default",
+    "filtered_count": 0,
+    "clearRemainingTracks": true
+  }
+}
