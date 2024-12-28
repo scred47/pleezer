@@ -16,6 +16,7 @@
   - [Proxy Configuration](#proxy-configuration)
   - [Hook Scripts](#hook-scripts)
   - [Stateless Configuration](#stateless-configuration)
+  - [Signal Handling](#signal-handling)
   - [Configuring the Secrets File](#configuring-the-secrets-file)
 - [Troubleshooting](#troubleshooting)
 - [Setting Up Your Build Environment](#setting-up-your-build-environment)
@@ -360,6 +361,15 @@ esac
 **pleezer** operates statelessly and loads user settings, such as normalization and audio quality, when it connects. To apply changes, disconnect and reconnect. This limitation is due to the Deezer Connect protocol.
 
 Command-line options handle settings that cannot be managed through the Deezer Connect protocol.
+
+### Signal Handling
+
+On Unix systems, **pleezer** responds to system signals:
+- SIGTERM: Gracefully stops playback and shuts down
+- SIGHUP: Reloads configuration and restarts the client
+- Ctrl-C (SIGINT): Gracefully stops playback and shuts down (all platforms)
+
+Windows systems only support Ctrl-C for graceful shutdown.
 
 ### Configuring the Secrets File
 
