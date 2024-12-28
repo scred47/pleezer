@@ -324,6 +324,7 @@ Variables:
   `{format}` is either `jpg` (smaller file size) or `png` (higher quality).
   Deezer's default is 500x500.jpg
 - `DURATION`: Track duration in seconds
+- `FORMAT`: The audio format and bitrate (e.g., "MP3 320K" showing constant bitrate, or "FLAC 1.234M" showing variable bitrate)
 
 #### `connected`
 Emitted when a Deezer client connects to control playback

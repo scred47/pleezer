@@ -88,12 +88,13 @@ use crate::{
     player::Player,
     protocol::connect::{
         queue::{self, ContainerType, MixType},
-        stream, Body, Channel, Contents, DeviceId, DeviceType, Headers, Ident, Message, Percentage,
-        QueueItem, RepeatMode, Status, UserId,
+        stream, AudioQuality, Body, Channel, Contents, DeviceId, DeviceType, Headers, Ident,
+        Message, Percentage, QueueItem, RepeatMode, Status, UserId,
     },
     proxy,
     tokens::UserToken,
     track::{Track, TrackId},
+    util::ToF32,
 };
 
 /// A client on the Deezer Connect protocol.
@@ -714,6 +715,29 @@ impl Client {
             Event::TrackChanged => {
                 if let Some(track) = self.player.track() {
                     if let Some(command) = command.as_mut() {
+                        let quality = track.quality();
+                        let codec = quality.codec().unwrap_or("Unknown");
+                        let bitrate = match quality {
+                            AudioQuality::Lossless | AudioQuality::Unknown => track
+                                .file_size()
+                                .unwrap_or_default()
+                                .checked_div(track.duration().as_secs())
+                                .map(|bytes| bytes * 8 / 1024),
+                            _ => quality.bitrate().map(|kbps| kbps as u64),
+                        };
+
+                        let bitrate = match bitrate {
+                            Some(bitrate) => {
+                                if bitrate >= 1000 {
+                                    format!("{}M", bitrate.to_f32_lossy() / 1000.)
+                                } else {
+                                    format!("{bitrate}K")
+                                }
+                            }
+                            // If bitrate is unknown, show codec only.
+                            None => String::default(),
+                        };
+
                         command
                             .env("EVENT", "track_changed")
                             .env("TRACK_ID", shell_escape(&track.id().to_string()))
@@ -724,7 +748,8 @@ impl Client {
                             .env(
                                 "DURATION",
                                 shell_escape(&track.duration().as_secs().to_string()),
-                            );
+                            )
+                            .env("FORMAT", shell_escape(&format!("{codec} {bitrate}")));
                     }
                 }
             }

@@ -9,11 +9,12 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Added
 - [main] Support for SIGHUP to reload configuration
+- [remote] Add audio format and bitrate to `track_changed` event
 - [signal] New module for unified signal handling across platforms
 
 ### Changed
-- [main] Improved signal handling and graceful shutdown
 - [docs] Enhanced documentation for signal handling and lifecycle management
+- [main] Improved signal handling and graceful shutdown
 
 ## [0.7.0] - 2024-12-28
 

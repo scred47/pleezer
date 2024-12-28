@@ -1048,19 +1048,22 @@ impl fmt::Display for RepeatMode {
 }
 
 #[expect(clippy::doc_markdown)]
-/// Audio quality levels in the Deezer Connect protocol.
-///
-/// Represents the different audio quality tiers available in Deezer,
-/// corresponding to different bitrates and formats. Note that the remote
-/// device cannot control the audio quality - it can only report it.
-///
 /// # Quality Levels
 ///
-/// * `Basic` - 64 kbps MP3
-/// * `Standard` - 128 kbps MP3 (default)
-/// * `High` - 320 kbps MP3 (Premium subscription)
-/// * `Lossless` - 1411 kbps FLAC (HiFi subscription)
+/// * `Basic` - 64 kbps constant bitrate MP3
+/// * `Standard` - 128 kbps constant bitrate MP3 (default)
+/// * `High` - 320 kbps constant bitrate MP3 (Premium subscription)
+/// * `Lossless` - FLAC lossless compression (HiFi subscription)
 /// * `Unknown` - Unrecognized quality level
+///
+/// # Bitrates
+///
+/// Use the [`bitrate`](Self::bitrate) method to get the nominal bitrate
+/// for each quality level in kbps. MP3 formats use constant bitrates,
+/// while FLAC uses variable bitrate compression - its actual bitrate
+/// varies depending on the audio content's complexity, typically much
+/// lower than the theoretical maximum of 1411 kbps for 16-bit/44.1kHz
+/// stereo audio.
 ///
 /// # Subscription Requirements
 ///
@@ -1160,6 +1163,74 @@ pub enum AudioQuality {
 
     /// Unknown or unrecognized quality level.
     Unknown = -1,
+}
+
+impl AudioQuality {
+    #[expect(clippy::doc_markdown)]
+    /// Audio quality levels in the Deezer Connect protocol.
+    ///
+    /// Represents the different audio quality tiers available in Deezer,
+    /// corresponding to different codecs and bitrates. Note that the remote
+    /// device cannot control the audio quality - it can only report it.
+    ///
+    /// # Quality Levels
+    ///
+    /// * `Basic` - MP3 at 64 kbps constant bitrate
+    /// * `Standard` - MP3 at 128 kbps constant bitrate (default)
+    /// * `High` - MP3 at 320 kbps constant bitrate (Premium subscription)
+    /// * `Lossless` - FLAC variable bitrate compression (HiFi subscription)
+    /// * `Unknown` - Unrecognized quality level
+    ///
+    /// # Format Information
+    ///
+    /// Use the following methods to get format details:
+    /// * [`codec`](Self::codec) - Get the audio codec (MP3 or FLAC)
+    /// * [`bitrate`](Self::bitrate) - Get the bitrate in kbps
+    ///
+    /// Note that while MP3 formats use constant bitrates, FLAC uses variable
+    /// bitrate compression - its actual bitrate varies with audio content
+    /// complexity, typically much lower than the maximum of 1411 kbps for
+    /// 16-bit/44.1kHz stereo audio.
+    #[must_use]
+    pub fn bitrate(&self) -> Option<usize> {
+        let bitrate = match self {
+            AudioQuality::Unknown => return None,
+            AudioQuality::Basic => 64,
+            AudioQuality::Standard => 128,
+            AudioQuality::High => 320,
+            AudioQuality::Lossless => 1411,
+        };
+
+        Some(bitrate)
+    }
+
+    /// Returns the audio codec name for this quality level.
+    ///
+    /// # Returns
+    ///
+    /// * `Some("MP3")` - For Basic, Standard, and High quality (constant bitrate)
+    /// * `Some("FLAC")` - For Lossless quality (variable bitrate)
+    /// * `None` - For Unknown quality
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// assert_eq!(AudioQuality::Basic.codec(), Some("MP3"));
+    /// assert_eq!(AudioQuality::Standard.codec(), Some("MP3"));
+    /// assert_eq!(AudioQuality::High.codec(), Some("MP3"));
+    /// assert_eq!(AudioQuality::Lossless.codec(), Some("FLAC"));
+    /// assert_eq!(AudioQuality::Unknown.codec(), None);
+    /// ```
+    #[must_use]
+    pub fn codec(&self) -> Option<&str> {
+        let codec = match self {
+            AudioQuality::Unknown => return None,
+            AudioQuality::Lossless => "FLAC",
+            _ => "MP3",
+        };
+
+        Some(codec)
+    }
 }
 
 /// Formats the audio quality for human-readable output.
