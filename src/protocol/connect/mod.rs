@@ -9,22 +9,24 @@
 //!
 //! * **Channels** ([`channel`]): Define message routing and types
 //!   - User-to-user communication paths
-//!   - Message type identification
-//!   - Subscription management
+//!   - Message type identification and routing
+//!   - Subscription management and lifecycle
 //!
 //! * **Messages** ([`messages`], [`contents`]): Handle various operations
-//!   - Playback control and status
-//!   - Device discovery and connection
-//!   - Queue management
-//!   - Stream reporting
+//!   - Playback control and status updates
+//!   - Device discovery and connection management
+//!   - Queue management and synchronization
+//!   - Stream activity reporting
 //!
 //! * **Streaming** ([`stream`]): Report playback activity
-//!   - Track playback monitoring
-//!   - User activity tracking
+//!   - Track playback monitoring and progress
+//!   - User activity and state tracking
+//!   - Quality and performance metrics
 //!
 //! * **Queue Management** ([`protos`]): Handle playback queues
-//!   - Queue content updates
-//!   - Protocol buffer serialization
+//!   - Queue content updates and sync
+//!   - Protocol buffer serialization/deserialization
+//!   - State management
 //!
 //! # Example
 //!
@@ -47,7 +49,7 @@
 //!
 //! # Architecture
 //!
-//! The implementation is layered:
+//! The implementation uses a layered approach:
 //! * High-level message types ([`Message`], [`Contents`]) for application use
 //! * Channel-based routing and subscriptions ([`Channel`], [`Ident`])
 //! * Wire format serialization for protocol compatibility

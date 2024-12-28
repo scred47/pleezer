@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [Unreleased]
+
+### Added
+- [main] Support for SIGHUP to reload configuration
+- [signal] New module for unified signal handling across platforms
+
+### Changed
+- [main] Improved signal handling and graceful shutdown
+- [docs] Enhanced documentation for signal handling and lifecycle management
+
 ## [0.7.0] - 2024-12-28
 
 ### Added

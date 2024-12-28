@@ -49,6 +49,7 @@ use pleezer::{
     player::Player,
     protocol::connect::{DeviceType, Percentage},
     remote,
+    signal::{self, ShutdownSignal},
     uuid::Uuid,
 };
 
@@ -274,10 +275,16 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
 /// 2. Sets up player and client
 /// 3. Manages connection lifecycle
 /// 4. Implements retry with jitter
+/// 5. Handles system signals (Ctrl-C, SIGTERM, SIGHUP)
 ///
 /// # Arguments
 ///
 /// * `args` - Parsed command line arguments
+///
+/// # Returns
+///
+/// Returns the signal that triggered the shutdown, or an error if one occurred.
+/// SIGHUP triggers a configuration reload and restart.
 ///
 /// # Errors
 ///
@@ -290,7 +297,7 @@ fn parse_secrets(secrets_file: impl AsRef<Path>) -> Result<toml::Value> {
 /// * Unrecoverable network error occurs
 ///
 /// Network errors that might be temporary will trigger retry instead.
-async fn run(args: Args) -> Result<()> {
+async fn run(args: Args) -> Result<ShutdownSignal> {
     if args.device.as_ref().is_some_and(|device| device == "?") {
         // List available devices and exit.
         let devices = Player::enumerate_devices();
@@ -304,7 +311,7 @@ async fn run(args: Args) -> Result<()> {
         for device in devices {
             info!("- {device}");
         }
-        return Ok(());
+        return Ok(ShutdownSignal::Interrupt);
     }
 
     if let Ok(proxy) = env::var("HTTPS_PROXY") {
@@ -436,6 +443,7 @@ async fn run(args: Args) -> Result<()> {
 
     let player = Player::new(&config, args.device.as_deref().unwrap_or_default()).await?;
     let mut client = remote::Client::new(&config, player)?;
+    let mut signals = signal::Handler::new()?;
 
     // Main application loop. This restarts the new remote client when it gets disconnected for
     // whatever reason. This could be from a network failure or an arl that expired. In this case,
@@ -446,10 +454,17 @@ async fn run(args: Args) -> Result<()> {
             // Prioritize shutdown signals.
             biased;
 
-            _ = tokio::signal::ctrl_c() => {
-                info!("shutting down gracefully");
+            signal = signals.recv() => {
+                match signal {
+                    ShutdownSignal::Interrupt | ShutdownSignal::Terminate => {
+                        info!("received {signal}, shutting down");
+                    }
+                    ShutdownSignal::Reload => {
+                        info!("received {signal}, restarting client");
+                    }
+                }
                 client.stop().await;
-                break Ok(())
+                break Ok(signal);
             }
 
             result = async {
@@ -501,13 +516,18 @@ async fn run(args: Args) -> Result<()> {
 
 /// Application entry point.
 ///
-/// Sets up the environment and starts the main loop:
+/// Sets up the environment and manages the application lifecycle:
 /// 1. Parses command line arguments
 /// 2. Initializes logging
-/// 3. Runs main loop
-/// 4. Handles shutdown
+/// 3. Runs main loop with restart support
+/// 4. Handles shutdown conditions:
+///    - Clean exit on SIGTERM/Ctrl-C
+///    - Restart on SIGHUP
+///    - Error exit on failures
 ///
-/// Exits with status code 1 if an error occurs.
+/// Exits with status code:
+/// - 0 for clean shutdown
+/// - 1 if an error occurs
 #[tokio::main]
 async fn main() {
     // `clap` handles our command line arguments and help text.
@@ -531,8 +551,19 @@ async fn main() {
 
     info!("starting {name}/{version}; {BUILD_PROFILE}");
 
-    if let Err(e) = run(args).await {
-        error!("{e}");
-        process::exit(1);
+    loop {
+        match run(args.clone()).await {
+            Ok(signal) => {
+                if signal == ShutdownSignal::Reload {
+                    continue;
+                }
+                info!("shut down gracefully");
+                process::exit(0);
+            }
+            Err(e) => {
+                error!("{e}");
+                process::exit(1);
+            }
+        }
     }
 }

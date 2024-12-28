@@ -37,7 +37,8 @@
 //!   - [`events`]: Event system for state changes
 //!   - [`protocol`]: Deezer Connect message types
 //!
-//! * **Utilities**
+//! * **System Integration**
+//!   - [`signal`]: Signal handling (SIGTERM, SIGHUP)
 //!   - [`mod@error`]: Error types and handling
 //!   - [`util`]: General helper functions
 //!   - [`uuid`]: UUID generation
@@ -70,6 +71,14 @@
 //! Errors are handled through the types in the [`mod@error`] module, with
 //! most functions returning [`Result`](error::Result).
 //!
+//! # Signal Handling
+//!
+//! The application responds to system signals:
+//! * SIGTERM/Ctrl-C: Graceful shutdown
+//! * SIGHUP: Configuration reload
+//!
+//! See the [`signal`] module for details.
+//!
 //! # Concurrency
 //!
 //! The library uses async/await for concurrency and is designed to work with
@@ -94,6 +103,7 @@ pub mod player;
 pub mod protocol;
 pub mod proxy;
 pub mod remote;
+pub mod signal;
 pub mod tokens;
 pub mod track;
 pub mod util;
