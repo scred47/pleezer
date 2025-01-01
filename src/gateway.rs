@@ -29,6 +29,7 @@
 
 use std::time::SystemTime;
 
+use futures_util::TryFutureExt;
 use md5::{Digest, Md5};
 use reqwest::{
     self,
@@ -45,10 +46,21 @@ use crate::{
     protocol::{
         self, auth,
         connect::{
-            queue::{self, TrackType},
+            queue::{self},
             AudioQuality, UserId,
         },
-        gateway::{self, MediaUrl, Queue, UserData},
+        gateway::{
+            self,
+            list_data::{
+                episodes::{self, EpisodeData},
+                livestream::{self, LivestreamData},
+                songs::{self, SongData},
+                ListData,
+            },
+            user_radio::{self, UserRadio},
+            MediaUrl, Queue, Response, UserData,
+        },
+        Codec,
     },
     tokens::UserToken,
 };
@@ -239,7 +251,7 @@ impl Gateway {
     pub async fn refresh(&mut self) -> Result<()> {
         // Send an empty JSON map
         match self
-            .request::<gateway::UserData>(Self::EMPTY_JSON_OBJECT, None)
+            .request::<UserData>(Self::EMPTY_JSON_OBJECT, None)
             .await
         {
             Ok(response) => {
@@ -309,7 +321,7 @@ impl Gateway {
         &mut self,
         body: impl Into<reqwest::Body>,
         headers: Option<HeaderMap>,
-    ) -> Result<gateway::Response<T>>
+    ) -> Result<Response<T>>
     where
         T: std::fmt::Debug + gateway::Method + for<'de> Deserialize<'de>,
     {
@@ -385,7 +397,7 @@ impl Gateway {
 
     /// Returns a reference to the current user data if available.
     #[must_use]
-    pub fn user_data(&self) -> Option<&gateway::UserData> {
+    pub fn user_data(&self) -> Option<&UserData> {
         self.user_data.as_ref()
     }
 
@@ -449,27 +461,48 @@ impl Gateway {
     /// * Network request fails
     /// * Response parsing fails
     pub async fn list_to_queue(&mut self, list: &queue::List) -> Result<Queue> {
-        let track_list = gateway::list_data::Request {
-            track_ids: list
-                .tracks
-                .iter()
-                .map(|track| {
-                    let track_type = track.typ.enum_value_or_default();
-                    if track_type == TrackType::TRACK_TYPE_SONG {
-                        track.id.parse().map_err(Into::into)
-                    } else {
-                        Err(Error::unimplemented(format!(
-                            "{track_type:?} not yet implemented"
-                        )))
-                    }
-                })
-                .collect::<std::result::Result<Vec<_>, _>>()?,
-        };
+        let ids = list
+            .tracks
+            .iter()
+            .map(|track| track.id.parse().map_err(Error::from))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        let body = serde_json::to_string(&track_list)?;
-        match self.request::<gateway::ListData>(body, None).await {
-            Ok(response) => Ok(response.all().clone()),
-            Err(e) => Err(e),
+        if let Some(first) = list.tracks.first() {
+            let response: Response<ListData> = match first.typ.enum_value_or_default() {
+                queue::TrackType::TRACK_TYPE_SONG => {
+                    let songs = songs::Request { song_ids: ids };
+                    let request = serde_json::to_string(&songs)?;
+                    self.request::<SongData>(request, None)
+                        .map_ok(Into::into)
+                        .await?
+                }
+                queue::TrackType::TRACK_TYPE_EPISODE => {
+                    let episodes = episodes::Request { episode_ids: ids };
+                    let request = serde_json::to_string(&episodes)?;
+                    self.request::<EpisodeData>(request, None)
+                        .map_ok(Into::into)
+                        .await?
+                }
+                queue::TrackType::TRACK_TYPE_LIVE => {
+                    let radio = livestream::Request {
+                        livestream_id: first.id.parse()?,
+                        supported_codecs: vec![Codec::AAC, Codec::MP3],
+                    };
+                    let request = serde_json::to_string(&radio)?;
+                    self.request::<LivestreamData>(request, None)
+                        .map_ok(Into::into)
+                        .await?
+                }
+                queue::TrackType::TRACK_TYPE_CHAPTER => {
+                    return Err(Error::unimplemented(
+                        "audio books not implemented - report what you were trying to play to the developers",
+                    ));
+                }
+            };
+
+            Ok(response.all().clone())
+        } else {
+            Ok(Queue::default())
         }
     }
 
@@ -487,9 +520,9 @@ impl Gateway {
     /// * Network request fails
     /// * Response parsing fails
     pub async fn user_radio(&mut self, user_id: UserId) -> Result<Queue> {
-        let request = gateway::user_radio::Request { user_id };
+        let request = user_radio::Request { user_id };
         let body = serde_json::to_string(&request)?;
-        match self.request::<gateway::UserRadio>(body, None).await {
+        match self.request::<UserRadio>(body, None).await {
             Ok(response) => {
                 // Transform the `UserRadio` response into a `Queue`. This is done to have
                 // `UserRadio` re-use the `ListData` struct (for which `Queue` is an alias).

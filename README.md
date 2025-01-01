@@ -43,6 +43,8 @@
   - Volume normalization to maintain consistent levels across tracks
   - Configurable initial volume level with automatic fallback to client control
 - **Content Support**:
+  - **Songs**: Stream regular music tracks and your uploaded MP3s
+  - **Podcasts**: Listen to your favorite shows with direct streaming
   - **Flow and Mixes**: Access personalized playlists and [mixes](https://www.deezer.com/explore/mixes) tailored to your preferences
   - **User MP3s**: Play your [uploaded MP3 files](https://support.deezer.com/hc/en-gb/articles/115004221605-Upload-MP3s) alongside streamed content
   - **Playback Reporting**: Contribute to accurate artist monetization metrics
@@ -55,8 +57,9 @@
 
 ### Planned Features
 
-- [Live radio](https://www.deezer.com/explore/radio) and [podcast](https://www.deezer.com/explore/podcasts) integration
+- [Live radio](https://www.deezer.com/explore/radio) integration
 - Device registration
+- RAM-backed storage
 
 ## Installation
 
@@ -310,22 +313,30 @@ Emitted when playback is paused
 No additional variables
 
 #### `track_changed`
-Emitted when the track changes
+Emitted when the track changes. The variables differ based on content type:
 
-Variables:
-- `TRACK_ID`: The ID of the track
-- `TITLE`: The track title
-- `ARTIST`: The main artist name
-- `ALBUM_TITLE`: The album title
-- `ALBUM_COVER`: The album cover ID, which can be used to construct image URLs:
-  ```
-  https://e-cdns-images.dzcdn.net/images/cover/{album_cover}/{resolution}x{resolution}.{format}
-  ```
-  where `{resolution}` is the desired resolution in pixels (up to 1920) and
-  `{format}` is either `jpg` (smaller file size) or `png` (higher quality).
-  Deezer's default is 500x500.jpg
-- `DURATION`: Track duration in seconds
-- `FORMAT`: The audio format and bitrate (e.g., "MP3 320K" showing constant bitrate, or "FLAC 1.234M" showing variable bitrate)
+| Variable      | Music                    | Podcast                    | Radio                    |
+|---------------|--------------------------|----------------------------|--------------------------|
+| `TRACK_TYPE`  | `song`                   | `episode`                  | `livestream`             |
+| `TRACK_ID`    | Song ID                  | Episode ID                 | Livestream ID            |
+| `TITLE`       | Song title               | Episode title              | _(not set)_              |
+| `ARTIST`      | Artist name              | Podcast title              | Station name             |
+| `ALBUM_TITLE` | Album title              | _(not set)_                | _(not set)_              |
+| `COVER_ID`    | Album art                | Podcast art                | Station logo             |
+| `DURATION`    | Song duration (seconds)  | Episode duration (seconds) | _(not set)_              |
+| `FORMAT`      | Audio format and bitrate | Audio format and bitrate   | Audio format and bitrate |
+
+The `FORMAT` value shows the audio configuration (e.g., "MP3 320K" for constant bitrate,
+or "FLAC 1.234M" for variable bitrate).
+
+The `COVER_ID` can be used to construct image URLs:
+```
+https://e-cdns-images.dzcdn.net/images/cover/{cover_id}/{resolution}x{resolution}.{format}
+```
+where `{resolution}` is the desired resolution in pixels (up to 1920) and
+`{format}` is either `jpg` (smaller file size) or `png` (higher quality).
+Deezer's default is `500x500.jpg`.
+```
 
 #### `connected`
 Emitted when a Deezer client connects to control playback

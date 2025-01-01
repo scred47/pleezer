@@ -1,10 +1,41 @@
 //! Media streaming types and formats for Deezer.
 //!
 //! This module handles media access requests and responses, including:
-//! * Track streaming URLs
+//! * Track/episode download URLs
 //! * Audio formats and quality levels
 //! * Content encryption
 //! * Access tokens and expiry
+//! * External streaming URLs (podcasts)
+//!
+//! # Authentication
+//!
+//! Media access requires two types of tokens:
+//! * License token - For general media access rights
+//! * Track tokens - For specific content access
+//!
+//! Both tokens have expiration times and must be refreshed periodically.
+//!
+//! # Content Types
+//!
+//! Three main content categories:
+//! * Regular tracks - Encrypted, quality selection, token auth
+//! * External content - No encryption, direct URLs
+//! * Previews - Short samples, usually no encryption
+//!
+//! Each type may have different authentication and delivery requirements.
+//!
+//! # Error Handling
+//!
+//! Media access can fail in several ways:
+//! * Authentication errors (invalid/expired tokens)
+//! * Availability errors (geo-restrictions, takedowns)
+//! * Technical errors (network issues, invalid formats)
+//!
+//! Errors include both a code and human-readable message.
+//! Common error codes:
+//! * 404 - Content not found
+//! * 403 - Access denied
+//! * 429 - Too many requests
 //!
 //! # Wire Format
 //!
@@ -56,29 +87,33 @@ use super::connect::AudioQuality;
 /// Used to request streaming URLs for tracks with specific
 /// format and encryption requirements.
 #[serde_as]
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Serialize, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Serialize, Debug, Hash)]
 pub struct Request {
-    /// License authentication token
+    /// Authentication token for accessing licensed content
     pub license_token: String,
-    /// Requested media formats
+    /// List of requested media formats and types
     pub media: Vec<Media>,
-    /// Track-specific access tokens
+    /// Authentication tokens for specific tracks
+    /// One token per requested track
     pub track_tokens: Vec<String>,
 }
 
 /// Media format request.
 ///
-/// Specifies the type of media (full/preview) and desired
-/// format/encryption combinations.
+/// Specifies the desired media type (full/preview) and formats
+/// with their encryption methods. Multiple format/cipher combinations
+/// can be requested to handle fallback scenarios.
 #[serde_as]
-#[derive(Clone, Default, Eq, PartialEq, Ord, PartialOrd, Serialize, Debug, Hash)]
+#[derive(Clone, Default, Eq, PartialEq, Serialize, Debug, Hash)]
 pub struct Media {
-    /// Full track or preview clip
+    /// Content type requested (full track or preview)
+    /// Defaults to full track
     #[serde(default)]
     #[serde(rename = "type")]
     pub typ: Type,
 
-    /// Requested format and encryption combinations
+    /// List of format and encryption combinations to try
+    /// Ordered by preference (first is most preferred)
     #[serde(rename = "formats")]
     pub cipher_formats: Vec<CipherFormat>,
 }
@@ -87,9 +122,7 @@ pub struct Media {
 ///
 /// Determines whether to return the full track or just
 /// a preview clip.
-#[derive(
-    Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash,
-)]
+#[derive(Copy, Clone, Default, Eq, PartialEq, Deserialize, Serialize, Debug, Hash)]
 pub enum Type {
     /// Full-length track
     #[default]
@@ -120,14 +153,26 @@ impl fmt::Display for Type {
 /// Format and encryption combination.
 ///
 /// Specifies both the audio format (quality level) and
-/// encryption method for the content.
+/// encryption method for the content. Used to request
+/// specific quality/security combinations.
+///
+/// # Examples
+///
+/// ```rust
+/// use deezer::protocol::media::{CipherFormat, Cipher, Format};
+///
+/// let format = CipherFormat {
+///     cipher: Cipher::BF_CBC_STRIPE,
+///     format: Format::MP3_320,
+/// };
+/// ```
 #[derive(
     Copy, Clone, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash,
 )]
 pub struct CipherFormat {
-    /// Encryption method
+    /// Encryption method to use for content protection
     pub cipher: Cipher,
-    /// Audio format
+    /// Audio format and quality level requested
     pub format: Format,
 }
 
@@ -137,10 +182,13 @@ pub struct CipherFormat {
 )]
 #[expect(non_camel_case_types)]
 pub enum Cipher {
-    /// Blowfish CBC with striping
+    /// Blowfish CBC encryption with data striping
+    /// Used for most protected content
     #[default]
     BF_CBC_STRIPE,
+
     /// No encryption
+    /// Used for external content and previews
     NONE,
 }
 
@@ -173,18 +221,33 @@ impl fmt::Display for Cipher {
 #[expect(non_camel_case_types)]
 #[repr(i64)]
 pub enum Format {
-    /// External source (-1)
+    /// External source hosted outside Deezer's CDN
+    /// Protocol ID: -1
     EXTERNAL = -1,
-    /// FLAC lossless (9)
+
+    /// Free Lossless Audio Codec
+    /// Highest quality, largest file size
+    /// Protocol ID: 9
     FLAC = 9,
-    /// 64 kbps MP3 (10)
+
+    /// MP3 at 64 kbps
+    /// Basic quality, smallest file size
+    /// Protocol ID: 10
     MP3_64 = 10,
-    /// 128 kbps MP3 (1, default)
+
+    /// MP3 at 128 kbps
+    /// Standard quality, balanced size
+    /// Protocol ID: 1
     #[default]
     MP3_128 = 1,
-    /// 320 kbps MP3 (3)
+
+    /// MP3 at 320 kbps
+    /// High quality, larger file size
+    /// Protocol ID: 3
     MP3_320 = 3,
-    /// Other or unknown MP3 bitrate (0)
+
+    /// MP3 with unknown or variable bitrate
+    /// Protocol ID: 0
     MP3_MISC = 0,
 }
 
@@ -239,23 +302,35 @@ impl From<Format> for AudioQuality {
 
 /// Media access response.
 ///
-/// Contains either media URLs or error information.
-#[derive(Clone, Default, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
+/// Contains either:
+/// * Successful media access information with URLs and formats
+/// * Error details when access fails
+///
+/// Multiple media entries may be returned when requesting
+/// multiple tracks or formats.
+#[derive(Clone, Default, Eq, PartialEq, Deserialize, Serialize, Debug, Hash)]
 pub struct Response {
-    /// Collection of media data or errors from the server
+    /// List of media access results or errors
+    /// One entry per requested track
     pub data: Vec<Data>,
 }
 
 /// Response data variant.
 ///
 /// Can contain either media information or error details.
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Serialize, Debug, Hash)]
 #[serde(untagged)]
 pub enum Data {
-    /// Contains media information including URLs and format details
-    Media { media: Vec<Medium> },
-    /// Contains error information when media access fails
-    Errors { errors: Vec<Error> },
+    /// Media information, including URLs, formats and validity periods
+    Media {
+        /// List of available media formats and sources
+        media: Vec<Medium>,
+    },
+    /// Error information when media access fails
+    Errors {
+        /// List of error details and codes
+        errors: Vec<Error>,
+    },
 }
 
 /// Media access error.
@@ -322,32 +397,37 @@ impl fmt::Display for Error {
 /// Contains all information needed to access a media file,
 /// including URLs, format, and validity period.
 #[serde_as]
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Deserialize, Serialize, Debug, Hash)]
 pub struct Medium {
-    /// Full track or preview
+    /// Type of media content (full track or preview)
     #[serde(default)]
     pub media_type: Type,
 
-    /// Encryption method
+    /// Content encryption configuration
+    /// Specifies the cipher type used to protect the content
     #[serde(default)]
     pub cipher: CipherType,
 
-    /// Audio format
+    /// Audio format and quality level
+    /// Indicates bitrate and codec for the content
     #[serde(default)]
     pub format: Format,
 
-    /// Available download sources
+    /// List of available download sources
+    /// Multiple sources may be provided for redundancy
     pub sources: Vec<Source>,
 
-    /// Start of validity period
+    /// Time before which content is not accessible
+    /// Used for release date restrictions
     #[serde(rename = "nbf")]
-    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
-    pub not_before: SystemTime,
+    #[serde_as(as = "Option<TimestampSeconds<i64, Flexible>>")]
+    pub not_before: Option<SystemTime>,
 
-    /// End of validity period
+    /// Time after which content becomes inaccessible
+    /// Used for token expiration and temporary access
     #[serde(rename = "exp")]
-    #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
-    pub expiry: SystemTime,
+    #[serde_as(as = "Option<TimestampSeconds<i64, Flexible>>")]
+    pub expiry: Option<SystemTime>,
 }
 
 /// Encryption method wrapper for media content.
@@ -386,14 +466,20 @@ pub struct CipherType {
 
 /// Media source information.
 ///
-/// Contains the URL and provider for downloading media content.
+/// Contains URL and provider information for content delivery:
+/// * URLs are redacted in debug output for security
+/// * Provider indicates delivery network (e.g., "cdn")
+///
+/// Multiple sources may be available for redundancy.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Serialize, Redact, Hash)]
 pub struct Source {
-    /// Download URL (redacted in debug output)
+    /// Download URL for the media content
+    /// Redacted in debug output for security
     #[redact]
     pub url: Url,
 
-    /// Content provider name (e.g., "cdn")
+    /// Content delivery provider identifier
+    /// Usually "cdn" for Deezer's content delivery network
     #[serde(default)]
     pub provider: String,
 }

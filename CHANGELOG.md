@@ -12,10 +12,13 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [remote] Add audio format and bitrate to `track_changed` event
 - [signal] New module for unified signal handling across platforms
 - [tests] Add anonymized API response examples
+- [track] Support for podcast episodes with external streaming
 
 ### Changed
 - [docs] Enhanced documentation for signal handling and lifecycle management
 - [main] Improved signal handling and graceful shutdown
+- [remote] Renamed `ALBUM_COVER` to `COVER_ID` in the `track_changed` event
+- [track] Renamed `album_cover` to `cover_id` for consistency
 
 ## [0.7.0] - 2024-12-28
 

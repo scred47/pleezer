@@ -665,6 +665,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `event` - Event to process
+    #[allow(clippy::too_many_lines)]
     async fn handle_event(&mut self, event: Event) {
         let mut command = self.hook.as_ref().map(Command::new);
         let track_id = self.player.track().map(Track::id);
@@ -721,7 +722,7 @@ impl Client {
                             AudioQuality::Lossless | AudioQuality::Unknown => track
                                 .file_size()
                                 .unwrap_or_default()
-                                .checked_div(track.duration().as_secs())
+                                .checked_div(track.duration().unwrap_or_default().as_secs())
                                 .map(|bytes| bytes * 8 / 1024),
                             _ => quality.bitrate().map(|kbps| kbps as u64),
                         };
@@ -740,16 +741,21 @@ impl Client {
 
                         command
                             .env("EVENT", "track_changed")
+                            .env("TRACK_TYPE", shell_escape(&track.typ().to_string()))
                             .env("TRACK_ID", shell_escape(&track.id().to_string()))
-                            .env("TITLE", shell_escape(track.title()))
                             .env("ARTIST", shell_escape(track.artist()))
-                            .env("ALBUM_TITLE", shell_escape(track.album_title()))
-                            .env("ALBUM_COVER", shell_escape(track.album_cover()))
-                            .env(
-                                "DURATION",
-                                shell_escape(&track.duration().as_secs().to_string()),
-                            )
+                            .env("COVER", shell_escape(track.cover_id()))
                             .env("FORMAT", shell_escape(&format!("{codec} {bitrate}")));
+
+                        if let Some(title) = track.title() {
+                            command.env("TITLE", shell_escape(title));
+                        }
+                        if let Some(album_title) = track.album_title() {
+                            command.env("ALBUM_TITLE", shell_escape(album_title));
+                        }
+                        if let Some(duration) = track.duration() {
+                            command.env("DURATION", shell_escape(&duration.as_secs().to_string()));
+                        }
                     }
                 }
             }
@@ -1311,10 +1317,6 @@ impl Client {
                 error!("live radio is not supported yet");
                 Vec::new()
             }
-            ContainerType::CONTAINER_TYPE_PODCAST => {
-                error!("podcasts are not supported yet");
-                Vec::new()
-            }
             _ => {
                 tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.list_to_queue(&list))
                     .await??
@@ -1873,7 +1875,7 @@ impl Client {
                     message_id: crate::Uuid::fast_v4().to_string(),
                     track: item,
                     quality: track.quality(),
-                    duration: track.duration(),
+                    duration: track.duration().unwrap_or_default(),
                     buffered: track.buffered(),
                     progress: self.player.progress(),
                     volume: self.player.volume(),

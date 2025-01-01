@@ -53,6 +53,7 @@ impl Method for UserRadio {
 /// for tracks provided by Deezer Flow. Each response contains multiple
 /// recommended tracks.
 #[derive(Clone, PartialEq, Deserialize, Debug)]
+#[serde(transparent)]
 pub struct UserRadio(pub ListData);
 
 /// Provides access to the underlying track data.

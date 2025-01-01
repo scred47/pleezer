@@ -707,21 +707,26 @@ impl Player {
                         ratio = f32::powf(10.0, difference / 20.0);
                     }
                     None => {
-                        warn!("track {track} has no gain information, skipping normalization");
+                        warn!(
+                            "{} {track} has no gain information, skipping normalization",
+                            track.typ()
+                        );
                     }
                 }
             }
 
             let rx = if ratio < 1.0 {
                 debug!(
-                    "attenuating track {track} by {difference:.1} dB ({})",
+                    "attenuating {} {track} by {difference:.1} dB ({})",
+                    track.typ(),
                     Percentage::from_ratio_f32(ratio)
                 );
                 let attenuated = decoder.amplify(ratio);
                 sources.append_with_signal(attenuated)
             } else if ratio > 1.0 {
                 debug!(
-                    "amplifying track {track} by {difference:.1} dB ({}) (with limiter)",
+                    "amplifying {} {track} by {difference:.1} dB ({}) (with limiter)",
+                    track.typ(),
                     Percentage::from_ratio_f32(ratio)
                 );
                 let amplified = decoder.automatic_gain_control(
@@ -792,13 +797,14 @@ impl Player {
                         let next_position = self.position.saturating_add(1);
                         if let Some(next_track) = self.queue.get(next_position) {
                             let next_track_id = next_track.id();
+                            let next_track_typ = next_track.typ();
                             if !self.skip_tracks.contains(&next_track_id) {
                                 match self.load_track(next_position).await {
                                     Ok(rx) => {
                                         self.preload_rx = rx;
                                     }
                                     Err(e) => {
-                                        error!("failed to preload next track: {e}");
+                                        error!("failed to preload next {next_track_typ}: {e}");
                                         self.mark_unavailable(next_track_id);
                                     }
                                 }
@@ -810,6 +816,7 @@ impl Player {
                 None => {
                     if let Some(track) = self.track() {
                         let track_id = track.id();
+                        let track_typ = track.typ();
                         if self.skip_tracks.contains(&track_id) {
                             self.go_next();
                         } else {
@@ -824,7 +831,7 @@ impl Player {
                                     }
                                 }
                                 Err(e) => {
-                                    error!("failed to load track: {e}");
+                                    error!("failed to load {track_typ}: {e}");
                                     self.mark_unavailable(track_id);
                                 }
                             }
@@ -1270,7 +1277,7 @@ impl Player {
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
         if let Some(track) = self.track() {
-            let duration = track.duration();
+            let duration = track.duration()?;
             if duration.is_zero() {
                 return None;
             }
@@ -1307,10 +1314,15 @@ impl Player {
     /// * Seek operation fails
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
         if let Some(track) = self.track() {
-            info!("setting track progress to {progress}");
+            info!("setting {} progress to {progress}", track.typ());
             let progress = progress.as_ratio_f32();
             if progress < 1.0 {
-                let progress = track.duration().mul_f32(progress);
+                let progress = track
+                    .duration()
+                    .ok_or_else(|| {
+                        Error::unavailable(format!("duration unknown for {} {track}", track.typ()))
+                    })?
+                    .mul_f32(progress);
 
                 // Try to seek only if the track has started downloading, otherwise defer the seek.
                 // This prevents stalling the player when seeking in a track that has not started.

@@ -45,7 +45,7 @@ use veil::Redact;
 
 use crate::protocol::{self, connect::UserId};
 
-use super::{Method, StringOrUnknown};
+use super::Method;
 
 /// Gateway method name for retrieving user data.
 ///
@@ -180,7 +180,7 @@ pub struct User {
     /// Display name (defaults to "UNKNOWN")
     #[serde(default)]
     #[serde(rename = "BLOG_NAME")]
-    pub name: StringOrUnknown,
+    pub name: String,
 
     /// License and device management
     #[serde(rename = "OPTIONS")]

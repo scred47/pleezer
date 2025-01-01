@@ -7,6 +7,11 @@
 //! * Content listings ([`list_data`])
 //! * Radio stations ([`user_radio`])
 //!
+//! Supports multiple content types:
+//! * Songs - Regular music tracks
+//! * Episodes - Podcast episodes
+//! * Livestreams - Radio stations (future)
+//!
 //! # Number Handling
 //!
 //! All numeric values are stored as 64-bit integers because the JSON protocol
@@ -39,11 +44,14 @@ pub mod user_data;
 pub mod user_radio;
 
 pub use arl::Arl;
-pub use list_data::{ListData, Queue};
+pub use list_data::{
+    episodes, livestream, songs, EpisodeData, ListData, LivestreamData, LivestreamUrl,
+    LivestreamUrls, Queue, SongData,
+};
 pub use user_data::{MediaUrl, UserData};
 pub use user_radio::UserRadio;
 
-use std::{collections::HashMap, convert::Infallible, ops::Deref, str::FromStr};
+use std::collections::HashMap;
 
 use serde::Deserialize;
 use serde_with::serde_as;
@@ -76,9 +84,14 @@ pub trait Method {
 
 /// Response from a Deezer gateway API endpoint.
 ///
-/// Responses can be either paginated (with total counts and filtered results)
-/// or unpaginated (direct result lists). Both formats include an error map
-/// for API status information.
+/// Can contain either:
+/// * Regular content (songs, user uploads)
+/// * Episodes (podcasts)
+/// * Livestreams (radio)
+///
+/// The response format varies by content type but always includes:
+/// * Error information
+/// * Results array or pagination
 ///
 /// # Response Formats
 ///
@@ -180,6 +193,81 @@ impl<T> Response<T> {
     }
 }
 
+/// Converts episode responses into list data responses.
+///
+/// This allows episode data to be handled using the same infrastructure
+/// as other content types while maintaining type safety for episode-specific
+/// operations.
+impl From<Response<EpisodeData>> for Response<ListData> {
+    fn from(response: Response<EpisodeData>) -> Self {
+        match response {
+            Response::Paginated { error, results } => {
+                let results = Paginated {
+                    data: results.data.into_iter().map(|data| data.0).collect(),
+                    count: results.count,
+                    total: results.total,
+                    filtered_count: results.filtered_count,
+                };
+                Response::Paginated { error, results }
+            }
+            Response::Unpaginated { error, results } => Response::Unpaginated {
+                error,
+                results: results.into_iter().map(|data| data.0).collect(),
+            },
+        }
+    }
+}
+
+/// Converts episode responses into list data responses.
+///
+/// This allows episode data to be handled using the same infrastructure
+/// as other content types while maintaining type safety for episode-specific
+/// operations.
+impl From<Response<SongData>> for Response<ListData> {
+    fn from(response: Response<SongData>) -> Self {
+        match response {
+            Response::Paginated { error, results } => {
+                let results = Paginated {
+                    data: results.data.into_iter().map(|data| data.0).collect(),
+                    count: results.count,
+                    total: results.total,
+                    filtered_count: results.filtered_count,
+                };
+                Response::Paginated { error, results }
+            }
+            Response::Unpaginated { error, results } => Response::Unpaginated {
+                error,
+                results: results.into_iter().map(|data| data.0).collect(),
+            },
+        }
+    }
+}
+
+/// Converts episode responses into list data responses.
+///
+/// This allows episode data to be handled using the same infrastructure
+/// as other content types while maintaining type safety for episode-specific
+/// operations.
+impl From<Response<LivestreamData>> for Response<ListData> {
+    fn from(response: Response<LivestreamData>) -> Self {
+        match response {
+            Response::Paginated { error, results } => {
+                let results = Paginated {
+                    data: results.data.into_iter().map(|data| data.0).collect(),
+                    count: results.count,
+                    total: results.total,
+                    filtered_count: results.filtered_count,
+                };
+                Response::Paginated { error, results }
+            }
+            Response::Unpaginated { error, results } => Response::Unpaginated {
+                error,
+                results: results.into_iter().map(|data| data.0).collect(),
+            },
+        }
+    }
+}
+
 /// Paginated result set from the Deezer gateway API.
 ///
 /// Contains both the actual data items and metadata about the total
@@ -206,101 +294,4 @@ pub struct Paginated<T> {
     pub total: u64,
     /// Number of items matching applied filters
     pub filtered_count: u64,
-}
-
-/// String value that defaults to "UNKNOWN" when parsing fails.
-///
-/// Used for API fields that might return unexpected or invalid values,
-/// ensuring robust handling of responses while maintaining type safety.
-///
-/// # Examples
-///
-/// ```rust
-/// use deezer::gateway::StringOrUnknown;
-///
-/// // Normal string
-/// let value: StringOrUnknown = "value".parse()?;
-/// assert_eq!(&*value, "value");
-///
-/// // Default value
-/// let unknown = StringOrUnknown::default();
-/// assert_eq!(&*unknown, "UNKNOWN");
-/// ```
-///
-/// # Deref Behavior
-///
-/// Derefs to `String` for convenient access to string methods:
-/// ```rust
-/// use deezer::gateway::StringOrUnknown;
-///
-/// let value = StringOrUnknown::default();
-/// assert_eq!(value.to_uppercase(), "UNKNOWN");
-/// ```
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Debug, Hash)]
-pub struct StringOrUnknown(pub String);
-
-/// Provides read-only access to the underlying string.
-///
-/// # Examples
-///
-/// ```rust
-/// use deezer::gateway::StringOrUnknown;
-///
-/// let value = StringOrUnknown("test".to_string());
-/// assert_eq!(value.len(), 4);  // Uses String's len() method
-/// assert_eq!(&*value, "test"); // Direct access to string content
-/// ```
-impl Deref for StringOrUnknown {
-    /// Target type for deref coercion.
-    ///
-    /// Allows `StringOrUnknown` to be used anywhere a `String` reference is expected.
-    type Target = String;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-/// Creates a `StringOrUnknown` from a string slice.
-///
-/// Simply wraps the input in a new `String`. Cannot fail.
-///
-/// # Examples
-///
-/// ```rust
-/// use std::str::FromStr;
-/// use deezer::gateway::StringOrUnknown;
-///
-/// let value = StringOrUnknown::from_str("test")?;
-/// assert_eq!(&*value, "test");
-///
-/// // Also works with string literals
-/// let value: StringOrUnknown = "test".parse()?;
-/// assert_eq!(&*value, "test");
-/// ```
-impl FromStr for StringOrUnknown {
-    /// This implementation never fails, ensuring robust parsing.
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(s.to_string()))
-    }
-}
-
-/// Creates a new `StringOrUnknown` with the value "UNKNOWN".
-///
-/// Used when a string value cannot be properly parsed or is missing.
-///
-/// # Examples
-///
-/// ```rust
-/// use deezer::gateway::StringOrUnknown;
-///
-/// let value = StringOrUnknown::default();
-/// assert_eq!(&*value, "UNKNOWN");
-/// ```
-impl Default for StringOrUnknown {
-    fn default() -> Self {
-        Self(String::from("UNKNOWN"))
-    }
 }

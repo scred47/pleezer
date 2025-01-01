@@ -58,6 +58,7 @@
 use std::{
     fmt,
     num::NonZeroI64,
+    str::FromStr,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
 };
@@ -68,6 +69,7 @@ use stream_download::{
 };
 use time::OffsetDateTime;
 use url::Url;
+use veil::Redact;
 
 use crate::{
     error::{Error, Result},
@@ -88,6 +90,53 @@ use crate::{
 #[expect(clippy::module_name_repetitions)]
 pub type TrackId = NonZeroI64;
 
+/// Type of track content.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+#[expect(clippy::module_name_repetitions)]
+pub enum TrackType {
+    /// Regular music track from Deezer catalog or user upload
+    #[default]
+    Song,
+    /// Podcast episode with external streaming
+    Episode,
+    /// Live radio station with multiple streams
+    Livestream,
+}
+
+/// External streaming URL configuration.
+#[derive(Clone, Redact, Eq, PartialEq)]
+#[redact(all, variant)]
+pub enum ExternalUrl {
+    /// Direct streaming URL (for episodes)
+    Direct(Url),
+    /// Multiple quality streams (for livestreams)
+    WithQuality(gateway::LivestreamUrls),
+}
+
+/// Display implementation for track type.
+impl fmt::Display for TrackType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Song => write!(f, "song"),
+            Self::Episode => write!(f, "episode"),
+            Self::Livestream => write!(f, "livestream"),
+        }
+    }
+}
+
+impl FromStr for TrackType {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "song" => Ok(Self::Song),
+            "episode" => Ok(Self::Episode),
+            "livestream" => Ok(Self::Livestream),
+            _ => Err(Error::invalid_argument(format!("unknown track type: {s}"))),
+        }
+    }
+}
+
 /// Represents a Deezer track with metadata and download state.
 ///
 /// Combines track metadata (title, artist, etc) with download management
@@ -105,41 +154,59 @@ pub type TrackId = NonZeroI64;
 /// ```
 #[derive(Debug)]
 pub struct Track {
-    /// Unique identifier for the track.
-    /// Negative values indicate user-uploaded content.
+    /// Type of content (song, episode, or livestream)
+    typ: TrackType,
+
+    /// Unique identifier for the track
     id: TrackId,
 
-    /// Authentication token specific to this track.
-    /// Required for media access requests.
-    track_token: String,
+    /// Authentication token for media access.
+    /// None for livestreams or when using external URLs.
+    track_token: Option<String>,
 
-    /// Title of the track.
-    title: String,
+    /// Whether content is served from external source
+    external: bool,
 
-    /// Main artist name.
+    /// External URL for direct streaming.
+    /// Used by episodes and livestreams.
+    external_url: Option<ExternalUrl>,
+
+    /// Title of the content.
+    /// None for livestreams which only have station name.
+    title: Option<String>,
+
+    /// Content creator:
+    /// * Artist name for songs
+    /// * Show name for episodes
+    /// * Station name for livestreams
     artist: String,
 
-    /// Title of the album containing this track.
-    album_title: String,
+    /// Album title. Only available for songs.
+    album_title: Option<String>,
 
-    /// Identifier for the album's cover artwork.
-    /// Used to construct cover image URLs.
-    album_cover: String,
+    /// Identifier for cover artwork:
+    /// * Album art for songs
+    /// * Show art for episodes
+    /// * Station logo for livestreams
+    cover_id: String,
 
     /// Replay gain value in decibels.
     /// Used for volume normalization if available.
+    /// Only available for songs, but not all songs have this value.
     gain: Option<f32>,
 
     /// When this track's access token expires.
     /// After this time, new tokens must be requested.
-    expiry: SystemTime,
+    /// Not available for livestreams.
+    expiry: Option<SystemTime>,
 
     /// Current audio quality setting.
-    /// May be lower than requested if higher quality unavailable.
+    /// May be lower than requested if any higher quality was unavailable.
     quality: AudioQuality,
 
     /// Total duration of the track.
-    duration: Duration,
+    /// Not available for livestreams.
+    duration: Option<Duration>,
 
     /// Amount of audio data downloaded and available for playback.
     /// Protected by mutex for concurrent access from download task.
@@ -147,6 +214,7 @@ pub struct Track {
 
     /// Total size of the audio file in bytes.
     /// Available only after download begins.
+    /// Not available for livestreams.
     file_size: Option<u64>,
 
     /// Encryption cipher used for this track.
@@ -156,6 +224,12 @@ pub struct Track {
     /// Handle to active download if any.
     /// None if download hasn't started or was reset.
     handle: Option<StreamHandle>,
+
+    /// Whether the track is available for download.
+    /// Only available for podcasts and episodes.
+    /// Songs have this always set to `true`.
+    /// Note that the expiry time should be checked separately.
+    available: bool,
 }
 
 impl Track {
@@ -180,9 +254,25 @@ impl Track {
     /// Returns the track duration.
     ///
     /// The duration represents the total playback time of the track.
+    /// No duration is available for livestreams.
     #[must_use]
-    pub fn duration(&self) -> Duration {
+    pub fn duration(&self) -> Option<Duration> {
         self.duration
+    }
+
+    /// Returns whether this content is accessible.
+    ///
+    /// Always true for songs. Episodes and livestreams may be
+    /// region-restricted or temporarily unavailable.
+    #[must_use]
+    pub fn available(&self) -> bool {
+        self.available
+    }
+
+    /// Returns the track type.
+    #[must_use]
+    pub fn typ(&self) -> TrackType {
+        self.typ
     }
 
     /// Returns the track's replay gain value if available.
@@ -198,8 +288,8 @@ impl Track {
 
     /// Returns the track title.
     #[must_use]
-    pub fn title(&self) -> &str {
-        &self.title
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
     }
 
     /// Returns the track artist name.
@@ -210,21 +300,21 @@ impl Track {
 
     /// Returns the album title for this track.
     #[must_use]
-    pub fn album_title(&self) -> &str {
-        &self.album_title
+    pub fn album_title(&self) -> Option<&str> {
+        self.album_title.as_deref()
     }
 
-    /// The ID of the album cover image.
+    /// The ID of the cover art.
     ///
-    /// This ID can be used to construct a URL for retrieving the album cover image.
-    /// Album covers are always square and available in various resolutions up to 1920x1920.
+    /// This ID can be used to construct a URL for retrieving the cover art.
+    /// Covers are always square and available in various resolutions up to 1920x1920.
     ///
     /// # URL Format
     /// ```text
-    /// https://e-cdns-images.dzcdn.net/images/cover/{album_cover}/{resolution}x{resolution}.{format}
+    /// https://e-cdns-images.dzcdn.net/images/cover/{cover_id}/{resolution}x{resolution}.{format}
     /// ```
     /// where:
-    /// - `{album_cover}` is the ID returned by this method
+    /// - `{cover_id}` is the ID returned by this method
     /// - `{resolution}` is the desired resolution in pixels (e.g., 500)
     /// - `{format}` is either `jpg` or `png`
     ///
@@ -238,8 +328,8 @@ impl Track {
     /// https://e-cdns-images.dzcdn.net/images/cover/f286f9e7dc818e181c37b944e2461101/500x500.jpg
     /// ```
     #[must_use]
-    pub fn album_cover(&self) -> &str {
-        &self.album_cover
+    pub fn cover_id(&self) -> &str {
+        &self.cover_id
     }
 
     /// Returns the track's expiration time.
@@ -247,7 +337,7 @@ impl Track {
     /// After this time, the track becomes unavailable for download
     /// and may need token refresh.
     #[must_use]
-    pub fn expiry(&self) -> SystemTime {
+    pub fn expiry(&self) -> Option<SystemTime> {
         self.expiry
     }
 
@@ -288,9 +378,10 @@ impl Track {
         self.cipher != Cipher::NONE
     }
 
-    /// Returns whether this track uses lossless audio encoding.
+    /// Returns whether the track is lossless audio.
     ///
-    /// True only for FLAC encoded tracks.
+    /// True only for FLAC encoded songs. Episodes and livestreams
+    /// are never lossless.
     #[must_use]
     pub fn is_lossless(&self) -> bool {
         self.quality == AudioQuality::Lossless
@@ -390,12 +481,51 @@ impl Track {
         quality: AudioQuality,
         license_token: impl Into<String>,
     ) -> Result<Medium> {
-        if self.expiry <= SystemTime::now() {
+        if !self.available() {
             return Err(Error::unavailable(format!(
-                "track {self} no longer available since {}",
-                OffsetDateTime::from(self.expiry)
+                "{} {self} is not available for download",
+                self.typ
             )));
         }
+
+        if let Some(expiry) = self.expiry {
+            if expiry <= SystemTime::now() {
+                return Err(Error::unavailable(format!(
+                    "{} {self} has expired since {}",
+                    self.typ,
+                    OffsetDateTime::from(expiry)
+                )));
+            }
+        }
+
+        if self.external {
+            let external_url = self.external_url.as_ref().ok_or_else(|| {
+                Error::unavailable(format!("external {} {self} has no urls", self.typ))
+            })?;
+
+            let url = match external_url {
+                ExternalUrl::Direct(url) => url.clone(),
+                ExternalUrl::WithQuality(_) => todo!(),
+            };
+
+            let source = media::Source {
+                url,
+                provider: String::default(),
+            };
+
+            return Ok(Medium {
+                format: Format::EXTERNAL,
+                cipher: media::CipherType { typ: Cipher::NONE },
+                sources: vec![source],
+                not_before: None,
+                expiry: None,
+                media_type: media::Type::FULL,
+            });
+        }
+
+        let track_token = self.track_token.as_ref().ok_or_else(|| {
+            Error::permission_denied(format!("{} {self} does not have a track token", self.typ))
+        })?;
 
         let cipher_formats = match quality {
             AudioQuality::Basic => Self::CIPHER_FORMATS_MP3_64.to_vec(),
@@ -403,13 +533,16 @@ impl Track {
             AudioQuality::High => Self::CIPHER_FORMATS_MP3_320.to_vec(),
             AudioQuality::Lossless => Self::CIPHER_FORMATS_FLAC.to_vec(),
             AudioQuality::Unknown => {
-                return Err(Error::unknown("unknown audio quality for track {self}"));
+                return Err(Error::unknown(format!(
+                    "unknown audio quality for {} {self}",
+                    self.typ
+                )));
             }
         };
 
         let request = media::Request {
             license_token: license_token.into(),
-            track_tokens: vec![self.track_token.clone()],
+            track_tokens: vec![track_token.into()],
             media: vec![media::Media {
                 typ: media::Type::FULL,
                 cipher_formats,
@@ -430,16 +563,21 @@ impl Track {
         let result = match result.data.first() {
             Some(data) => match data {
                 Data::Media { media } => media.first().cloned().ok_or(Error::not_found(
-                    format!("empty media data for track {self}"),
+                    format!("empty media data for {} {self}", self.typ),
                 ))?,
                 Data::Errors { errors } => {
                     return Err(Error::unavailable(errors.first().map_or_else(
-                        || format!("unknown error getting media for track {self}"),
+                        || format!("unknown error getting media for {} {self}", self.typ),
                         ToString::to_string,
                     )));
                 }
             },
-            None => return Err(Error::not_found(format!("no media data for track {self}"))),
+            None => {
+                return Err(Error::not_found(format!(
+                    "no media data for {} {self}",
+                    self.typ
+                )))
+            }
         };
 
         let available_quality = AudioQuality::from(result.format);
@@ -448,8 +586,8 @@ impl Track {
         // based on the bitrate, but the official client does not do this either.
         if !self.is_user_uploaded() && quality != available_quality {
             warn!(
-                "requested track {self} in {}, but got {}",
-                quality, available_quality
+                "requested {} {self} in {}, but got {}",
+                self.typ, quality, available_quality
             );
         }
 
@@ -458,28 +596,30 @@ impl Track {
 
     /// Returns whether this is a user-uploaded track.
     ///
-    /// User-uploaded tracks are identified by negative IDs and may
-    /// have different availability and quality characteristics.
+    /// User uploads are identified by negative IDs and only
+    /// available for songs.
     #[must_use]
     pub fn is_user_uploaded(&self) -> bool {
         self.id.is_negative()
     }
 
-    /// Opens a stream for downloading the track content.
+    /// Opens a stream for downloading or streaming content.
     ///
-    /// Attempts to open the first available source URL, falling back
-    /// to alternatives if needed.
+    /// Behavior varies by content type:
+    /// * Songs - Downloads encrypted content
+    /// * Episodes - Opens direct stream
+    /// * Livestreams - Opens selected quality stream
     ///
     /// # Arguments
     ///
-    /// * `client` - HTTP client for making requests
+    /// * `client` - HTTP client for requests
     /// * `medium` - Media source information
     ///
     /// # Errors
     ///
     /// Returns error if:
     /// * No valid sources available
-    /// * Track expired or not yet available
+    /// * Content unavailable in region
     /// * Network error occurs
     async fn open_stream(
         &self,
@@ -487,7 +627,8 @@ impl Track {
         medium: &Medium,
     ) -> Result<HttpStream<reqwest::Client>> {
         let mut result = Err(Error::unavailable(format!(
-            "no valid sources found for track {self}"
+            "no valid sources found for {} {self}",
+            self.typ
         )));
 
         let now = SystemTime::now();
@@ -498,7 +639,7 @@ impl Track {
         for source in &medium.sources {
             // URLs can theoretically be non-HTTP, and we only support HTTP(S) URLs.
             let Some(host_str) = source.url.host_str() else {
-                warn!("skipping source with invalid host for track {self}");
+                warn!("skipping source with invalid host for {} {self}", self.typ);
                 continue;
             };
 
@@ -506,30 +647,39 @@ impl Track {
             // If not, it can be that the download link expired and needs to be
             // refreshed, that the track is not available yet, or that the track is
             // no longer available.
-            if medium.not_before > now {
-                warn!(
-                    "track {self} is not available for download until {} from {host_str}",
-                    OffsetDateTime::from(medium.not_before)
-                );
-                continue;
+            if let Some(not_before) = medium.not_before {
+                if not_before > now {
+                    warn!(
+                        "{} {self} is not available for download until {} from {host_str}",
+                        self.typ,
+                        OffsetDateTime::from(not_before)
+                    );
+                    continue;
+                }
             }
-            if medium.expiry <= now {
-                warn!(
-                    "track {self} is no longer available for download since {} from {host_str}",
-                    OffsetDateTime::from(medium.expiry)
-                );
-                continue;
+            if let Some(expiry) = medium.expiry {
+                if expiry <= now {
+                    warn!(
+                        "{} {self} is no longer available for download since {} from {host_str}",
+                        self.typ,
+                        OffsetDateTime::from(expiry)
+                    );
+                    continue;
+                }
             }
 
             // Perform the request and stream the response.
             match HttpStream::new(client.unlimited.clone(), source.url.clone()).await {
                 Ok(http_stream) => {
-                    debug!("starting download of track {self} from {host_str}");
+                    debug!("starting download of {} {self} from {host_str}", self.typ);
                     result = Ok(http_stream);
                     break;
                 }
                 Err(err) => {
-                    warn!("failed to start download of track {self} from {host_str}: {err}",);
+                    warn!(
+                        "failed to start download of {} {self} from {host_str}: {err}",
+                        self.typ
+                    );
                     continue;
                 }
             };
@@ -584,47 +734,51 @@ impl Track {
         // Calculate the prefetch size based on the audio quality. This assumes
         // that the track is encoded with a constant bitrate, which is not
         // necessarily true. However, it is a good approximation.
-        let mut prefetch_size = None;
+        let mut prefetch_size = Self::PREFETCH_DEFAULT as u64;
         if let Some(file_size) = stream.content_length() {
-            info!("downloading {file_size} bytes for track {self}");
+            info!("downloading {file_size} bytes for {} {self}", self.typ);
             self.file_size = Some(file_size);
 
-            if !self.duration.is_zero() {
-                let size = Self::PREFETCH_LENGTH.as_secs()
-                    * file_size.saturating_div(self.duration.as_secs());
-                trace!("prefetch size for track {self}: {size} bytes");
-                prefetch_size = Some(size);
+            if let Some(duration) = self.duration {
+                if !duration.is_zero() {
+                    let size = Self::PREFETCH_LENGTH.as_secs()
+                        * file_size.saturating_div(duration.as_secs());
+                    trace!("prefetch size for {} {self}: {size} bytes", self.typ);
+                    prefetch_size = size;
+                }
             }
         } else {
-            info!("downloading track {self} with unknown file size");
+            info!("downloading {} {self} with unknown file size", self.typ);
         };
-        let prefetch_size = prefetch_size.unwrap_or(Self::PREFETCH_DEFAULT as u64);
 
         // A progress callback that logs the download progress.
         let track_str = self.to_string();
+        let track_typ = self.typ.to_string();
         let duration = self.duration;
         let buffered = Arc::clone(&self.buffered);
         let callback = move |stream: &HttpStream<_>,
                              stream_state: StreamState,
                              _: &tokio_util::sync::CancellationToken| {
-            if stream_state.phase == StreamPhase::Complete {
-                info!("completed download of track {track_str}");
+            if let Some(duration) = duration {
+                if stream_state.phase == StreamPhase::Complete {
+                    info!("completed download of {track_typ} {track_str}");
 
-                // Prevent rounding errors and set the buffered duration
-                // equal to the total duration. It's OK to unwrap here: if
-                // the mutex is poisoned, then the main thread panicked and
-                // we should propagate the error.
-                *buffered.lock().unwrap() = duration;
-            } else if let Some(file_size) = stream.content_length() {
-                if file_size > 0 {
-                    // `f64` not for precision, but to be able to fit
-                    // as big as possible file sizes.
-                    // TODO : use `Percentage` type
-                    #[expect(clippy::cast_precision_loss)]
-                    let progress = stream_state.current_position as f64 / file_size as f64;
+                    // Prevent rounding errors and set the buffered duration
+                    // equal to the total duration. It's OK to unwrap here: if
+                    // the mutex is poisoned, then the main thread panicked and
+                    // we should propagate the error.
+                    *buffered.lock().unwrap() = duration;
+                } else if let Some(file_size) = stream.content_length() {
+                    if file_size > 0 {
+                        // `f64` not for precision, but to be able to fit
+                        // as big as possible file sizes.
+                        // TODO : use `Percentage` type
+                        #[expect(clippy::cast_precision_loss)]
+                        let progress = stream_state.current_position as f64 / file_size as f64;
 
-                    // OK to unwrap: see rationale above.
-                    *buffered.lock().unwrap() = duration.mul_f64(progress);
+                        // OK to unwrap: see rationale above.
+                        *buffered.lock().unwrap() = duration.mul_f64(progress);
+                    }
                 }
             }
         };
@@ -645,9 +799,11 @@ impl Track {
         Ok(download)
     }
 
-    /// Returns a handle to the track's download if active.
+    /// Returns the current download handle if active.
     ///
-    /// Returns None if download hasn't started.
+    /// Returns None if:
+    /// * Download hasn't started
+    /// * Download was reset
     #[must_use]
     pub fn handle(&self) -> Option<StreamHandle> {
         self.handle.clone()
@@ -657,9 +813,12 @@ impl Track {
     ///
     /// A track is complete when the buffered duration equals
     /// the total track duration.
+    ///
+    /// Livestreams are never complete.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.buffered().as_secs() == self.duration.as_secs()
+        self.duration
+            .is_some_and(|duration| self.buffered() == duration)
     }
 
     /// Resets the track's download state.
@@ -693,34 +852,77 @@ impl Track {
 /// Creates a Track from gateway list data.
 ///
 /// Initializes track with:
-/// * Basic metadata (ID, title, artist, etc)
+/// * Content type-specific fields
 /// * Default quality (Standard)
 /// * Default cipher (`BF_CBC_STRIPE`)
 /// * Empty download state
+///
+/// Content types are handled differently:
+/// * Songs - Uses artist/album metadata
+/// * Episodes - Uses show/podcast metadata and external URLs
+/// * Livestreams - Uses station metadata and quality streams
 impl From<gateway::ListData> for Track {
     fn from(item: gateway::ListData) -> Self {
+        let (gain, album_title) = if let gateway::ListData::Song {
+            gain, album_title, ..
+        } = &item
+        {
+            (gain.as_ref(), Some(album_title))
+        } else {
+            (None, None)
+        };
+
+        let (available, external, external_url) = match &item {
+            gateway::ListData::Song { .. } => (true, false, None),
+            gateway::ListData::Episode {
+                available,
+                external,
+                external_url,
+                ..
+            } => (
+                *available,
+                *external,
+                external_url.clone().map(ExternalUrl::Direct),
+            ),
+            gateway::ListData::Livestream {
+                available,
+                external_urls,
+                ..
+            } => (
+                *available,
+                true,
+                Some(ExternalUrl::WithQuality(external_urls.clone())),
+            ),
+        };
+
         Self {
-            id: item.track_id,
-            track_token: item.track_token,
-            title: item.title.to_string(),
-            artist: item.artist.to_string(),
-            album_title: item.album_title.to_string(),
-            album_cover: item.album_cover,
-            duration: item.duration,
-            gain: item.gain.map(ToF32::to_f32_lossy),
-            expiry: item.expiry,
+            typ: item.typ().parse().unwrap_or_default(),
+            id: item.id(),
+            track_token: item.track_token().map(ToOwned::to_owned),
+            title: item.title().map(ToOwned::to_owned),
+            artist: item.artist().to_owned(),
+            album_title: album_title.map(ToString::to_string),
+            cover_id: item.cover_id().to_owned(),
+            duration: item.duration(),
+            gain: gain.map(|gain| gain.to_f32_lossy()),
+            expiry: item.expiry(),
             quality: AudioQuality::Standard,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),
             file_size: None,
             cipher: Cipher::BF_CBC_STRIPE,
             handle: None,
+            available,
+            external,
+            external_url,
         }
     }
 }
 
-/// Formats track for display, showing ID, artist and title.
+/// Formats track for display, showing ID, artist and title if available.
 ///
-/// Format: "{id}: "{artist} - {title}""
+/// Format varies by content type:
+/// * Songs/Episodes: "{id}: "{artist} - {title}""
+/// * Livestreams: "{id}: "{station}""
 ///
 /// # Example
 ///
@@ -729,6 +931,11 @@ impl From<gateway::ListData> for Track {
 /// ```
 impl fmt::Display for Track {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: \"{} - {}\"", self.id, self.artist, self.title)
+        let artist = self.artist();
+        if let Some(title) = &self.title() {
+            write!(f, "{}: \"{} - {}\"", self.id, artist, title)
+        } else {
+            write!(f, "{}: \"{}\"", self.id, artist)
+        }
     }
 }

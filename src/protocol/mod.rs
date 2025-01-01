@@ -44,9 +44,12 @@
 //! of concerns between different protocol aspects.
 
 pub mod auth;
+pub mod codec;
 pub mod connect;
 pub mod gateway;
 pub mod media;
+
+pub use codec::Codec;
 
 use crate::error::Result;
 use serde::Deserialize;

@@ -69,6 +69,7 @@ reqwest = { version = "0.12", default-features = false, features = [
     "stream",
 ] }
 rodio = { version = "0.20", default-features = false, features = [
+    "symphonia-aac",
     "symphonia-flac",
     "symphonia-mp3",
 ] }
