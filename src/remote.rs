@@ -752,7 +752,7 @@ impl Client {
                             .env("TRACK_TYPE", track.typ().to_string())
                             .env("TRACK_ID", track.id().to_string())
                             .env("ARTIST", track.artist())
-                            .env("COVER", track.cover_id())
+                            .env("COVER_ID", track.cover_id())
                             .env("FORMAT", format!("{codec}{bitrate}"));
 
                         if let Some(title) = track.title() {
