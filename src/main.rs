@@ -10,7 +10,7 @@
 //! * Audio content:
 //!   - Songs
 //!   - Podcast episodes
-//!   - Live radio (future)
+//!   - Live radio
 //!
 //! # Runtime Behavior
 //!
@@ -226,11 +226,11 @@ fn init_logger(config: &Args) {
     }
 
     // Filter log messages of external crates.
-    logger.filter_module("symphonia_codec_aac", LevelFilter::Warn);
-    logger.filter_module("symphonia_bundle_flac", LevelFilter::Warn);
-    logger.filter_module("symphonia_bundle_mp3", LevelFilter::Warn);
-    logger.filter_module("symphonia_core", LevelFilter::Warn);
-    logger.filter_module("symphonia_metadata", LevelFilter::Warn);
+    logger.filter_module("symphonia_codec_aac", LevelFilter::Error);
+    logger.filter_module("symphonia_bundle_flac", LevelFilter::Error);
+    logger.filter_module("symphonia_bundle_mp3", LevelFilter::Error);
+    logger.filter_module("symphonia_core", LevelFilter::Error);
+    logger.filter_module("symphonia_metadata", LevelFilter::Error);
 
     logger.init();
 }

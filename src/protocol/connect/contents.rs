@@ -75,7 +75,7 @@ use serde_with::{
 use uuid::Uuid;
 
 use super::{channel::Ident, protos::queue};
-use crate::{error::Error, track::TrackId, util::ToF32};
+use crate::{error::Error, protocol::Codec, track::TrackId, util::ToF32};
 
 /// A message's contents in the Deezer Connect protocol.
 ///
@@ -713,7 +713,7 @@ pub enum Body {
         /// Amount of audio buffered from the start of the track
         buffered: Duration,
         /// Current playback position (0.0 to 1.0)
-        progress: Option<Percentage>,
+        progress: Percentage,
         /// Current volume level (0.0 to 1.0)
         volume: Percentage,
         /// Whether playback is active
@@ -1222,11 +1222,11 @@ impl AudioQuality {
     /// assert_eq!(AudioQuality::Unknown.codec(), None);
     /// ```
     #[must_use]
-    pub fn codec(&self) -> Option<&str> {
+    pub fn codec(&self) -> Option<Codec> {
         let codec = match self {
             AudioQuality::Unknown => return None,
-            AudioQuality::Lossless => "FLAC",
-            _ => "MP3",
+            AudioQuality::Lossless => Codec::FLAC,
+            _ => Codec::MP3,
         };
 
         Some(codec)
@@ -2148,7 +2148,7 @@ pub enum Payload {
         #[serde_as(as = "DurationSeconds<u64, Flexible>")]
         buffered: Duration,
         /// Current playback position (0.0 to 1.0)
-        progress: Option<Percentage>,
+        progress: Percentage,
         /// Current volume level (0.0 to 1.0)
         volume: Percentage,
         /// Audio quality of the current track
@@ -2303,7 +2303,6 @@ pub enum Payload {
 ///     device_name: "My Device".to_string(),
 /// };
 /// ```
-#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", untagged)]
 pub enum Params {
@@ -2373,7 +2372,6 @@ pub enum Params {
 /// assert_eq!(serde_json::to_string(&DeviceType::Web)?, r#""web""#);
 /// assert_eq!(serde_json::to_string(&DeviceType::Mobile)?, r#""mobile""#);
 /// ```
-#[serde_as]
 #[derive(
     Copy,
     Clone,

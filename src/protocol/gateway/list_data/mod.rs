@@ -79,9 +79,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{
-    formats::Flexible, serde_as, DisplayFromStr, DurationSeconds, PickFirst, TimestampSeconds,
+    formats::Flexible, serde_as, DefaultOnError, DisplayFromStr, DurationSeconds, PickFirst,
+    TimestampSeconds,
 };
 use url::Url;
 use veil::Redact;
@@ -138,7 +139,7 @@ pub type Queue = Vec<ListData>;
 /// }
 /// ```
 #[serde_as]
-#[derive(Clone, PartialEq, Deserialize, Redact)]
+#[derive(Clone, PartialEq, Deserialize, Serialize, Redact)]
 #[serde(tag = "__TYPE__")]
 pub enum ListData {
     /// Regular music track
@@ -360,6 +361,7 @@ pub enum ListData {
         ///
         /// Contains a list of available stream URLs for different bitrates and codecs.
         #[serde(rename = "LIVESTREAM_URLS")]
+        #[serde_as(deserialize_as = "DefaultOnError")]
         external_urls: LivestreamUrls,
 
         /// Live stream availability status.
@@ -367,7 +369,6 @@ pub enum ListData {
         /// Indicates whether the live stream is currently available for playback.
         #[serde(rename = "AVAILABLE")]
         #[serde(default)]
-        #[serde(deserialize_with = "bool_from_string")]
         available: bool,
     },
 }
@@ -525,9 +526,11 @@ pub type LivestreamUrl = HashMap<String, CodecUrl>;
 ///     "128": { "aac": "...", "mp3": "..." }
 /// }
 /// ```
-#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
-#[serde(transparent)]
-pub struct LivestreamUrls(#[serde(rename = "data")] pub LivestreamUrl);
+#[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct LivestreamUrls {
+    /// Quality-based stream URL mapping.
+    pub data: LivestreamUrl,
+}
 
 /// Provides access to the underlying URL mapping.
 ///
@@ -537,7 +540,31 @@ impl Deref for LivestreamUrls {
     type Target = LivestreamUrl;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.data
+    }
+}
+
+impl LivestreamUrls {
+    /// Returns a Vec of (bitrate, `CodecUrl`) pairs sorted by bitrate (ascending order)
+    #[must_use]
+    pub fn sort_by_bitrate(&self) -> Vec<(usize, CodecUrl)> {
+        let mut entries: Vec<_> = self
+            .data
+            .iter()
+            .filter_map(|(bitrate, codec_url)| {
+                // Parse bitrate string to usize
+                bitrate.parse::<usize>().ok().map(|num| (num, codec_url))
+            })
+            .collect();
+
+        // Sort by bitrate number
+        entries.sort_by_key(|(bitrate, _)| *bitrate);
+
+        // Create final Vec with sorted entries
+        entries
+            .into_iter()
+            .map(|(bitrate, codec_url)| (bitrate, codec_url.clone()))
+            .collect()
     }
 }
 
@@ -546,7 +573,7 @@ impl Deref for LivestreamUrls {
 /// Provides access to stream URLs for different audio formats:
 /// * AAC - Advanced Audio Coding
 /// * MP3 - MPEG Layer-3
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Hash, Redact)]
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash, Redact)]
 #[redact(all)]
 pub struct CodecUrl {
     /// URL for AAC stream if available

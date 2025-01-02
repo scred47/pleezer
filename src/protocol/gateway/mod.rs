@@ -115,23 +115,6 @@ pub trait Method {
 ///     "results": [...]  // Direct array or single item
 /// }
 /// ```
-///
-/// # Examples
-///
-/// ```rust
-/// use deezer::gateway::Response;
-///
-/// // Working with paginated data
-/// let response: Response<Track> = serde_json::from_str(json)?;
-/// if let Some(first_track) = response.first() {
-///     println!("First track: {}", first_track.title);
-/// }
-///
-/// // Getting all results regardless of pagination
-/// for item in response.all() {
-///     println!("Item: {:?}", item);
-/// }
-/// ```
 #[serde_as]
 #[derive(Clone, PartialEq, Deserialize, Debug)]
 #[serde(untagged)]
@@ -243,10 +226,10 @@ impl From<Response<SongData>> for Response<ListData> {
     }
 }
 
-/// Converts episode responses into list data responses.
+/// Converts livestream responses into list data responses.
 ///
-/// This allows episode data to be handled using the same infrastructure
-/// as other content types while maintaining type safety for episode-specific
+/// This allows livestream data to be handled using the same infrastructure
+/// as other content types while maintaining type safety for livestream-specific
 /// operations.
 impl From<Response<LivestreamData>> for Response<ListData> {
     fn from(response: Response<LivestreamData>) -> Self {
@@ -283,7 +266,6 @@ impl From<Response<LivestreamData>> for Response<ListData> {
 ///     "filtered_count": 10    // Items matching filters
 /// }
 /// ```
-#[serde_as]
 #[derive(Clone, PartialEq, Deserialize, Debug)]
 pub struct Paginated<T> {
     /// Items in this page of results

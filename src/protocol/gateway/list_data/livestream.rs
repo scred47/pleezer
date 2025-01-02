@@ -2,30 +2,49 @@
 //!
 //! Provides livestream-specific wrappers and types for:
 //! * Stream URLs in multiple formats (AAC/MP3)
-//! * Multiple bitrate options
-//! * Station metadata
-//! * Availability status
+//! * Multiple bitrate options (32k, 64k, 96k, 192k)
+//! * Station metadata (title, description, image)
+//! * Country availability and status
 //!
 //! Livestreams have unique characteristics:
-//! * No track duration/progress
-//! * Multiple parallel streams
-//! * Codec selection
-//! * Always external URLs
+//! * Continuous streaming without duration
+//! * Multiple quality/codec combinations
+//! * Country-specific availability
+//! * Station metadata instead of track info
 //!
 //! # Wire Format
 //!
 //! Response format:
 //! ```json
 //! {
-//!     "EPISODE_ID": "123456",
+//!     "LIVESTREAM_ID": "12345",
+//!     "LIVESTREAM_TITLE": "Lorem Ipsum",
+//!     "LIVESTREAM_DESCRIPTION": "",
+//!     "LIVESTREAM_IMAGE_MD5": "7e3ccxxxxxxxxxxxxxxxxxxxxxxxxx03",
+//!     "LIVESTREAM_IS_FINGERPRINTED": "0",
+//!     "LIVESTREAM_URLS": {
+//!         "data": {
+//!             "96": {
+//!                 "mp3": "https://example.com/stream/96.mp3"
+//!             },
+//!             "192": {
+//!                 "mp3": "https://example.com/stream/192.mp3"
+//!             },
+//!             "64": {
+//!                 "aac": "https://example.com/stream/64.aac"
+//!             },
+//!             "32": {
+//!                 "aac": "https://example.com/stream/32.aac"
+//!             }
+//!         },
+//!         "count": 4,
+//!         "total": 4,
+//!         "version": 1735116906,
+//!         "filtered_count": 0
+//!     },
+//!     "LIVESTREAM_COUNTRY": "nl",
 //!     "AVAILABLE": true,
-//!     "DURATION": "1800",
-//!     "EPISODE_TITLE": "Episode Title",
-//!     "SHOW_NAME": "Podcast Name",
-//!     "SHOW_ART_MD5": "cover_id",
-//!     "TRACK_TOKEN": "secret_token",
-//!     "TRACK_TOKEN_EXPIRE": "1234567890",
-//!     "EPISODE_DIRECT_STREAM_URL": "https://..."
+//!     "__TYPE__": "livestream"
 //! }
 //! ```
 
@@ -53,7 +72,7 @@ impl Method for LivestreamData {
 /// Contains the same track information as [`ListData`] but specifically
 /// for podcast episodes. The wrapper allows specialized handling while
 /// reusing the underlying data structure.
-#[derive(Clone, PartialEq, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
 #[serde(transparent)]
 #[expect(clippy::module_name_repetitions)]
 pub struct LivestreamData(pub ListData);
@@ -70,18 +89,18 @@ impl Deref for LivestreamData {
     }
 }
 
-/// Request parameters for track list data.
+/// Request parameters for livestream data.
 ///
-/// Used to request information for multiple tracks in a single query.
-/// Supports different content types through enum variants.
+/// Used to request stream information with codec preferences.
 ///
 /// # Example
 ///
 /// ```rust
-/// use deezer::gateway::{Request, TrackId};
+/// use deezer::gateway::{Request};
 ///
-/// let request = Request::Songs {
-///     song_ids: vec![123456.into(), 789012.into()],
+/// let request = Request {
+///     livestream_id: 123456.into(),
+///     supported_codecs: vec![Codec::AAC, Codec::MP3],
 /// };
 /// ```
 #[serde_as]

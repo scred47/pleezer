@@ -48,7 +48,7 @@ use std::{
 use blowfish::{cipher::BlockDecryptMut, cipher::KeyIvInit, Blowfish};
 use cbc::cipher::block_padding::NoPadding;
 use md5::{Digest, Md5};
-use stream_download::{storage::temp::TempStorageProvider, StreamDownload};
+use stream_download::{storage::StorageProvider, StreamDownload};
 
 use crate::{
     error::{Error, Result},
@@ -72,9 +72,12 @@ use crate::{
 /// Currently supports:
 /// * No encryption (passthrough)
 /// * Blowfish CBC with striping (every third 2KB block)
-pub struct Decrypt {
+pub struct Decrypt<P>
+where
+    P: StorageProvider + 'static,
+{
     /// Source of encrypted data using temporary file storage.
-    download: StreamDownload<TempStorageProvider>,
+    download: StreamDownload<P>,
 
     /// Total size of the track in bytes, if known.
     ///
@@ -190,21 +193,24 @@ impl Deref for Key {
     }
 }
 
-impl Decrypt {
-    /// Fixed IV for CBC decryption.
-    const CBC_BF_IV: &[u8; 8] = b"\x00\x01\x02\x03\x04\x05\x06\x07";
+/// Fixed IV for CBC decryption.
+const CBC_BF_IV: &[u8; 8] = b"\x00\x01\x02\x03\x04\x05\x06\x07";
 
-    /// Size of each block in bytes (2KB).
-    const CBC_BLOCK_SIZE: usize = 2 * 1024;
+/// Size of each block in bytes (2KB).
+const CBC_BLOCK_SIZE: usize = 2 * 1024;
 
-    /// Number of blocks in a stripe (3).
-    ///
-    /// Every third block is encrypted.
-    const CBC_STRIPE_COUNT: usize = 3;
+/// Number of blocks in a stripe (3).
+///
+/// Every third block is encrypted.
+const CBC_STRIPE_COUNT: usize = 3;
 
-    /// Supported encryption methods.
-    const SUPPORTED_CIPHERS: [Cipher; 2] = [Cipher::NONE, Cipher::BF_CBC_STRIPE];
+/// Supported encryption methods.
+const SUPPORTED_CIPHERS: [Cipher; 2] = [Cipher::NONE, Cipher::BF_CBC_STRIPE];
 
+impl<P> Decrypt<P>
+where
+    P: StorageProvider + 'static,
+{
     /// Creates a new decryptor for a track.
     ///
     /// # Arguments
@@ -216,12 +222,11 @@ impl Decrypt {
     /// # Errors
     ///
     /// Returns `Error::Unimplemented` if track uses unsupported encryption.
-    pub fn new(
-        track: &Track,
-        download: StreamDownload<TempStorageProvider>,
-        salt: &Key,
-    ) -> Result<Self> {
-        if !Self::SUPPORTED_CIPHERS.contains(&track.cipher()) {
+    pub fn new(track: &Track, download: StreamDownload<P>, salt: &Key) -> Result<Self>
+    where
+        P: StorageProvider + 'static,
+    {
+        if !SUPPORTED_CIPHERS.contains(&track.cipher()) {
             return Err(Error::unimplemented("unsupported encryption algorithm"));
         }
 
@@ -277,7 +282,10 @@ impl Decrypt {
 /// * Block boundary calculation
 /// * Buffer management
 /// * Decryption of new blocks
-impl Seek for Decrypt {
+impl<P> Seek for Decrypt<P>
+where
+    P: StorageProvider + 'static,
+{
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         // If the track is not encrypted, we can seek directly.
         if self.cipher == Cipher::NONE {
@@ -305,7 +313,7 @@ impl Seek for Decrypt {
 
             SeekFrom::Current(pos) => {
                 let current = self.block.map_or(0, |block| {
-                    block * Self::CBC_BLOCK_SIZE as u64 + self.buffer.position()
+                    block * CBC_BLOCK_SIZE as u64 + self.buffer.position()
                 });
 
                 current.checked_add_signed(pos).ok_or(io::Error::new(
@@ -327,13 +335,13 @@ impl Seek for Decrypt {
         // the block number within the encrypted file and the offset within the
         // block.
         let block = target
-            .checked_div(Self::CBC_BLOCK_SIZE as u64)
+            .checked_div(CBC_BLOCK_SIZE as u64)
             .ok_or(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "block calculation would be divide by zero",
             ))?;
         let offset = target
-            .checked_rem(Self::CBC_BLOCK_SIZE as u64)
+            .checked_rem(CBC_BLOCK_SIZE as u64)
             .ok_or(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "offset calculation would be divide by zero",
@@ -346,23 +354,22 @@ impl Seek for Decrypt {
 
             // Seek to the start of the block in the encrypted file.
             self.download
-                .seek(SeekFrom::Start(block * Self::CBC_BLOCK_SIZE as u64))?;
+                .seek(SeekFrom::Start(block * CBC_BLOCK_SIZE as u64))?;
 
             // TODO : when this is the first block of two unencrypted blocks,
             // read ahead 2 * CBC_BLOCK_SIZE.
-            let mut buffer = [0; Self::CBC_BLOCK_SIZE];
+            let mut buffer = [0; CBC_BLOCK_SIZE];
             let length = self.download.read(&mut buffer)?;
 
             // Decrypt the block if it is encrypted. Every third block is
             // encrypted, and only if the block is of a full stripe size.
-            let is_encrypted = block % Self::CBC_STRIPE_COUNT as u64 == 0;
-            let is_full_block = length == Self::CBC_BLOCK_SIZE;
+            let is_encrypted = block % CBC_STRIPE_COUNT as u64 == 0;
+            let is_full_block = length == CBC_BLOCK_SIZE;
 
             if is_encrypted && is_full_block {
                 // The state of the cipher is reset on each block.
-                let cipher =
-                    cbc::Decryptor::<Blowfish>::new_from_slices(&*self.key, Self::CBC_BF_IV)
-                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+                let cipher = cbc::Decryptor::<Blowfish>::new_from_slices(&*self.key, CBC_BF_IV)
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
                 // Decrypt the block in-place. The buffer is guaranteed to be
                 // a multiple of the block size, so no padding is necessary.
@@ -392,7 +399,10 @@ impl Seek for Decrypt {
 /// 1. Fills internal buffer if empty
 /// 2. Decrypts blocks as needed
 /// 3. Returns requested number of bytes
-impl Read for Decrypt {
+impl<P> Read for Decrypt<P>
+where
+    P: StorageProvider + 'static,
+{
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // If the track is not encrypted, we can read directly.
         if self.cipher == Cipher::NONE {

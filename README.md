@@ -45,6 +45,7 @@
 - **Content Support**:
   - **Songs**: Stream regular music tracks and your uploaded MP3s
   - **Podcasts**: Listen to your favorite shows with direct streaming
+  - **Livestreams**: Tune in to live radio stations and broadcasts
   - **Flow and Mixes**: Access personalized playlists and [mixes](https://www.deezer.com/explore/mixes) tailored to your preferences
   - **User MP3s**: Play your [uploaded MP3 files](https://support.deezer.com/hc/en-gb/articles/115004221605-Upload-MP3s) alongside streamed content
   - **Playback Reporting**: Contribute to accurate artist monetization metrics
@@ -57,7 +58,6 @@
 
 ### Planned Features
 
-- [Live radio](https://www.deezer.com/explore/radio) integration
 - Device registration
 - RAM-backed storage
 

@@ -13,6 +13,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [signal] New module for unified signal handling across platforms
 - [tests] Add anonymized API response examples
 - [track] Support for podcast episodes with external streaming
+- [track] Support for radio livestreams with multiple quality options and codecs
 
 ### Changed
 - [docs] Enhanced documentation for signal handling and lifecycle management

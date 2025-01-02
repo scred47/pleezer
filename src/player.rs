@@ -61,6 +61,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 use cpal::traits::{DeviceTrait, HostTrait};
 use md5::{Digest, Md5};
 use rodio::Source;
+use stream_download::storage::{adaptive::AdaptiveStorageProvider, temp::TempStorageProvider};
 use url::Url;
 
 use crate::{
@@ -75,6 +76,7 @@ use crate::{
             Percentage,
         },
         gateway::{self, MediaUrl},
+        Codec,
     },
     track::{Track, TrackId},
     util::ToF32,
@@ -597,8 +599,7 @@ impl Player {
             } else {
                 // Reached the end of the queue: rewind to the beginning.
                 if repeat_mode != RepeatMode::All {
-                    // Don't care if the sink is already dropped: we're already "paused".
-                    let _ = self.pause();
+                    self.pause();
                 };
                 self.position = 0;
             }
@@ -668,17 +669,21 @@ impl Player {
                     )
                     .await?;
 
-                // Return `None` on success to indicate that the track is not yet appended
-                // to the sink.
-                track.start_download(&self.client, &medium).await
+                let storage = AdaptiveStorageProvider::new(
+                    TempStorageProvider::default(),
+                    1_000_000.try_into().unwrap(),
+                );
+                track.start_download(&self.client, &medium, storage).await
             })
             .await??;
 
             // Append the track to the sink.
             let decryptor = Decrypt::new(track, download, &self.bf_secret)?;
-            let mut decoder = match track.quality() {
-                AudioQuality::Lossless => rodio::Decoder::new_flac(decryptor),
-                _ => rodio::Decoder::new_mp3(decryptor),
+            let mut decoder = match track.codec() {
+                Some(Codec::FLAC) => rodio::Decoder::new_flac(decryptor),
+                Some(Codec::MP3) => rodio::Decoder::new_mp3(decryptor),
+                Some(Codec::AAC) => rodio::Decoder::new_aac(decryptor),
+                None => rodio::Decoder::new(decryptor),
             }?;
 
             if let Some(progress) = self.deferred_seek.take() {
@@ -739,6 +744,17 @@ impl Player {
             } else {
                 sources.append_with_signal(decoder)
             };
+
+            let codec = track
+                .codec()
+                .map_or("unknown".to_string(), |codec| codec.to_string());
+            let bitrate = track
+                .bitrate()
+                .map_or("unknown".to_string(), |kbps| kbps.to_string());
+            debug!(
+                "loaded {} {track}; codec: {codec}; bitrate: {bitrate} kbps",
+                track.typ()
+            );
 
             return Ok(Some(rx));
         }
@@ -898,12 +914,20 @@ impl Player {
     pub fn play(&mut self) -> Result<()> {
         if !self.is_playing() {
             debug!("starting playback");
-            self.sink_mut()?.play();
+            let pos = {
+                let sink_mut = self.sink_mut()?;
+                sink_mut.play();
+                sink_mut.get_pos()
+            };
+
+            // Reset the playback start time for live streams.
+            if self.track().is_some_and(Track::is_livestream) {
+                self.playing_since = pos;
+            }
 
             // Playback reporting happens every time a track starts playing or is unpaused.
             self.notify(Event::Play);
         }
-
         Ok(())
     }
 
@@ -915,14 +939,13 @@ impl Player {
     /// # Errors
     ///
     /// Returns error if audio device is not open.
-    pub fn pause(&mut self) -> Result<()> {
+    pub fn pause(&mut self) {
         if self.is_playing() {
             debug!("pausing playback");
             // Don't care if the sink is already dropped: we're already "paused".
             let _ = self.sink_mut().map(|sink| sink.pause());
             self.notify(Event::Pause);
         }
-        Ok(())
     }
 
     /// Returns whether playback is active.
@@ -957,7 +980,8 @@ impl Player {
         if should_play {
             self.play()
         } else {
-            self.pause()
+            self.pause();
+            Ok(())
         }
     }
 
@@ -1271,12 +1295,16 @@ impl Player {
     ///
     /// Returns None if no track is playing or track duration is unknown.
     /// Progress is calculated as:
-    /// * Current sink position (or zero if device not open)
-    /// * Minus track start time
-    /// * Divided by track duration
+    /// * Regular tracks: Current position relative to total duration
+    /// * Livestreams: Always reports 100% since they are continuous
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
         if let Some(track) = self.track() {
+            // Livestreams are always at 100% progress.
+            if track.is_livestream() {
+                return Some(Percentage::ONE_HUNDRED);
+            }
+
             let duration = track.duration()?;
             if duration.is_zero() {
                 return None;
@@ -1288,6 +1316,26 @@ impl Player {
             return Some(Percentage::from_ratio_f32(
                 progress.div_duration_f32(duration),
             ));
+        }
+
+        None
+    }
+
+    /// Returns duration of current track.
+    ///
+    /// For normal tracks, returns total duration.
+    /// For livestreams, returns current stream duration since start.
+    /// Returns None if no track or duration cannot be determined.
+    pub fn duration(&self) -> Option<Duration> {
+        if let Some(track) = self.track() {
+            if track.is_livestream() {
+                return self
+                    .sink
+                    .as_ref()
+                    .map(|sink| sink.get_pos().saturating_sub(self.playing_since));
+            }
+
+            return track.duration();
         }
 
         None

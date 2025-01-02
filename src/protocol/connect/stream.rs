@@ -127,7 +127,6 @@ use crate::{error::Error, track::TrackId};
 /// });
 /// assert!(serde_json::from_value::<Contents>(invalid).is_err());
 /// ```
-#[serde_as]
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Contents {
     /// Action being reported (e.g., starting playback).

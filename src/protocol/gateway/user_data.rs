@@ -63,7 +63,6 @@ impl Method for UserData {
 /// Contains all user-specific information needed for authentication
 /// and playback configuration.
 // TODO : #[serde(rename_all = "UPPERCASE")]
-#[serde_as]
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Redact, Hash)]
 pub struct UserData {
     /// User profile and preferences

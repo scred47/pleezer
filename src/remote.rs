@@ -87,9 +87,9 @@ use crate::{
     gateway::Gateway,
     player::Player,
     protocol::connect::{
-        queue::{self, ContainerType, MixType},
-        stream, AudioQuality, Body, Channel, Contents, DeviceId, DeviceType, Headers, Ident,
-        Message, Percentage, QueueItem, RepeatMode, Status, UserId,
+        queue::{self, MixType},
+        stream, Body, Channel, Contents, DeviceId, DeviceType, Headers, Ident, Message, Percentage,
+        QueueItem, RepeatMode, Status, UserId,
     },
     proxy,
     tokens::UserToken,
@@ -519,6 +519,20 @@ impl Client {
     /// * Websocket connection fails
     /// * Message handling fails critically
     pub async fn start(&mut self) -> Result<()> {
+        // let mut urls = HashMap::new();
+        // let mut codec_url = CodecUrl::default();
+        // codec_url.aac = Some("http://localhost".parse().unwrap());
+        // urls.insert("96".to_string(), codec_url);
+        // let json = livestream::LivestreamData(ListData::Livestream {
+        //     id: TrackId::new(1).unwrap(),
+        //     title: "title".to_string(),
+        //     live_stream_art: "md5".to_string(),
+        //     external_urls: LivestreamUrls { data: urls },
+        //     available: true,
+        // });
+        // let body = serde_json::to_string(&json).unwrap();
+        // panic!("{body:#?}");
+
         // Purge discovery sessions from any previous session to prevent memory exhaustion.
         self.discovery_sessions = HashMap::new();
 
@@ -716,17 +730,11 @@ impl Client {
             Event::TrackChanged => {
                 if let Some(track) = self.player.track() {
                     if let Some(command) = command.as_mut() {
-                        let quality = track.quality();
-                        let codec = quality.codec().unwrap_or("Unknown");
-                        let bitrate = match quality {
-                            AudioQuality::Lossless | AudioQuality::Unknown => track
-                                .file_size()
-                                .unwrap_or_default()
-                                .checked_div(track.duration().unwrap_or_default().as_secs())
-                                .map(|bytes| bytes * 8 / 1024),
-                            _ => quality.bitrate().map(|kbps| kbps as u64),
-                        };
+                        let codec = track.codec().map_or("Unknown".to_string(), |codec| {
+                            codec.to_string().to_uppercase()
+                        });
 
+                        let bitrate = track.bitrate();
                         let bitrate = match bitrate {
                             Some(bitrate) => {
                                 if bitrate >= 1000 {
@@ -1300,28 +1308,12 @@ impl Client {
     /// * Queue resolution fails
     /// * Flow extension fails
     async fn handle_publish_queue(&mut self, list: queue::List) -> Result<()> {
-        let container_type = list
-            .contexts
-            .first()
-            .unwrap_or_default()
-            .container
-            .typ
-            .enum_value_or_default();
-
         let shuffled = if list.shuffled { "(shuffled)" } else { "" };
         info!("setting queue to {} {shuffled}", list.id);
 
         // Await with timeout in order to prevent blocking the select loop.
-        let queue = match container_type {
-            ContainerType::CONTAINER_TYPE_LIVE => {
-                error!("live radio is not supported yet");
-                Vec::new()
-            }
-            _ => {
-                tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.list_to_queue(&list))
-                    .await??
-            }
-        };
+        let queue = tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.list_to_queue(&list))
+            .await??;
 
         let tracks: Vec<_> = queue.into_iter().map(Track::from).collect();
 
@@ -1875,9 +1867,9 @@ impl Client {
                     message_id: crate::Uuid::fast_v4().to_string(),
                     track: item,
                     quality: track.quality(),
-                    duration: track.duration().unwrap_or_default(),
+                    duration: self.player.duration().unwrap_or_default(),
                     buffered: track.buffered(),
-                    progress: self.player.progress(),
+                    progress: self.player.progress().unwrap_or_default(),
                     volume: self.player.volume(),
                     is_playing: self.player.is_playing(),
                     is_shuffle: queue.shuffled,
@@ -2076,7 +2068,10 @@ impl Client {
                 command_id, status, ..
             } => self.handle_status(from, &command_id, status).await,
 
-            Body::Stop { .. } => self.player.pause(),
+            Body::Stop { .. } => {
+                self.player.pause();
+                Ok(())
+            }
 
             Body::ConnectionOffer { .. } | Body::PlaybackProgress { .. } | Body::Ready { .. } => {
                 trace!("ignoring message intended for a controller");

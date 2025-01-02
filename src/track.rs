@@ -64,8 +64,8 @@ use std::{
 };
 
 use stream_download::{
-    self, http::HttpStream, source::SourceStream, storage::temp::TempStorageProvider,
-    StreamDownload, StreamHandle, StreamPhase, StreamState,
+    self, http::HttpStream, source::SourceStream, storage::StorageProvider, StreamDownload,
+    StreamHandle, StreamPhase, StreamState,
 };
 use time::OffsetDateTime;
 use url::Url;
@@ -77,8 +77,9 @@ use crate::{
     protocol::{
         self,
         connect::AudioQuality,
-        gateway,
+        gateway::{self, LivestreamUrls},
         media::{self, Cipher, CipherFormat, Data, Format, Medium},
+        Codec,
     },
     util::ToF32,
 };
@@ -104,6 +105,12 @@ pub enum TrackType {
 }
 
 /// External streaming URL configuration.
+///
+/// Handles streaming URLs for non-standard content:
+/// * `Direct` - Single stream URL for podcast episodes
+/// * `WithQuality` - Multiple quality/codec options for livestreams
+///
+/// URLs are redacted in debug output for security.
 #[derive(Clone, Redact, Eq, PartialEq)]
 #[redact(all, variant)]
 pub enum ExternalUrl {
@@ -230,6 +237,30 @@ pub struct Track {
     /// Songs have this always set to `true`.
     /// Note that the expiry time should be checked separately.
     available: bool,
+
+    /// Audio bitrate in kbps if known.
+    /// * For MP3: Constant bitrate from quality level
+    /// * For FLAC: Variable bitrate calculated from file size
+    /// * For livestreams: Bitrate from stream URL
+    bitrate: Option<usize>,
+
+    /// Audio codec used for this content.
+    /// * For regular tracks: Determined by quality level
+    /// * For episodes: Inferred from URL extension
+    /// * For livestreams: Determined from stream URL
+    codec: Option<Codec>,
+}
+
+/// Internal stream state for content download.
+///
+/// Combines:
+/// * HTTP stream for downloading
+/// * Source URL for codec/quality detection
+struct StreamUrl {
+    /// HTTP stream for downloading content.
+    stream: HttpStream<reqwest::Client>,
+    /// Source URL for codec/quality detection.
+    url: reqwest::Url,
 }
 
 impl Track {
@@ -341,6 +372,17 @@ impl Track {
         self.expiry
     }
 
+    /// Returns whether this is a livestream.
+    ///
+    /// Livestreams have different behaviors:
+    /// * No fixed duration
+    /// * Progress always reports 100%
+    /// * Multiple quality/codec options
+    #[must_use]
+    pub fn is_livestream(&self) -> bool {
+        self.typ == TrackType::Livestream
+    }
+
     /// Returns the duration of audio data currently buffered.
     ///
     /// This represents how much of the track has been downloaded and
@@ -384,7 +426,7 @@ impl Track {
     /// are never lossless.
     #[must_use]
     pub fn is_lossless(&self) -> bool {
-        self.quality == AudioQuality::Lossless
+        self.codec().is_some_and(|codec| codec == Codec::FLAC)
     }
 
     /// Cipher format for 64kbps MP3 files using Blowfish CBC stripe encryption.
@@ -448,6 +490,53 @@ impl Track {
     /// API endpoint for retrieving media sources.
     const MEDIA_ENDPOINT: &'static str = "v1/get_url";
 
+    fn get_external_medium(&self, quality: AudioQuality) -> Result<Medium> {
+        let external_url = self.external_url.as_ref().ok_or_else(|| {
+            Error::unavailable(format!("external {} {self} has no urls", self.typ))
+        })?;
+
+        let sources = match external_url {
+            ExternalUrl::Direct(url) => {
+                vec![media::Source {
+                    url: url.clone(),
+                    provider: String::default(),
+                }]
+            }
+            ExternalUrl::WithQuality(codec_urls) => {
+                // Filter out sources that are of higher quality than requested.
+                let mut urls = Vec::new();
+                for (bitrate, codec_url) in codec_urls.sort_by_bitrate().into_iter().rev() {
+                    if quality.bitrate().is_none_or(|kbps| bitrate <= kbps) {
+                        // Prefer AAC over MP3 if both are available for the same bitrate.
+                        if let Some(url) = codec_url.aac.or(codec_url.mp3) {
+                            urls.push(media::Source {
+                                url,
+                                provider: String::default(),
+                            });
+                        }
+                    }
+                }
+                urls
+            }
+        };
+
+        if sources.is_empty() {
+            return Err(Error::unavailable(format!(
+                "no valid sources found for external {} {self}",
+                self.typ
+            )));
+        }
+
+        Ok(Medium {
+            format: Format::EXTERNAL,
+            cipher: media::CipherType { typ: Cipher::NONE },
+            sources,
+            not_before: None,
+            expiry: None,
+            media_type: media::Type::FULL,
+        })
+    }
+
     /// Retrieves a media source for the track.
     ///
     /// Attempts to get download URLs for the requested quality level,
@@ -499,28 +588,7 @@ impl Track {
         }
 
         if self.external {
-            let external_url = self.external_url.as_ref().ok_or_else(|| {
-                Error::unavailable(format!("external {} {self} has no urls", self.typ))
-            })?;
-
-            let url = match external_url {
-                ExternalUrl::Direct(url) => url.clone(),
-                ExternalUrl::WithQuality(_) => todo!(),
-            };
-
-            let source = media::Source {
-                url,
-                provider: String::default(),
-            };
-
-            return Ok(Medium {
-                format: Format::EXTERNAL,
-                cipher: media::CipherType { typ: Cipher::NONE },
-                sources: vec![source],
-                not_before: None,
-                expiry: None,
-                media_type: media::Type::FULL,
-            });
+            return self.get_external_medium(quality);
         }
 
         let track_token = self.track_token.as_ref().ok_or_else(|| {
@@ -621,16 +689,7 @@ impl Track {
     /// * No valid sources available
     /// * Content unavailable in region
     /// * Network error occurs
-    async fn open_stream(
-        &self,
-        client: &http::Client,
-        medium: &Medium,
-    ) -> Result<HttpStream<reqwest::Client>> {
-        let mut result = Err(Error::unavailable(format!(
-            "no valid sources found for {} {self}",
-            self.typ
-        )));
-
+    async fn open_stream(&self, client: &http::Client, medium: &Medium) -> Result<StreamUrl> {
         let now = SystemTime::now();
 
         // Deezer usually returns multiple sources for a track. The official
@@ -670,10 +729,12 @@ impl Track {
 
             // Perform the request and stream the response.
             match HttpStream::new(client.unlimited.clone(), source.url.clone()).await {
-                Ok(http_stream) => {
+                Ok(stream) => {
                     debug!("starting download of {} {self} from {host_str}", self.typ);
-                    result = Ok(http_stream);
-                    break;
+                    return Ok(StreamUrl {
+                        stream,
+                        url: source.url.clone(),
+                    });
                 }
                 Err(err) => {
                     warn!(
@@ -685,7 +746,10 @@ impl Track {
             };
         }
 
-        result
+        Err(Error::unavailable(format!(
+            "no valid sources found for {} {self}",
+            self.typ
+        )))
     }
 
     /// Starts downloading the track.
@@ -720,12 +784,18 @@ impl Track {
     ///
     /// * When the buffered duration mutex is poisoned in the progress callback
     /// * When duration calculation overflows during progress calculation
-    pub async fn start_download(
+    pub async fn start_download<P>(
         &mut self,
         client: &http::Client,
         medium: &Medium,
-    ) -> Result<StreamDownload<TempStorageProvider>> {
-        let stream = self.open_stream(client, medium).await?;
+        storage: P,
+    ) -> Result<StreamDownload<P>>
+    where
+        P: StorageProvider + 'static,
+    {
+        let stream_url = self.open_stream(client, medium).await?;
+        let stream = stream_url.stream;
+        let url = stream_url.url;
 
         // Set actual audio quality and cipher type.
         self.quality = medium.format.into();
@@ -750,6 +820,43 @@ impl Track {
         } else {
             info!("downloading {} {self} with unknown file size", self.typ);
         };
+
+        // Determine the codec and bitrate of the track.
+        if let Some(ExternalUrl::WithQuality(urls)) = &self.external_url {
+            // Livestreams specify the codec and bitrate with the URL.
+            let result = find_codec_bitrate(urls, &url);
+            self.codec = result.map(|some| some.0);
+            self.bitrate = result.map(|some| some.1);
+        } else {
+            // For episodes, we can infer the codec from the URL.
+            if let Some(ExternalUrl::Direct(url)) = &self.external_url {
+                if let Some(extension) = url.path().split('.').last() {
+                    if let Ok(codec) = extension.parse() {
+                        self.codec = Some(codec);
+                    }
+                }
+            } else {
+                self.codec = self.quality.codec();
+            }
+
+            // For songs, the audio quality determines the codec. When the codec
+            // is MP3, the bitrate is constant and determined by the quality. For
+            // FLAC, the bitrate is variable and determined by the file size and
+            // duration.
+            //
+            // For episodes, we have no metadata and must rely on the file size
+            // and duration to determine the bitrate. This is not perfect, but it
+            // is a good approximation.
+            self.bitrate = match self.quality {
+                AudioQuality::Lossless | AudioQuality::Unknown => self
+                    .file_size
+                    .unwrap_or_default()
+                    .checked_div(self.duration.unwrap_or_default().as_secs())
+                    .map(|bytes| usize::try_from(bytes * 8 / 1024).unwrap_or(usize::MAX)),
+
+                _ => self.quality.bitrate(),
+            };
+        }
 
         // A progress callback that logs the download progress.
         let track_str = self.to_string();
@@ -787,7 +894,7 @@ impl Track {
         // but only until the download is started. The download will continue in the background.
         let download = StreamDownload::from_stream(
             stream,
-            TempStorageProvider::default(),
+            storage,
             stream_download::Settings::default()
                 .on_progress(callback)
                 .prefetch_bytes(prefetch_size)
@@ -846,6 +953,40 @@ impl Track {
     #[must_use]
     pub fn file_size(&self) -> Option<u64> {
         self.file_size
+    }
+
+    /// Returns whether this track uses external streaming.
+    ///
+    /// External tracks:
+    /// * Use direct streaming URLs instead of Deezer's CDN
+    /// * Are never encrypted
+    /// * Include episodes and livestreams
+    #[must_use]
+    pub fn is_external(&self) -> bool {
+        self.external
+    }
+
+    /// Returns the audio bitrate in kbps if known.
+    ///
+    /// The bitrate may be:
+    /// * Fixed (MP3)
+    /// * Variable (FLAC)
+    /// * Stream-specific (livestreams)
+    /// * Unknown (some external content)
+    #[must_use]
+    pub fn bitrate(&self) -> Option<usize> {
+        self.bitrate
+    }
+
+    /// Returns the audio codec used for this content.
+    ///
+    /// Possible codecs:
+    /// * MP3 - Most common, used for all content types
+    /// * FLAC - High quality songs only
+    /// * AAC - Some livestreams and episodes
+    #[must_use]
+    pub fn codec(&self) -> Option<Codec> {
+        self.codec
     }
 }
 
@@ -906,7 +1047,7 @@ impl From<gateway::ListData> for Track {
             duration: item.duration(),
             gain: gain.map(|gain| gain.to_f32_lossy()),
             expiry: item.expiry(),
-            quality: AudioQuality::Standard,
+            quality: AudioQuality::Unknown,
             buffered: Arc::new(Mutex::new(Duration::ZERO)),
             file_size: None,
             cipher: Cipher::BF_CBC_STRIPE,
@@ -914,6 +1055,8 @@ impl From<gateway::ListData> for Track {
             available,
             external,
             external_url,
+            bitrate: None,
+            codec: None,
         }
     }
 }
@@ -938,4 +1081,30 @@ impl fmt::Display for Track {
             write!(f, "{}: \"{}\"", self.id, artist)
         }
     }
+}
+
+/// Finds codec and bitrate for a given stream URL in livestream URLs.
+///
+/// # Arguments
+///
+/// * `haystack` - Mapping of bitrates to codec URLs
+/// * `needle` - URL to match against codec URLs
+///
+/// # Returns
+///
+/// Some((Codec, usize)) if the URL is found:
+/// * Codec - AAC or MP3 depending on match
+/// * usize - Bitrate in kbps
+///
+/// None if URL is not found in any codec/bitrate combination
+fn find_codec_bitrate(haystack: &LivestreamUrls, needle: &Url) -> Option<(Codec, usize)> {
+    for (kbps, codec) in &haystack.data {
+        if codec.aac.as_ref().is_some_and(|aac| aac == needle) {
+            return Some((Codec::AAC, kbps.parse().ok()?));
+        } else if codec.mp3.as_ref().is_some_and(|mp3| mp3 == needle) {
+            return Some((Codec::MP3, kbps.parse().ok()?));
+        }
+    }
+
+    None
 }

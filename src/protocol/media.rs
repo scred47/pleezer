@@ -6,6 +6,7 @@
 //! * Content encryption
 //! * Access tokens and expiry
 //! * External streaming URLs (podcasts)
+//! * Multiple quality streams (radio)
 //!
 //! # Authentication
 //!
@@ -86,7 +87,6 @@ use super::connect::AudioQuality;
 ///
 /// Used to request streaming URLs for tracks with specific
 /// format and encryption requirements.
-#[serde_as]
 #[derive(Clone, Eq, PartialEq, Serialize, Debug, Hash)]
 pub struct Request {
     /// Authentication token for accessing licensed content
@@ -103,7 +103,6 @@ pub struct Request {
 /// Specifies the desired media type (full/preview) and formats
 /// with their encryption methods. Multiple format/cipher combinations
 /// can be requested to handle fallback scenarios.
-#[serde_as]
 #[derive(Clone, Default, Eq, PartialEq, Serialize, Debug, Hash)]
 pub struct Media {
     /// Content type requested (full track or preview)
@@ -156,14 +155,24 @@ impl fmt::Display for Type {
 /// encryption method for the content. Used to request
 /// specific quality/security combinations.
 ///
+/// For livestreams, only `EXTERNAL` format with `NONE` cipher is used
+/// since radio streams use direct unencrypted URLs.
+///
 /// # Examples
 ///
 /// ```rust
 /// use deezer::protocol::media::{CipherFormat, Cipher, Format};
 ///
+/// // For regular tracks
 /// let format = CipherFormat {
 ///     cipher: Cipher::BF_CBC_STRIPE,
 ///     format: Format::MP3_320,
+/// };
+///
+/// // For livestreams
+/// let format = CipherFormat {
+///     cipher: Cipher::NONE,
+///     format: Format::EXTERNAL,
 /// };
 /// ```
 #[derive(
