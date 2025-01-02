@@ -740,7 +740,7 @@ impl Client {
                                 if bitrate >= 1000 {
                                     format!("{}M", bitrate.to_f32_lossy() / 1000.)
                                 } else {
-                                    format!("{bitrate}K")
+                                    format!(" {bitrate}K")
                                 }
                             }
                             // If bitrate is unknown, show codec only.
@@ -753,7 +753,7 @@ impl Client {
                             .env("TRACK_ID", track.id().to_string())
                             .env("ARTIST", track.artist())
                             .env("COVER", track.cover_id())
-                            .env("FORMAT", format!("{codec} {bitrate}"));
+                            .env("FORMAT", format!("{codec}{bitrate}"));
 
                         if let Some(title) = track.title() {
                             command.env("TITLE", title);
