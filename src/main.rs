@@ -223,14 +223,16 @@ fn init_logger(config: &Args) {
 
         // Filter log messages of pleezer.
         logger.filter_module(module_path!(), level);
-    }
 
-    // Filter log messages of external crates.
-    logger.filter_module("symphonia_codec_aac", LevelFilter::Error);
-    logger.filter_module("symphonia_bundle_flac", LevelFilter::Error);
-    logger.filter_module("symphonia_bundle_mp3", LevelFilter::Error);
-    logger.filter_module("symphonia_core", LevelFilter::Error);
-    logger.filter_module("symphonia_metadata", LevelFilter::Error);
+        if level != LevelFilter::Trace {
+            // Filter log messages of external crates.
+            logger.filter_module("symphonia_codec_aac", LevelFilter::Error);
+            logger.filter_module("symphonia_bundle_flac", LevelFilter::Error);
+            logger.filter_module("symphonia_bundle_mp3", LevelFilter::Error);
+            logger.filter_module("symphonia_core", LevelFilter::Error);
+            logger.filter_module("symphonia_metadata", LevelFilter::Error);
+        }
+    }
 
     logger.init();
 }

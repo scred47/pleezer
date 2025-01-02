@@ -231,6 +231,19 @@ pub enum ListData {
         #[serde(rename = "TRACK_TOKEN_EXPIRE")]
         #[serde_as(as = "TimestampSeconds<i64, Flexible>")]
         expiry: SystemTime,
+
+        /// Fallback track data when primary track is unavailable.
+        ///
+        /// Some songs may have an alternative version available when the primary
+        /// version cannot be accessed. This commonly occurs with:
+        /// * Region-restricted content
+        /// * Alternative recordings/mixes
+        /// * Re-released versions
+        ///
+        /// When a fallback is used, the track's metadata is swapped with the
+        /// fallback version's metadata.
+        #[serde(rename = "FALLBACK")]
+        fallback: Option<Box<Self>>,
     },
 
     /// Podcast episode

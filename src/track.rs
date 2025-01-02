@@ -58,11 +58,13 @@
 use std::{
     fmt,
     num::NonZeroI64,
+    ops::Deref,
     str::FromStr,
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, SystemTime},
 };
 
+use reqwest::header::{HeaderValue, CONTENT_TYPE};
 use stream_download::{
     self, http::HttpStream, source::SourceStream, storage::StorageProvider, StreamDownload,
     StreamHandle, StreamPhase, StreamState,
@@ -249,6 +251,8 @@ pub struct Track {
     /// * For episodes: Inferred from URL extension
     /// * For livestreams: Determined from stream URL
     codec: Option<Codec>,
+
+    fallback: Option<Box<Self>>,
 }
 
 /// Internal stream state for content download.
@@ -261,6 +265,49 @@ struct StreamUrl {
     stream: HttpStream<reqwest::Client>,
     /// Source URL for codec/quality detection.
     url: reqwest::Url,
+}
+
+/// Indicates whether a medium is for the primary track or fallback version.
+///
+/// When requesting media for playback, the response may be for either:
+/// * Primary - The originally requested track
+/// * Fallback - An alternative version when primary is unavailable
+///
+/// If a fallback medium is returned, the track's metadata will be
+/// swapped with its fallback version before playback.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum MediumType {
+    /// Medium for the primary requested track
+    Primary(Medium),
+    /// Medium for the fallback version when primary is unavailable
+    Fallback(Medium),
+}
+
+/// Provides direct access to the underlying `Medium` regardless of variant.
+///
+/// This allows transparent access to `Medium` methods and fields without
+/// explicitly matching on `Primary` vs `Fallback`. Useful when the variant
+/// distinction isn't relevant for the operation.
+///
+/// # Example
+///
+/// ```
+/// use pleezer::track::MediumType;
+///
+/// let medium_type = MediumType::Primary(medium);
+///
+/// // Access Medium fields directly through deref
+/// let format = medium_type.format;
+/// let sources = &medium_type.sources;
+/// ```
+impl Deref for MediumType {
+    type Target = Medium;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Primary(medium) | Self::Fallback(medium) => medium,
+        }
+    }
 }
 
 impl Track {
@@ -500,7 +547,7 @@ impl Track {
     /// API endpoint for retrieving media sources.
     const MEDIA_ENDPOINT: &'static str = "v1/get_url";
 
-    fn get_external_medium(&self, quality: AudioQuality) -> Result<Medium> {
+    fn get_external_medium(&self, quality: AudioQuality) -> Result<MediumType> {
         let external_url = self.external_url.as_ref().ok_or_else(|| {
             Error::unavailable(format!("external {} {self} has no urls", self.typ))
         })?;
@@ -537,15 +584,20 @@ impl Track {
             )));
         }
 
-        Ok(Medium {
+        let medium = Medium {
             format: Format::EXTERNAL,
             cipher: media::CipherType { typ: Cipher::NONE },
             sources,
             not_before: None,
             expiry: None,
             media_type: media::Type::FULL,
-        })
+        };
+
+        Ok(MediumType::Primary(medium))
     }
+
+    /// Content type for media requests.
+    const JSON_CONTENT: HeaderValue = HeaderValue::from_static("application/json");
 
     /// Retrieves a media source for the track.
     ///
@@ -573,13 +625,20 @@ impl Track {
     /// * FLAC → MP3 320 → MP3 128 → MP3 64
     /// * MP3 320 → MP3 128 → MP3 64
     /// * MP3 128 → MP3 64
+    ///
+    /// # Track Fallback
+    ///
+    /// If no media is available for the primary track, but a fallback track
+    /// exists and has available media, returns `MediumType::Fallback`. The
+    /// track's metadata will be swapped with the fallback version when
+    /// playback begins.
     pub async fn get_medium(
         &self,
         client: &http::Client,
         media_url: &Url,
         quality: AudioQuality,
         license_token: impl Into<String>,
-    ) -> Result<Medium> {
+    ) -> Result<MediumType> {
         if !self.available() {
             return Err(Error::unavailable(format!(
                 "{} {self} is not available for download",
@@ -605,6 +664,13 @@ impl Track {
             Error::permission_denied(format!("{} {self} does not have a track token", self.typ))
         })?;
 
+        let mut track_tokens = vec![track_token.to_owned()];
+        if let Some(fallback) = &self.fallback {
+            if let Some(fallback_token) = fallback.track_token.as_ref() {
+                track_tokens.push(fallback_token.to_owned());
+            }
+        }
+
         let cipher_formats = match quality {
             AudioQuality::Basic => Self::CIPHER_FORMATS_MP3_64.to_vec(),
             AudioQuality::Standard => Self::CIPHER_FORMATS_MP3_128.to_vec(),
@@ -620,7 +686,7 @@ impl Track {
 
         let request = media::Request {
             license_token: license_token.into(),
-            track_tokens: vec![track_token.into()],
+            track_tokens,
             media: vec![media::Media {
                 typ: media::Type::FULL,
                 cipher_formats,
@@ -631,38 +697,40 @@ impl Track {
         // This is to prevent hammering the Deezer API in case of deserialize errors.
         let get_url = media_url.join(Self::MEDIA_ENDPOINT)?;
         let body = serde_json::to_string(&request)?;
-        let request = client.post(get_url, body);
+
+        let mut request = client.post(get_url, body);
+        let headers = request.headers_mut();
+        headers.insert(CONTENT_TYPE, Self::JSON_CONTENT);
 
         let response = client.execute(request).await?;
         let body = response.text().await?;
-        let result: media::Response = protocol::json(&body, Self::MEDIA_ENDPOINT)?;
+        let items: media::Response = protocol::json(&body, Self::MEDIA_ENDPOINT)?;
 
-        // Deezer only sends a single media object.
-        let result = match result.data.first() {
-            Some(data) => match data {
-                Data::Media { media } => media.first().cloned().ok_or(Error::not_found(
-                    format!("empty media data for {} {self}", self.typ),
-                ))?,
-                Data::Errors { errors } => {
-                    return Err(Error::unavailable(errors.first().map_or_else(
-                        || format!("unknown error getting media for {} {self}", self.typ),
-                        ToString::to_string,
-                    )));
+        // Find the first media source that is available.
+        // There are as many media objects as there are track tokens.
+        let mut result = None;
+        for i in 0..items.data.len() {
+            if let Data::Media { media } = &items.data[i] {
+                if let Some(medium) = media.first().cloned() {
+                    let medium_type = if i == 0 {
+                        MediumType::Primary(medium)
+                    } else {
+                        MediumType::Fallback(medium)
+                    };
+                    result = Some(medium_type);
+                    break;
                 }
-            },
-            None => {
-                return Err(Error::not_found(format!(
-                    "no media data for {} {self}",
-                    self.typ
-                )))
             }
-        };
+        }
+
+        let result = result
+            .ok_or_else(|| Error::not_found(format!("no media data for {} {self}", self.typ)))?;
 
         let available_quality = AudioQuality::from(result.format);
 
         // User-uploaded tracks are not reported with any quality. We could estimate the quality
         // based on the bitrate, but the official client does not do this either.
-        if !self.is_user_uploaded() && quality != available_quality {
+        if !self.is_user_uploaded() && !self.is_external() && quality != available_quality {
             warn!(
                 "requested {} {self} in {}, but got {}",
                 self.typ, quality, available_quality
@@ -781,6 +849,15 @@ impl Track {
     /// * Default size for unknown bitrates
     /// * See `prefetch_size()` for details
     ///
+    /// # Fallback Handling
+    ///
+    /// If a fallback medium is provided, the track's metadata will be swapped
+    /// with its fallback version before download begins. This ensures the
+    /// playing track matches the actual content being downloaded.
+    ///
+    /// The original track metadata is preserved in the fallback field and can
+    /// be restored if needed.
+    ///
     /// # Errors
     ///
     /// Returns error if:
@@ -803,12 +880,31 @@ impl Track {
     pub async fn start_download<P>(
         &mut self,
         client: &http::Client,
-        medium: &Medium,
+        medium: &MediumType,
         storage: P,
     ) -> Result<StreamDownload<P>>
     where
         P: StorageProvider + 'static,
     {
+        let medium = match medium {
+            MediumType::Primary(medium) => medium,
+            MediumType::Fallback(medium) => {
+                if let Some(fallback) = &mut self.fallback {
+                    warn!("falling back {} {} to {fallback}", self.typ, self.id);
+                    std::mem::swap(&mut self.id, &mut fallback.id);
+                    std::mem::swap(&mut self.artist, &mut fallback.artist);
+                    std::mem::swap(&mut self.album_title, &mut fallback.album_title);
+                    std::mem::swap(&mut self.cover_id, &mut fallback.cover_id);
+                    std::mem::swap(&mut self.duration, &mut fallback.duration);
+                    std::mem::swap(&mut self.title, &mut fallback.title);
+                    std::mem::swap(&mut self.gain, &mut fallback.gain);
+                    std::mem::swap(&mut self.track_token, &mut fallback.track_token);
+                    std::mem::swap(&mut self.expiry, &mut fallback.expiry);
+                }
+                medium
+            }
+        };
+
         let stream_url = self.open_stream(client, medium).await?;
         let stream = stream_url.stream;
         let url = stream_url.url;
@@ -1062,8 +1158,8 @@ impl From<gateway::ListData> for Track {
             (None, None)
         };
 
-        let (available, external, external_url) = match &item {
-            gateway::ListData::Song { .. } => (true, false, None),
+        let (available, external, external_url, fallback) = match &item {
+            gateway::ListData::Song { fallback, .. } => (true, false, None, fallback.clone()),
             gateway::ListData::Episode {
                 available,
                 external,
@@ -1073,6 +1169,7 @@ impl From<gateway::ListData> for Track {
                 *available,
                 *external,
                 external_url.clone().map(ExternalUrl::Direct),
+                None,
             ),
             gateway::ListData::Livestream {
                 available,
@@ -1082,6 +1179,7 @@ impl From<gateway::ListData> for Track {
                 *available,
                 true,
                 Some(ExternalUrl::WithQuality(external_urls.clone())),
+                None,
             ),
         };
 
@@ -1106,6 +1204,7 @@ impl From<gateway::ListData> for Track {
             external_url,
             bitrate: None,
             codec: None,
+            fallback: fallback.map(|boxed| Box::new((*boxed).into())),
         }
     }
 }

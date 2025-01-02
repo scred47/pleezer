@@ -14,6 +14,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [tests] Add anonymized API response examples
 - [track] Support for podcast episodes with external streaming
 - [track] Support for radio livestreams with multiple quality options and codecs
+- [track] Support for fallback tracks when primary version is unavailable
 
 ### Changed
 - [docs] Enhanced documentation for signal handling and lifecycle management
