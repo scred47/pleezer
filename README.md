@@ -351,7 +351,7 @@ Emitted when the controlling Deezer client disconnects
 No additional variables
 
 #### Example
-Note: The script is responsible for any necessary shell escaping of the received values.
+Note: The script must properly escape received values to prevent command injection when using them in shell commands. In bash, `printf %q` provides safe escaping:
 
 ```bash
 #!/bin/bash
@@ -359,7 +359,7 @@ Note: The script is responsible for any necessary shell escaping of the received
 echo "Event: $EVENT"
 case "$EVENT" in
 "track_changed")
-    # Make sure to properly escape values if using them in commands
+    # Use printf %q to prevent command injection when using values in commands
     echo "Track changed: $(printf %q "$TITLE") by $(printf %q "$ARTIST")"
     ;;
 "connected")
