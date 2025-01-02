@@ -217,7 +217,7 @@ pub struct Track {
 
     /// Amount of audio data downloaded and available for playback.
     /// Protected by mutex for concurrent access from download task.
-    buffered: Arc<Mutex<Duration>>,
+    buffered: Arc<Mutex<Option<Duration>>>,
 
     /// Total size of the audio file in bytes.
     /// Available only after download begins.
@@ -395,11 +395,14 @@ impl Track {
     /// This represents how much of the track has been downloaded and
     /// is available for playback.
     ///
+    /// For livestreams, this always returns `None` since they are continuous
+    /// streams without a fixed duration or buffer concept.
+    ///
     /// # Panics
     ///
     /// Returns last known value if lock is poisoned due to download task panic.
     #[must_use]
-    pub fn buffered(&self) -> Duration {
+    pub fn buffered(&self) -> Option<Duration> {
         // Return the buffered duration, or when the lock is poisoned because
         // the download task panicked, return the last value before the panic.
         // Practically, this should mean that this track will never be fully
@@ -882,7 +885,7 @@ impl Track {
                     // equal to the total duration. It's OK to unwrap here: if
                     // the mutex is poisoned, then the main thread panicked and
                     // we should propagate the error.
-                    *buffered.lock().unwrap() = duration;
+                    *buffered.lock().unwrap() = Some(duration);
                 } else if let Some(file_size) = stream.content_length() {
                     if file_size > 0 {
                         // `f64` not for precision, but to be able to fit
@@ -892,7 +895,7 @@ impl Track {
                         let progress = stream_state.current_position as f64 / file_size as f64;
 
                         // OK to unwrap: see rationale above.
-                        *buffered.lock().unwrap() = duration.mul_f64(progress);
+                        *buffered.lock().unwrap() = Some(duration.mul_f64(progress));
                     }
                 }
             }
@@ -929,11 +932,11 @@ impl Track {
     /// A track is complete when the buffered duration equals
     /// the total track duration.
     ///
-    /// Livestreams are never complete.
+    /// For livestreams, always returns false since they are continuous
+    /// streams that can't be fully buffered.
     #[must_use]
     pub fn is_complete(&self) -> bool {
-        self.duration
-            .is_some_and(|duration| self.buffered() == duration)
+        self.duration == self.buffered()
     }
 
     /// Resets the track's download state.
@@ -943,7 +946,10 @@ impl Track {
     /// * File size information
     /// * Buffer progress
     ///
-    /// Useful when needing to restart an interrupted download.
+    /// For livestreams, this will clear any accumulated playback duration
+    /// since they don't have a traditional buffer concept.
+    ///
+    /// Useful when needing to restart an interrupted download or stream.
     ///
     /// # Panics
     ///
@@ -951,7 +957,7 @@ impl Track {
     pub fn reset_download(&mut self) {
         self.handle = None;
         self.file_size = None;
-        *self.buffered.lock().unwrap() = Duration::ZERO;
+        *self.buffered.lock().unwrap() = None;
     }
 
     /// Returns the total file size if known.
@@ -1091,7 +1097,7 @@ impl From<gateway::ListData> for Track {
             gain: gain.map(|gain| gain.to_f32_lossy()),
             expiry: item.expiry(),
             quality: AudioQuality::Unknown,
-            buffered: Arc::new(Mutex::new(Duration::ZERO)),
+            buffered: Arc::new(Mutex::new(None)),
             file_size: None,
             cipher: Cipher::BF_CBC_STRIPE,
             handle: None,

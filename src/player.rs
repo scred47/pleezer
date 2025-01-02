@@ -1302,26 +1302,20 @@ impl Player {
     /// * Livestreams: Always reports 100% since they are continuous
     #[must_use]
     pub fn progress(&self) -> Option<Percentage> {
-        if let Some(track) = self.track() {
-            // Livestreams are always at 100% progress.
+        self.track().and_then(|track| {
+            // Livestreams are continuous and have no fixed duration.
+            // We report 100% progress to indicate that they are always at the end.
             if track.is_livestream() {
-                return Some(Percentage::ONE_HUNDRED);
+                Some(Percentage::ONE_HUNDRED)
+            } else {
+                // The progress is the difference between the current position of the sink, which is the total duration played, and the time the current track started playing.
+                let duration = track.duration()?;
+                let progress = self.get_pos().saturating_sub(self.playing_since);
+                Some(Percentage::from_ratio_f32(
+                    progress.div_duration_f32(duration),
+                ))
             }
-
-            let duration = track.duration()?;
-            if duration.is_zero() {
-                return None;
-            }
-
-            // The progress is the difference between the current position of the sink, which is the
-            // total duration played, and the time the current track started playing.
-            let progress = self.get_pos().saturating_sub(self.playing_since);
-            return Some(Percentage::from_ratio_f32(
-                progress.div_duration_f32(duration),
-            ));
-        }
-
-        None
+        })
     }
 
     /// Returns duration of current track.
@@ -1330,18 +1324,15 @@ impl Player {
     /// For livestreams, returns current stream duration since start.
     /// Returns None if no track or duration cannot be determined.
     pub fn duration(&self) -> Option<Duration> {
-        if let Some(track) = self.track() {
+        self.track().and_then(|track| {
             if track.is_livestream() {
-                return self
-                    .sink
+                self.sink
                     .as_ref()
-                    .map(|sink| sink.get_pos().saturating_sub(self.playing_since));
+                    .map(|sink| sink.get_pos().saturating_sub(self.playing_since))
+            } else {
+                track.duration()
             }
-
-            return track.duration();
-        }
-
-        None
+        })
     }
 
     /// Sets playback position within current track.

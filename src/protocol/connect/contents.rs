@@ -709,11 +709,11 @@ pub enum Body {
         /// Audio quality of the currently playing track
         quality: AudioQuality,
         /// Total duration of the track
-        duration: Duration,
+        duration: Option<Duration>,
         /// Amount of audio buffered from the start of the track
-        buffered: Duration,
+        buffered: Option<Duration>,
         /// Current playback position (0.0 to 1.0)
-        progress: Percentage,
+        progress: Option<Percentage>,
         /// Current volume level (0.0 to 1.0)
         volume: Percentage,
         /// Whether playback is active
@@ -2142,13 +2142,13 @@ pub enum Payload {
         /// Currently playing track
         element_id: QueueItem,
         /// Total track duration
-        #[serde_as(as = "DurationSeconds<u64, Flexible>")]
-        duration: Duration,
+        #[serde_as(as = "Option<DurationSeconds<u64, Flexible>>")]
+        duration: Option<Duration>,
         /// Amount of audio buffered
-        #[serde_as(as = "DurationSeconds<u64, Flexible>")]
-        buffered: Duration,
+        #[serde_as(as = "Option<DurationSeconds<u64, Flexible>>")]
+        buffered: Option<Duration>,
         /// Current playback position (0.0 to 1.0)
-        progress: Percentage,
+        progress: Option<Percentage>,
         /// Current volume level (0.0 to 1.0)
         volume: Percentage,
         /// Audio quality of the current track
