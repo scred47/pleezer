@@ -44,12 +44,35 @@ impl fmt::Display for Codec {
     }
 }
 
+/// Converts a string to a [`Codec`].
+///
+/// # Supported formats
+/// - AAC: "aac", "m4a", "m4b"
+/// - FLAC: "flac"
+/// - MP3: "mp3"
+///
+/// # Errors
+/// Returns [`Error::invalid_argument`] if the string doesn't match any supported codec format.
+///
+/// # Examples
+/// ```
+/// use std::str::FromStr;
+/// use pleezer::protocol::Codec;
+///
+/// assert_eq!(Codec::from_str("aac").unwrap(), Codec::AAC);
+/// assert_eq!(Codec::from_str("m4a").unwrap(), Codec::AAC);
+/// assert_eq!(Codec::from_str("m4b").unwrap(), Codec::AAC);
+/// assert_eq!(Codec::from_str("flac").unwrap(), Codec::FLAC);
+/// assert_eq!(Codec::from_str("mp3").unwrap(), Codec::MP3);
+///
+/// assert!(Codec::from_str("wav").is_err());
+/// ```
 impl FromStr for Codec {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "aac" => Ok(Codec::AAC),
+            "aac" | "m4a" | "m4b" => Ok(Codec::AAC),
             "flac" => Ok(Codec::FLAC),
             "mp3" => Ok(Codec::MP3),
             _ => Err(Error::invalid_argument(format!("{s} is not a valid codec"))),
