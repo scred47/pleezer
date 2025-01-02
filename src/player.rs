@@ -669,9 +669,12 @@ impl Player {
                     )
                     .await?;
 
+                let prefetch_size = usize::try_from(track.prefetch_size()).unwrap_or(usize::MAX);
                 let storage = AdaptiveStorageProvider::new(
                     TempStorageProvider::default(),
-                    1_000_000.try_into().unwrap(),
+                    prefetch_size
+                        .try_into()
+                        .map_err(|e| Error::internal(format!("prefetch size error: {e}")))?,
                 );
                 track.start_download(&self.client, &medium, storage).await
             })

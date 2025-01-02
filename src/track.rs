@@ -264,16 +264,23 @@ struct StreamUrl {
 }
 
 impl Track {
-    /// Amount of audio to buffer before playback can start.
+    /// Duration of audio to prefetch before playback starts.
     ///
-    /// This helps prevent playback interruptions by ensuring
-    /// enough audio data is available.
+    /// A 3 second buffer provides:
+    /// * Enough data to start decoding
+    /// * Time to download more data
+    /// * Protection against minor network issues
+    /// * Reasonable startup latency
     const PREFETCH_LENGTH: Duration = Duration::from_secs(3);
 
-    /// Default prefetch size in bytes when Content-Length is unknown.
+    /// Default prefetch size in bytes when bitrate is unknown.
     ///
-    /// Used when server doesn't provide file size. Value matches
-    /// official Deezer client behavior.
+    /// Used when:
+    /// * Server doesn't provide Content-Length
+    /// * Track bitrate cannot be determined
+    /// * External content has no bitrate info
+    ///
+    /// Value of 60KB matches official client behavior.
     const PREFETCH_DEFAULT: usize = 60 * 1024;
 
     /// Returns the track's unique identifier.
@@ -764,6 +771,12 @@ impl Track {
     ///
     /// * `client` - HTTP client for download
     /// * `medium` - Media source information
+    /// * `storage` - Storage provider with prefetch buffer
+    ///
+    /// The storage buffer size is configured based on:
+    /// * Track bitrate (if known)
+    /// * Default size for unknown bitrates
+    /// * See `prefetch_size()` for details
     ///
     /// # Errors
     ///
@@ -801,25 +814,13 @@ impl Track {
         self.quality = medium.format.into();
         self.cipher = medium.cipher.typ;
 
-        // Calculate the prefetch size based on the audio quality. This assumes
-        // that the track is encoded with a constant bitrate, which is not
-        // necessarily true. However, it is a good approximation.
-        let mut prefetch_size = Self::PREFETCH_DEFAULT as u64;
+        // Set the file size if known. This is used to calculate the prefetch size.
         if let Some(file_size) = stream.content_length() {
             info!("downloading {file_size} bytes for {} {self}", self.typ);
             self.file_size = Some(file_size);
-
-            if let Some(duration) = self.duration {
-                if !duration.is_zero() {
-                    let size = Self::PREFETCH_LENGTH.as_secs()
-                        * file_size.saturating_div(duration.as_secs());
-                    trace!("prefetch size for {} {self}: {size} bytes", self.typ);
-                    prefetch_size = size;
-                }
-            }
         } else {
             info!("downloading {} {self} with unknown file size", self.typ);
-        };
+        }
 
         // Determine the codec and bitrate of the track.
         if let Some(ExternalUrl::WithQuality(urls)) = &self.external_url {
@@ -857,6 +858,13 @@ impl Track {
                 _ => self.quality.bitrate(),
             };
         }
+
+        // Calculate the prefetch size based on the bitrate and duration.
+        let prefetch_size = self.prefetch_size();
+        trace!(
+            "prefetch size for {} {self}: {prefetch_size} bytes",
+            self.typ
+        );
 
         // A progress callback that logs the download progress.
         let track_str = self.to_string();
@@ -987,6 +995,41 @@ impl Track {
     #[must_use]
     pub fn codec(&self) -> Option<Codec> {
         self.codec
+    }
+
+    /// Returns the size of audio data to prefetch before playback.
+    ///
+    /// The prefetch size is calculated based on:
+    /// * Track bitrate (if known)
+    /// * Prefetch duration constant (3 seconds)
+    /// * Default size fallback (60KB)
+    ///
+    /// # Calculation
+    ///
+    /// For known bitrates:
+    /// ```text
+    /// prefetch_size = (bitrate_kbps * 1024 / 8) * prefetch_duration_secs
+    /// ```
+    ///
+    /// For unknown bitrates:
+    /// * Uses default size of 60KB
+    ///
+    /// # Examples
+    ///
+    /// * 320kbps MP3: ~120KB prefetch
+    /// * 128kbps MP3: ~48KB prefetch
+    /// * Unknown bitrate: 60KB prefetch
+    ///
+    /// This size is used for:
+    /// * Initial buffering before playback starts
+    /// * Configuring storage buffer size
+    #[must_use]
+    pub fn prefetch_size(&self) -> u64 {
+        let mut prefetch_size = Self::PREFETCH_DEFAULT as u64;
+        if let Some(kbps) = self.bitrate {
+            prefetch_size = (kbps as u64 * 1024 / 8) * Self::PREFETCH_LENGTH.as_secs();
+        }
+        prefetch_size
     }
 }
 
