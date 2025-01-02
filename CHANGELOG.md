@@ -18,6 +18,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [docs] Enhanced documentation for signal handling and lifecycle management
 - [main] Improved signal handling and graceful shutdown
+- [remote] Remove automatic shell escaping from hook script variables
 - [remote] Renamed `ALBUM_COVER` to `COVER_ID` in the `track_changed` event
 - [track] Renamed `album_cover` to `cover_id` for consistency
 

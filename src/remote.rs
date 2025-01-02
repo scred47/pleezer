@@ -716,7 +716,7 @@ impl Client {
                     if let Some(command) = command.as_mut() {
                         command
                             .env("EVENT", "playing")
-                            .env("TRACK_ID", shell_escape(&track_id.to_string()));
+                            .env("TRACK_ID", track_id.to_string());
                     }
                 }
             }
@@ -749,20 +749,20 @@ impl Client {
 
                         command
                             .env("EVENT", "track_changed")
-                            .env("TRACK_TYPE", shell_escape(&track.typ().to_string()))
-                            .env("TRACK_ID", shell_escape(&track.id().to_string()))
-                            .env("ARTIST", shell_escape(track.artist()))
-                            .env("COVER", shell_escape(track.cover_id()))
-                            .env("FORMAT", shell_escape(&format!("{codec} {bitrate}")));
+                            .env("TRACK_TYPE", track.typ().to_string())
+                            .env("TRACK_ID", track.id().to_string())
+                            .env("ARTIST", track.artist())
+                            .env("COVER", track.cover_id())
+                            .env("FORMAT", format!("{codec} {bitrate}"));
 
                         if let Some(title) = track.title() {
-                            command.env("TITLE", shell_escape(title));
+                            command.env("TITLE", title);
                         }
                         if let Some(album_title) = track.album_title() {
-                            command.env("ALBUM_TITLE", shell_escape(album_title));
+                            command.env("ALBUM_TITLE", album_title);
                         }
                         if let Some(duration) = track.duration() {
-                            command.env("DURATION", shell_escape(&duration.as_secs().to_string()));
+                            command.env("DURATION", duration.as_secs().to_string());
                         }
                     }
                 }
@@ -772,11 +772,8 @@ impl Client {
                 if let Some(command) = command.as_mut() {
                     command
                         .env("EVENT", "connected")
-                        .env("USER_ID", shell_escape(&self.user_id().to_string()))
-                        .env(
-                            "USER_NAME",
-                            shell_escape(self.gateway.user_name().unwrap_or_default()),
-                        );
+                        .env("USER_ID", self.user_id().to_string())
+                        .env("USER_NAME", self.gateway.user_name().unwrap_or_default());
                 }
             }
 
@@ -2216,19 +2213,4 @@ impl Client {
             ident,
         }
     }
-}
-
-/// Escapes a string for use in shell commands.
-///
-/// Wraps shell-escape crate's functionality for string escaping.
-///
-/// # Arguments
-///
-/// * `s` - String to escape
-///
-/// # Returns
-///
-/// Shell-safe escaped string
-fn shell_escape(s: &str) -> String {
-    shell_escape::escape(s.into()).to_string()
 }

@@ -351,18 +351,19 @@ Emitted when the controlling Deezer client disconnects
 No additional variables
 
 #### Example
-All string values are properly escaped for shell safety.
+Note: The script is responsible for any necessary shell escaping of the received values.
 
 ```bash
 #!/bin/bash
 # example-hook.sh
 echo "Event: $EVENT"
 case "$EVENT" in
-  "track_changed")
-    echo "Track changed: $TITLE by $ARTIST"
+"track_changed")
+    # Make sure to properly escape values if using them in commands
+    echo "Track changed: $(printf %q "$TITLE") by $(printf %q "$ARTIST")"
     ;;
-  "connected")
-    echo "Connected as: $USER_NAME"
+"connected")
+    echo "Connected as: $(printf %q "$USER_NAME")"
     ;;
 esac
 ```
