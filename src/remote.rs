@@ -1666,7 +1666,15 @@ impl Client {
         }
 
         if let Some(progress) = progress {
-            self.player.set_progress(progress)?;
+            if self
+                .player
+                .track()
+                .is_some_and(|track| track.is_livestream())
+            {
+                trace!("ignoring set_progress for livestream");
+            } else {
+                self.player.set_progress(progress)?;
+            }
         }
 
         if let Some(shuffle) = set_shuffle {
