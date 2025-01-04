@@ -21,6 +21,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [main] Improved signal handling and graceful shutdown
 - [remote] Remove automatic shell escaping from hook script variables
 - [remote] Renamed `ALBUM_COVER` to `COVER_ID` in the `track_changed` event
+- [remote] Improve error handling and ignore progress updates for livestreams
 - [track] Renamed `album_cover` to `cover_id` for consistency
 
 ## [0.7.0] - 2024-12-28

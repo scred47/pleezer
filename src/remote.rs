@@ -1538,6 +1538,13 @@ impl Client {
     /// * Repeat mode
     /// * Volume
     ///
+    /// Handles state updates gracefully:
+    /// 1. Acknowledges command receipt
+    /// 2. Updates player state (continuing on errors)
+    /// 3. Refreshes queue if shuffle state changed
+    /// 4. Reports playback progress
+    /// 5. Sends status to controller
+    ///
     /// # Arguments
     ///
     /// * `message_id` - Command ID for acknowledgement
@@ -1553,8 +1560,8 @@ impl Client {
     ///
     /// Returns error if:
     /// * No active controller
-    /// * Player state update fails
     /// * Message send fails
+    /// * All state updates fail
     #[expect(clippy::too_many_arguments)]
     async fn handle_skip(
         &mut self,
@@ -1573,20 +1580,39 @@ impl Client {
         if self.controller().is_some() {
             self.send_acknowledgement(message_id).await?;
 
-            self.set_player_state(
-                queue_id,
-                item,
-                progress,
-                should_play,
-                set_shuffle,
-                set_repeat_mode,
-                set_volume,
-            )
-            .await?;
+            // Remember to refresh the queue if the shuffle mode changes.
+            let refresh_queue = self.queue.as_ref().map(|queue| queue.shuffled) != set_shuffle;
+
+            // Attempt to set the player state, including reordering the queue if the shuffle mode
+            // has changed. No need to print the error message, as the method will log it.
+            let state_set = self
+                .set_player_state(
+                    queue_id,
+                    item,
+                    progress,
+                    should_play,
+                    set_shuffle,
+                    set_repeat_mode,
+                    set_volume,
+                )
+                .is_ok();
+
+            // Refresh the queue if the shuffle mode has changed.
+            if refresh_queue && self.queue.as_ref().map(|queue| queue.shuffled) == set_shuffle {
+                if let Err(e) = self.refresh_queue().await {
+                    error!("error refreshing queue: {e}");
+                }
+            }
+
+            // Report playback progress regardless of the state setting result - it can be that
+            // *some* state was set, but not all of it.
+            if let Err(e) = self.report_playback_progress().await {
+                error!("error reporting playback progress: {e}");
+            }
 
             // The status response to the first skip, that is received during the initial handshake
             // ahead of the queue publication, should be "1" (Error).
-            let status = if self.player.track().is_some() {
+            let status = if state_set && self.queue.is_some() {
                 Status::OK
             } else {
                 Status::Error
@@ -1617,11 +1643,18 @@ impl Client {
     ///
     /// Applies changes to:
     /// * Queue position
-    /// * Playback progress
+    /// * Playback progress (ignores for livestreams)
     /// * Playback state
     /// * Shuffle mode and track order
     /// * Repeat mode
     /// * Volume level (respecting initial volume until client takes control)
+    ///
+    /// Handles error cases gracefully:
+    /// * Progress setting failures
+    /// * Volume setting failures
+    /// * Playback state failures
+    ///
+    /// Returns the first error encountered but continues attempting remaining updates.
     ///
     /// # Arguments
     ///
@@ -1635,11 +1668,9 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns error if:
-    /// * Progress setting fails
-    /// * Progress reporting fails
+    /// Returns error if any update fails, but attempts all updates regardless
     #[expect(clippy::too_many_arguments)]
-    pub async fn set_player_state(
+    pub fn set_player_state(
         &mut self,
         queue_id: Option<&str>,
         item: Option<QueueItem>,
@@ -1649,6 +1680,8 @@ impl Client {
         set_repeat_mode: Option<RepeatMode>,
         set_volume: Option<Percentage>,
     ) -> Result<()> {
+        let mut result = Ok(());
+
         if let Some(item) = item {
             let position = item.position;
 
@@ -1669,11 +1702,12 @@ impl Client {
             if self
                 .player
                 .track()
-                .is_some_and(|track| track.is_livestream())
+                .is_some_and(super::track::Track::is_livestream)
             {
                 trace!("ignoring set_progress for livestream");
-            } else {
-                self.player.set_progress(progress)?;
+            } else if let Err(e) = self.player.set_progress(progress) {
+                error!("error setting playback position: {e}");
+                result = Err(e);
             }
         }
 
@@ -1696,7 +1730,6 @@ impl Client {
                         .filter_map(|track| track.id.parse().ok())
                         .collect();
                     self.player.reorder_queue(&reordered_queue);
-                    self.refresh_queue().await?;
                 }
             }
         }
@@ -1718,17 +1751,18 @@ impl Client {
 
             if let Err(e) = self.player.set_volume(volume) {
                 error!("error setting volume: {e}");
+                result = Err(e);
             }
         }
 
         if let Some(should_play) = should_play {
             if let Err(e) = self.player.set_playing(should_play) {
                 error!("error setting playback state: {e}");
+                result = Err(e);
             }
         }
 
-        // TODO: move to caller so we also report on failure
-        self.report_playback_progress().await
+        result
     }
 
     /// Shuffles or unshuffles the current queue.
