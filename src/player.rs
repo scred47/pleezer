@@ -1360,28 +1360,31 @@ impl Player {
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
         if let Some(track) = self.track() {
             info!("setting {} progress to {progress}", track.typ());
+
+            let duration = track.duration().ok_or_else(|| {
+                Error::unavailable(format!("duration unknown for {} {track}", track.typ()))
+            })?;
+
             let progress = progress.as_ratio_f32();
             if progress < 1.0 {
-                let mut position = track
-                    .duration()
-                    .ok_or_else(|| {
-                        Error::unavailable(format!("duration unknown for {} {track}", track.typ()))
-                    })?
-                    .mul_f32(progress);
+                let mut position = duration.mul_f32(progress);
 
                 // If the requested position is beyond what is buffered, seek to the buffered
                 // position instead. This prevents blocking the player and disconnections.
                 if let Some(buffered) = track.buffered() {
-                    if position > buffered {
-                        position = buffered;
-                    }
+                    if buffered < duration {
+                        if position > buffered {
+                            position = buffered;
+                        }
 
-                    // Seek to just before the requested position, to be sure that we find the
-                    // frame just before it. Hardcoding this to 44.1 kHz is safe for higher
-                    // sample rates (that podcasts could be in), as the frame duration will be
-                    // shorter.
-                    let frame_duration = track.codec().unwrap_or_default().frame_duration(44_100);
-                    position = position.saturating_sub(frame_duration);
+                        // Seek to just before the requested position, to be sure that we find the
+                        // frame just before it. Hardcoding this to 44.1 kHz is safe for higher
+                        // sample rates (that podcasts could be in), as the frame duration will be
+                        // shorter.
+                        let frame_duration =
+                            track.codec().unwrap_or_default().frame_duration(44_100);
+                        position = position.saturating_sub(frame_duration);
+                    }
                 }
 
                 // Try to seek only if the track has started downloading, otherwise defer the seek.

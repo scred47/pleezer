@@ -325,7 +325,7 @@ impl Track {
     /// * Time to download more data
     /// * Protection against minor network issues
     /// * Reasonable startup latency
-    const PREFETCH_LENGTH: Duration = Duration::from_secs(3);
+    const PREFETCH_DURATION: Duration = Duration::from_secs(3);
 
     /// Default prefetch size in bytes when bitrate is unknown.
     ///
@@ -1004,8 +1004,15 @@ impl Track {
                             let progress = stream.current_position as f64 / file_size as f64;
 
                             // OK to unwrap: see rationale above.
-                            *buffered.lock().unwrap() =
-                                duration.map(|duration| duration.mul_f64(progress));
+                            *buffered.lock().unwrap() = duration.map(|duration| {
+                                duration
+                                    .mul_f64(progress)
+                                    // Subtract the prefetch duration to prevent seeks to a position
+                                    // just before the end of the buffered data. When the read block
+                                    // extends beyond the buffered data, the download would block to
+                                    // prefetch what is beyond the buffered data.
+                                    .saturating_sub(Self::PREFETCH_DURATION)
+                            });
                         }
                     }
                 }
@@ -1148,7 +1155,7 @@ impl Track {
     pub fn prefetch_size(&self) -> u64 {
         let mut prefetch_size = Self::PREFETCH_DEFAULT as u64;
         if let Some(kbps) = self.bitrate {
-            prefetch_size = (kbps as u64 * 1024 / 8) * Self::PREFETCH_LENGTH.as_secs();
+            prefetch_size = (kbps as u64 * 1024 / 8) * Self::PREFETCH_DURATION.as_secs();
         }
         prefetch_size
     }
