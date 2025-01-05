@@ -11,9 +11,9 @@
 //! * Livestreams - AAC and MP3
 
 use serde_with::SerializeDisplay;
-use std::{fmt, str::FromStr};
+use std::{fmt, str::FromStr, time::Duration};
 
-use crate::error::Error;
+use crate::{error::Error, util::ToF32};
 
 /// Supported audio codecs for live streams.
 /// Note: Deezer does not use FLAC for live streams.
@@ -26,6 +26,54 @@ pub enum Codec {
     /// MPEG Layer-3
     #[default]
     MP3,
+}
+
+impl Codec {
+    /// AAC frames are fixed at 1024 samples.
+    const AAC_SAMPLES_PER_FRAME: usize = 1_024;
+
+    /// FLAC frames are variable, but may not exceed 4,608 samples up to 48 kHz.
+    const FLAC_MAX_SAMPLES_PER_FRAME: usize = 4_608;
+
+    /// FLAC frames are variable, but may not exceed 16,384 samples above 48 kHz.
+    const FLAC_MAX_SAMPLES_PER_FRAME_HI_RES: usize = 16_384;
+
+    /// MP3 frames are fixed at 1,152 samples.
+    const MP3_SAMPLES_PER_FRAME: usize = 1_152;
+
+    /// Returns the maximum duration of a frame for the codec at the given sample rate.
+    ///
+    /// Frame sizes at 44.1 kHz:
+    /// * AAC: 1024 samples ≈ 23.220ms (fixed)
+    /// * MP3: 1152 samples ≈ 26.122ms (fixed)
+    /// * FLAC: Up to 4608 samples ≈ 104.490ms (variable)
+    ///
+    /// For FLAC at higher sample rates (>48 kHz), allows up to 16384 samples per frame.
+    ///
+    /// Note: While FLAC frames can be variable length, we return the maximum possible
+    /// frame duration to ensure seeks land before frame boundaries.
+    #[must_use]
+    pub fn frame_duration(&self, sample_rate: usize) -> Duration {
+        let samples = match self {
+            Codec::AAC => Self::AAC_SAMPLES_PER_FRAME,
+            Codec::FLAC => {
+                if sample_rate > 48_000 {
+                    Self::FLAC_MAX_SAMPLES_PER_FRAME_HI_RES
+                } else {
+                    Self::FLAC_MAX_SAMPLES_PER_FRAME
+                }
+            }
+            Codec::MP3 => Self::MP3_SAMPLES_PER_FRAME,
+        }
+        .to_f32_lossy();
+
+        let span = (samples / sample_rate.to_f32_lossy()).clamp(0.0, Duration::MAX.as_secs_f32());
+        if span.is_nan() {
+            Duration::default()
+        } else {
+            Duration::from_secs_f32(span)
+        }
+    }
 }
 
 /// Formats codec type for display.

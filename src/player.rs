@@ -1339,18 +1339,21 @@ impl Player {
     ///
     /// # Behavior
     ///
-    /// * If progress < 1.0: Seeks within track
+    /// * If progress < 1.0:
+    ///   - Seeks within track
+    ///   - If position is beyond buffered data, seeks to last buffered position
+    ///   - Aligns seek to previous frame boundary for clean decoding
     /// * If progress >= 1.0: Skips to next track
     /// * If track not loaded: Defers seek
+    ///
+    /// Frame alignment is codec-specific:
+    /// * FLAC: ~93ms frames (4096 samples at 44.1kHz)
+    /// * MP3: ~26ms frames (1152 samples at 44.1kHz)
+    /// * AAC: ~23ms frames (1024 samples at 44.1kHz)
     ///
     /// # Errors
     ///
     /// Returns error if:
-    /// * No track is playing
-    /// * Seek operation fails
-    ///
-    /// # Errors
-    ///
     /// * No track is playing
     /// * Audio device is not open
     /// * Seek operation fails
@@ -1359,12 +1362,27 @@ impl Player {
             info!("setting {} progress to {progress}", track.typ());
             let progress = progress.as_ratio_f32();
             if progress < 1.0 {
-                let progress = track
+                let mut position = track
                     .duration()
                     .ok_or_else(|| {
                         Error::unavailable(format!("duration unknown for {} {track}", track.typ()))
                     })?
                     .mul_f32(progress);
+
+                // If the requested position is beyond what is buffered, seek to the buffered
+                // position instead. This prevents blocking the player and disconnections.
+                if let Some(buffered) = track.buffered() {
+                    if position > buffered {
+                        position = buffered;
+                    }
+
+                    // Seek to just before the requested position, to be sure that we find the
+                    // frame just before it. Hardcoding this to 44.1 kHz is safe for higher
+                    // sample rates (that podcasts could be in), as the frame duration will be
+                    // shorter.
+                    let frame_duration = track.codec().unwrap_or_default().frame_duration(44_100);
+                    position = position.saturating_sub(frame_duration);
+                }
 
                 // Try to seek only if the track has started downloading, otherwise defer the seek.
                 // This prevents stalling the player when seeking in a track that has not started.
@@ -1373,7 +1391,7 @@ impl Player {
                     .ok_or(Error::unavailable("download not yet started"))
                     .and_then(|_| {
                         self.sink_mut()
-                            .and_then(|sink| sink.try_seek(progress).map_err(Into::into))
+                            .and_then(|sink| sink.try_seek(position).map_err(Into::into))
                     }) {
                     Ok(()) => {
                         // Reset the playing time to zero, as the sink will now reset it also.
@@ -1384,7 +1402,7 @@ impl Player {
                         if matches!(e.kind, ErrorKind::Unavailable | ErrorKind::Unimplemented) {
                             // If the current track is not buffered yet, we can't seek.
                             // In that case, we defer the seek until the track is buffered.
-                            self.deferred_seek = Some(progress);
+                            self.deferred_seek = Some(position);
                         } else {
                             // If the seek failed for any other reason, we return an error.
                             return Err(e);

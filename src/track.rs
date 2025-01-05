@@ -146,11 +146,18 @@ impl FromStr for TrackType {
     }
 }
 
-/// Represents a Deezer track with metadata and download state.
+/// Represents a Deezer track with metadata and download/buffering state.
 ///
-/// Combines track metadata (title, artist, etc) with download management
-/// functionality including quality settings, buffering state, and
-/// encryption information.
+/// Combines track metadata (title, artist, etc) with:
+/// * Download management (progress tracking, cancellation)
+/// * Buffer management (seek limits, progress tracking)
+/// * Quality/format information (codecs, bitrates)
+/// * Encryption configuration
+///
+/// Download and buffering states are kept separate to:
+/// * Allow seeks within buffered data while download continues
+/// * Prevent blocking seeks beyond buffered data
+/// * Track both download progress and playable duration
 ///
 /// # Example
 ///
@@ -440,7 +447,10 @@ impl Track {
     /// Returns the duration of audio data currently buffered.
     ///
     /// This represents how much of the track has been downloaded and
-    /// is available for playback.
+    /// is available for playback. Used to:
+    /// * Track download progress
+    /// * Limit seeks to available data
+    /// * Prevent blocking on unbuffered seeks
     ///
     /// For livestreams, this always returns `None` since they are continuous
     /// streams without a fixed duration or buffer concept.
@@ -970,29 +980,38 @@ impl Track {
         let track_typ = self.typ.to_string();
         let duration = self.duration;
         let buffered = Arc::clone(&self.buffered);
-        let callback = move |stream: &HttpStream<_>,
-                             stream_state: StreamState,
+        let file_size = self.file_size;
+        let callback = move |_: &HttpStream<_>,
+                             stream: StreamState,
                              _: &tokio_util::sync::CancellationToken| {
-            if let Some(duration) = duration {
-                if stream_state.phase == StreamPhase::Complete {
+            match stream.phase {
+                StreamPhase::Complete => {
                     info!("completed download of {track_typ} {track_str}");
 
                     // Prevent rounding errors and set the buffered duration
                     // equal to the total duration. It's OK to unwrap here: if
                     // the mutex is poisoned, then the main thread panicked and
                     // we should propagate the error.
-                    *buffered.lock().unwrap() = Some(duration);
-                } else if let Some(file_size) = stream.content_length() {
-                    if file_size > 0 {
-                        // `f64` not for precision, but to be able to fit
-                        // as big as possible file sizes.
-                        // TODO : use `Percentage` type
-                        #[expect(clippy::cast_precision_loss)]
-                        let progress = stream_state.current_position as f64 / file_size as f64;
+                    *buffered.lock().unwrap() = duration;
+                }
+                StreamPhase::Downloading { .. } => {
+                    if let Some(file_size) = file_size {
+                        if file_size > 0 {
+                            // `f64` not for precision, but to be able to fit
+                            // as big as possible file sizes.
+                            // TODO : use `Percentage` type
+                            #[expect(clippy::cast_precision_loss)]
+                            let progress = stream.current_position as f64 / file_size as f64;
 
-                        // OK to unwrap: see rationale above.
-                        *buffered.lock().unwrap() = Some(duration.mul_f64(progress));
+                            // OK to unwrap: see rationale above.
+                            *buffered.lock().unwrap() =
+                                duration.map(|duration| duration.mul_f64(progress));
+                        }
                     }
+                }
+                _ => {
+                    // Read requests are not allowed during prefetching, so don't
+                    // update the buffered duration here: we couldn't read it anyway.
                 }
             }
         };

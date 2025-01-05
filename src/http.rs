@@ -79,13 +79,18 @@ impl Client {
     /// Requests beyond this limit will be automatically delayed.
     const RATE_LIMIT_CALLS_PER_INTERVAL: u8 = 50;
 
-    /// HTTP request timeout duration.
+    /// Duration to keep idle connections alive.
     ///
-    /// Requests that take longer than 60 seconds will be aborted to:
-    /// * Prevent hanging connections
-    /// * Allow retry attempts
-    /// * Maintain responsive behavior
-    const TIMEOUT: Duration = Duration::from_secs(60);
+    /// Prevents frequent reconnection overhead for subsequent requests.
+    const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(60);
+
+    /// Duration to wait for individual network reads.
+    ///
+    /// Reads that take longer than 2 seconds will timeout to:
+    /// * Prevent blocking operations
+    /// * Allow faster recovery from network issues
+    /// * Maintain responsive streaming
+    const READ_TIMEOUT: Duration = Duration::from_secs(2);
 
     /// Creates a new client with optional cookie storage.
     ///
@@ -117,8 +122,8 @@ impl Client {
         let cookie_jar = cookie_jar.map(|jar| Arc::new(jar));
 
         let mut http_client = reqwest::Client::builder()
-            .tcp_keepalive(Self::TIMEOUT)
-            .timeout(Self::TIMEOUT)
+            .tcp_keepalive(Self::KEEPALIVE_TIMEOUT)
+            .read_timeout(Self::READ_TIMEOUT)
             .default_headers(headers)
             .user_agent(&config.user_agent);
 

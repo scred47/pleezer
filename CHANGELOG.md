@@ -24,6 +24,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [remote] Improve error handling and ignore progress updates for livestreams
 - [track] Renamed `album_cover` to `cover_id` for consistency
 
+### Fixed
+- [player] Improve seek behavior by limiting to buffered data
+
 ## [0.7.0] - 2024-12-28
 
 ### Added
