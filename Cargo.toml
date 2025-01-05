@@ -110,7 +110,7 @@ features = ["cargo", "derive", "env", "wrap_help"]
 optional = true
 
 [build-dependencies]
-git2 = { version = "0.19", default-features = false }
+git2 = { version = "0.20", default-features = false }
 protobuf-codegen = "3"
 protoc-bin-vendored = "3"
 time = { version = "0.3", features = ["formatting"] }
