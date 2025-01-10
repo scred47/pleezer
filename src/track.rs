@@ -962,7 +962,7 @@ impl Track {
                     .file_size
                     .unwrap_or_default()
                     .checked_div(self.duration.unwrap_or_default().as_secs())
-                    .map(|bytes| usize::try_from(bytes * 8 / 1024).unwrap_or(usize::MAX)),
+                    .map(|bytes| usize::try_from(bytes * 8 / 1000).unwrap_or(usize::MAX)),
 
                 _ => self.quality.bitrate(),
             };
@@ -1136,7 +1136,7 @@ impl Track {
     ///
     /// For known bitrates:
     /// ```text
-    /// prefetch_size = (bitrate_kbps * 1024 / 8) * prefetch_duration_secs
+    /// prefetch_size = (bitrate_kbps * 1000 / 8) * prefetch_duration_secs
     /// ```
     ///
     /// For unknown bitrates:
@@ -1155,7 +1155,7 @@ impl Track {
     pub fn prefetch_size(&self) -> u64 {
         let mut prefetch_size = Self::PREFETCH_DEFAULT as u64;
         if let Some(kbps) = self.bitrate {
-            prefetch_size = (kbps as u64 * 1024 / 8) * Self::PREFETCH_DURATION.as_secs();
+            prefetch_size = (kbps as u64 * 1000 / 8) * Self::PREFETCH_DURATION.as_secs();
         }
         prefetch_size
     }
