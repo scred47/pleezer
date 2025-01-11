@@ -74,7 +74,7 @@ use crate::{
 /// * Blowfish CBC with striping (every third 2KB block)
 pub struct Decrypt<P>
 where
-    P: StorageProvider + 'static,
+    P: StorageProvider,
 {
     /// Source of encrypted data using temporary file storage.
     download: StreamDownload<P>,
@@ -209,7 +209,7 @@ const SUPPORTED_CIPHERS: [Cipher; 2] = [Cipher::NONE, Cipher::BF_CBC_STRIPE];
 
 impl<P> Decrypt<P>
 where
-    P: StorageProvider + 'static,
+    P: StorageProvider,
 {
     /// Creates a new decryptor for a track.
     ///
@@ -224,7 +224,7 @@ where
     /// Returns `Error::Unimplemented` if track uses unsupported encryption.
     pub fn new(track: &Track, download: StreamDownload<P>, salt: &Key) -> Result<Self>
     where
-        P: StorageProvider + 'static,
+        P: StorageProvider,
     {
         if !SUPPORTED_CIPHERS.contains(&track.cipher()) {
             return Err(Error::unimplemented("unsupported encryption algorithm"));
@@ -284,7 +284,7 @@ where
 /// * Decryption of new blocks
 impl<P> Seek for Decrypt<P>
 where
-    P: StorageProvider + 'static,
+    P: StorageProvider,
 {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         // If the track is not encrypted, we can seek directly.
@@ -401,7 +401,7 @@ where
 /// 3. Returns requested number of bytes
 impl<P> Read for Decrypt<P>
 where
-    P: StorageProvider + 'static,
+    P: StorageProvider,
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         // If the track is not encrypted, we can read directly.

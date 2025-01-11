@@ -7,6 +7,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- [decrypt] Remove redundant `'static` lifetime bounds from `StorageProvider` trait
+
 ### Fixed
 - [main] Reduce default logging verbosity for audio codecs to ERROR level
 - [track] Fix bitrate calculation for podcasts and variable quality streams
