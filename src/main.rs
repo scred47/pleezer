@@ -210,6 +210,7 @@ fn init_logger(config: &Args) {
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
 
+    let mut external_level = LevelFilter::Error;
     if config.quiet || config.verbose > 0 {
         let level = match config.verbose {
             0 => {
@@ -218,20 +219,27 @@ fn init_logger(config: &Args) {
                 LevelFilter::Warn
             }
             1 => LevelFilter::Debug,
-            _ => LevelFilter::Trace,
+            _ => LevelFilter::max(),
         };
 
         // Filter log messages of pleezer.
         logger.filter_module(module_path!(), level);
 
-        if level != LevelFilter::Trace {
+        if level == LevelFilter::Trace {
             // Filter log messages of external crates.
-            logger.filter_module("symphonia_codec_aac", LevelFilter::Error);
-            logger.filter_module("symphonia_bundle_flac", LevelFilter::Error);
-            logger.filter_module("symphonia_bundle_mp3", LevelFilter::Error);
-            logger.filter_module("symphonia_core", LevelFilter::Error);
-            logger.filter_module("symphonia_metadata", LevelFilter::Error);
+            external_level = LevelFilter::max();
         }
+    };
+
+    // Filter log messages of external crates.
+    for external_module in [
+        "symphonia_codec_aac",
+        "symphonia_bundle_flac",
+        "symphonia_bundle_mp3",
+        "symphonia_core",
+        "symphonia_metadata",
+    ] {
+        logger.filter_module(external_module, external_level);
     }
 
     logger.init();
