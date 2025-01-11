@@ -120,6 +120,20 @@ Your music will then play through **pleezer** while being controlled from your m
 - Be connected to the internet
 - Use the same Deezer account as your mobile device
 
+To control audio quality:
+1. In the Deezer mobile app, go to Settings > Audio
+2. Under "Google Cast", select your preferred quality:
+   - Basic Quality (64 kbps CBR MP3)
+   - Standard Quality (128 kbps CBR MP3)
+   - High Quality (320 kbps CBR MP3)
+   - High Fidelity (FLAC, variable bitrate up to 1411 kbps)
+
+**Note:**
+- Radio streams use the best available quality up to your selected bitrate, and may be in either MP3 or AAC format
+- Podcasts are only available in their original quality, regardless of this setting
+
+**pleezer** will use the quality setting you've chosen for Google Cast. Note that Hi-Fi and Hi-Res require a corresponding Deezer subscription.
+
 **Battery Usage:** When using Deezer Connect, you may notice increased battery drain on your mobile device. This is normal and happens because the Deezer app maintains constant network communication with the player device - sending commands and receiving status updates. This continuous communication is necessary for remote control functionality but does consume more power than local playback.
 
 ### Command-Line Arguments
@@ -336,7 +350,6 @@ https://e-cdns-images.dzcdn.net/images/cover/{cover_id}/{resolution}x{resolution
 where `{resolution}` is the desired resolution in pixels (up to 1920) and
 `{format}` is either `jpg` (smaller file size) or `png` (higher quality).
 Deezer's default is `500x500.jpg`.
-```
 
 #### `connected`
 Emitted when a Deezer client connects to control playback

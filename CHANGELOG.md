@@ -7,6 +7,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## [0.8.1] - 2025-01-11
 
+### Added
+- [docs] Add instructions for configuring audio quality through Deezer app settings
+
 ### Changed
 - [decrypt] Remove redundant `'static` lifetime bounds from `StorageProvider` trait
 
