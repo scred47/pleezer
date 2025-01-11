@@ -1,8 +1,8 @@
 //! Track decryption for Deezer's protected media content.
 //!
-//! This module provides decryption of Deezer tracks while streaming:
-//! * Decrypts data in 2KB blocks as it's read
-//! * Uses temporary file storage for encrypted data
+//! This module provides buffered decryption of Deezer tracks while streaming:
+//! * Implements efficient buffered reading via `BufRead`
+//! * Decrypts data in 2KB blocks as needed
 //! * Supports Blowfish CBC encryption with striping
 //!
 //! # Encryption Format
@@ -23,24 +23,42 @@
 //!
 //! The implementation uses:
 //! * Temporary file storage for the encrypted stream
-//! * 2KB buffer for decrypted blocks
-//! * No additional buffering needed
+//! * 2KB buffer for both encrypted and unencrypted content
+//! * Efficient buffered reading through `BufRead` trait
 //!
 //! # Examples
 //!
 //! ```rust
 //! use pleezer::decrypt::{Decrypt, Key};
+//! use std::io::{BufRead, Read};
 //!
 //! // Create decryptor with track and key
-//! let decryptor = Decrypt::new(&track, download, &key)?;
+//! let mut decryptor = Decrypt::new(&track, download, &key)?;
 //!
-//! // Read and decrypt content
+//! // Read using BufRead for efficiency
+//! while let Ok(buffer) = decryptor.fill_buf() {
+//!     if buffer.is_empty() {
+//!         break;
+//!     }
+//!     // Process buffer...
+//!     decryptor.consume(buffer.len());
+//! }
+//!
+//! // Or read all content at once
 //! let mut buffer = Vec::new();
 //! decryptor.read_to_end(&mut buffer)?;
 //! ```
+//!
+//! # Implementation Details
+//!
+//! The decryptor provides:
+//! * Transparent handling of encrypted and unencrypted tracks
+//! * Efficient buffered reading via `BufRead` trait
+//! * Proper seeking support with block alignment
+//! * Automatic buffer management
 
 use std::{
-    io::{self, Cursor, Read, Seek, SeekFrom},
+    io::{self, BufRead, Cursor, Read, Seek, SeekFrom},
     ops::Deref,
     str::FromStr,
 };
@@ -211,17 +229,17 @@ impl<P> Decrypt<P>
 where
     P: StorageProvider,
 {
-    /// Creates a new decryptor for a track.
+    /// Creates a new decryption stream for a track.
     ///
     /// # Arguments
     ///
-    /// * `track` - Track to decrypt
-    /// * `download` - Download stream
-    /// * `salt` - Deezer decryption key (used to derive track-specific key)
+    /// * `track` - Track metadata including encryption information
+    /// * `download` - Source stream providing the encrypted data
+    /// * `salt` - Master decryption key used to derive track-specific key
     ///
     /// # Errors
     ///
-    /// Returns `Error::Unimplemented` if track uses unsupported encryption.
+    /// Returns `Error::Unimplemented` if the track uses an unsupported encryption method.
     pub fn new(track: &Track, download: StreamDownload<P>, salt: &Key) -> Result<Self>
     where
         P: StorageProvider,
@@ -243,16 +261,20 @@ where
         })
     }
 
-    /// Calculates track-specific decryption key.
+    /// Derives a track-specific decryption key.
     ///
-    /// The key is derived using:
-    /// 1. MD5 hash of track ID
-    /// 2. XOR with Deezer master key
+    /// The key is generated using:
+    /// 1. MD5 hash of the track ID
+    /// 2. XOR with the master decryption key (salt)
     ///
     /// # Arguments
     ///
-    /// * `track_id` - Track to generate key for
-    /// * `salt` - Deezer master key
+    /// * `track_id` - Unique identifier for the track
+    /// * `salt` - Master decryption key
+    ///
+    /// # Returns
+    ///
+    /// A new `Key` specific to this track for decryption.
     #[must_use]
     pub fn key_for_track_id(track_id: TrackId, salt: &Key) -> Key {
         let track_hash = format!("{:x}", Md5::digest(track_id.to_string()));
@@ -265,8 +287,13 @@ where
         Key(key)
     }
 
-    /// Calculates number of bytes in the buffer that have not been read yet.
+    /// Returns the number of unread bytes remaining in the current buffer.
+    ///
+    /// This method is used internally to determine when the buffer needs refilling.
+    /// It handles the case where the buffer position might be beyond the buffer length
+    /// after certain seek operations.
     #[must_use]
+    #[inline]
     fn bytes_on_buffer(&self) -> u64 {
         let len = self.buffer.get_ref().len() as u64;
 
@@ -278,169 +305,229 @@ where
 
 /// Seeks within the decrypted stream.
 ///
-/// Handles:
-/// * Block boundary calculation
-/// * Buffer management
-/// * Decryption of new blocks
+/// The implementation handles:
+/// * Block alignment for encrypted content
+/// * Direct seeking for unencrypted content
+/// * Buffer management across seeks
+/// * Position calculations for both modes
+///
+/// For encrypted content:
+/// * Maintains block boundaries (2KB blocks)
+/// * Only decrypts blocks when necessary
+/// * Preserves stripe pattern (every third block)
+///
+/// # Errors
+///
+/// Returns errors for:
+/// * Seeking beyond end of file
+/// * Seeking from end with unknown file size
+/// * Invalid seek positions (negative or overflow)
 impl<P> Seek for Decrypt<P>
 where
     P: StorageProvider,
 {
+    /// Seeks to a position in the decrypted stream.
+    ///
+    /// The implementation handles:
+    /// * Block alignment for encrypted content
+    /// * Direct seeking for unencrypted content
+    /// * Buffer management across seeks
+    ///
+    /// # Arguments
+    ///
+    /// * `pos` - Seek position (Start/Current/End)
+    ///
+    /// # Returns
+    ///
+    /// New position in the stream, or an I/O error if seeking fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * Seeking beyond end of file
+    /// * Seeking from end with unknown file size
+    /// * Position would overflow or become negative
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        // If the track is not encrypted, we can seek directly.
-        if self.cipher == Cipher::NONE {
-            return self.download.seek(pos);
-        }
-
-        // Calculate the target position in the encrypted file.
         let target = match pos {
             SeekFrom::Start(pos) => pos,
-
             SeekFrom::End(pos) => {
-                let file_size = self.file_size.ok_or(io::Error::new(
-                    io::ErrorKind::Unsupported,
-                    "cannot seek from the end of a stream with unknown size",
-                ))?;
-
+                let file_size = self.file_size.ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "cannot seek from end with unknown size",
+                    )
+                })?;
                 file_size
                     .checked_add_signed(pos)
                     .and_then(|pos| pos.checked_sub(1))
-                    .ok_or(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "invalid seek to a negative or overflowing position",
-                    ))?
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            "invalid seek to negative or overflowing position",
+                        )
+                    })?
             }
-
             SeekFrom::Current(pos) => {
-                let current = self.block.map_or(0, |block| {
-                    block * CBC_BLOCK_SIZE as u64 + self.buffer.position()
-                });
+                let current = if self.cipher == Cipher::NONE {
+                    self.download
+                        .stream_position()?
+                        .saturating_sub(self.bytes_on_buffer())
+                        .saturating_add(self.buffer.position())
+                } else {
+                    self.block.map_or(0, |block| {
+                        block * CBC_BLOCK_SIZE as u64 + self.buffer.position()
+                    })
+                };
 
-                current.checked_add_signed(pos).ok_or(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "invalid seek to a negative or overflowing position",
-                ))?
+                current.checked_add_signed(pos).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "invalid seek to negative or overflowing position",
+                    )
+                })?
             }
         };
 
-        if self.file_size.is_some_and(|file_size| target >= file_size) {
+        if self.file_size.is_some_and(|size| target >= size) {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "seek to a position beyond the end of the file",
+                "seek beyond end of file",
             ));
         }
 
-        // The encrypted file is striped into blocks of STRIPE_SIZE bytes,
-        // alternating between encrypted and non-encrypted blocks. Calculate
-        // the block number within the encrypted file and the offset within the
-        // block.
-        let block = target
-            .checked_div(CBC_BLOCK_SIZE as u64)
-            .ok_or(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "block calculation would be divide by zero",
-            ))?;
-        let offset = target
-            .checked_rem(CBC_BLOCK_SIZE as u64)
-            .ok_or(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "offset calculation would be divide by zero",
-            ))?;
+        // Clear the buffer in all cases
+        self.buffer = Cursor::new(Vec::new());
 
-        // If the buffer is empty, or the target block is different from the
-        // current block, read the block from the encrypted file.
-        if self.block.is_none_or(|current| current != block) {
-            self.block = Some(block);
+        if self.cipher == Cipher::NONE {
+            // For unencrypted tracks, just seek directly
+            self.download.seek(SeekFrom::Start(target))
+        } else {
+            // For encrypted tracks, use existing block-based seeking
+            let block = target.checked_div(CBC_BLOCK_SIZE as u64).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "block calculation would be divide by zero",
+                )
+            })?;
+            let offset = target.checked_rem(CBC_BLOCK_SIZE as u64).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "offset calculation would be divide by zero",
+                )
+            })?;
 
-            // Seek to the start of the block in the encrypted file.
-            self.download
-                .seek(SeekFrom::Start(block * CBC_BLOCK_SIZE as u64))?;
+            // Only read new block if different from current
+            if self.block.is_none_or(|current| current != block) {
+                self.block = Some(block);
+                self.download
+                    .seek(SeekFrom::Start(block * CBC_BLOCK_SIZE as u64))?;
 
-            // TODO : when this is the first block of two unencrypted blocks,
-            // read ahead 2 * CBC_BLOCK_SIZE.
-            let mut buffer = [0; CBC_BLOCK_SIZE];
-            let length = self.download.read(&mut buffer)?;
+                let mut buffer = [0; CBC_BLOCK_SIZE];
+                let length = self.download.read(&mut buffer)?;
 
-            // Decrypt the block if it is encrypted. Every third block is
-            // encrypted, and only if the block is of a full stripe size.
-            let is_encrypted = block % CBC_STRIPE_COUNT as u64 == 0;
-            let is_full_block = length == CBC_BLOCK_SIZE;
+                let is_encrypted = block % CBC_STRIPE_COUNT as u64 == 0;
+                let is_full_block = length == CBC_BLOCK_SIZE;
 
-            if is_encrypted && is_full_block {
-                // The state of the cipher is reset on each block.
-                let cipher = cbc::Decryptor::<Blowfish>::new_from_slices(&*self.key, CBC_BF_IV)
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+                if is_encrypted && is_full_block {
+                    let cipher = cbc::Decryptor::<Blowfish>::new_from_slices(&*self.key, CBC_BF_IV)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
-                // Decrypt the block in-place. The buffer is guaranteed to be
-                // a multiple of the block size, so no padding is necessary.
-                cipher
-                    .decrypt_padded_mut::<NoPadding>(&mut buffer)
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+                    cipher
+                        .decrypt_padded_mut::<NoPadding>(&mut buffer)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+                }
+
+                let mut buffer = buffer.to_vec();
+                buffer.truncate(length);
+                self.buffer = Cursor::new(buffer);
             }
 
-            // Truncate the buffer to the actual length of the block.
-            let mut buffer = buffer.to_vec();
-            buffer.truncate(length);
-
-            self.buffer = Cursor::new(buffer);
+            self.buffer.set_position(offset);
+            Ok(target)
         }
-
-        // Set the offset position within the current block, and return the
-        // target position in the decrypted stream.
-        self.buffer.set_position(offset);
-        Ok(target)
     }
 }
 
-/// Reads decrypted data from the stream.
+/// Provides buffered reading of decrypted content.
 ///
-/// For unencrypted tracks, passes through directly to the
-/// underlying stream. For encrypted tracks:
-/// 1. Fills internal buffer if empty
-/// 2. Decrypts blocks as needed
-/// 3. Returns requested number of bytes
+/// The implementation:
+/// * Uses a 2KB buffer for both encrypted and unencrypted content
+/// * Automatically fills buffer when empty
+/// * For encrypted content, handles block-based decryption
+/// * For unencrypted content, reads directly from source
+impl<P> BufRead for Decrypt<P>
+where
+    P: StorageProvider,
+{
+    /// Provides access to the internal buffer of decoded data.
+    ///
+    /// This method will fill the internal buffer if it's empty:
+    /// * For unencrypted tracks, reads directly from source
+    /// * For encrypted tracks, reads and decrypts a 2KB block
+    ///
+    /// # Errors
+    ///
+    /// Returns any I/O errors from reading or decrypting the data.
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        // If buffer is empty, fill it
+        if self.bytes_on_buffer() == 0 {
+            if self.cipher == Cipher::NONE {
+                // For unencrypted tracks, just read directly into buffer
+                let mut buf = vec![0; CBC_BLOCK_SIZE];
+                let bytes_read = self.download.read(&mut buf)?;
+                buf.truncate(bytes_read);
+                self.buffer = Cursor::new(buf);
+            } else {
+                // For encrypted tracks, use existing block reading/decryption logic:
+                // if buffer is empty, trigger a read of the next block
+                let _ = self.stream_position()?;
+            }
+        }
+
+        // Return remaining buffer contents
+        let position = usize::try_from(self.buffer.position()).unwrap_or(usize::MAX);
+        Ok(&self.buffer.get_ref()[position..])
+    }
+
+    /// Marks a certain number of bytes as consumed from the buffer.
+    ///
+    /// After consuming bytes, subsequent calls to `fill_buf` will return
+    /// the remaining data starting after the consumed bytes.
+    ///
+    /// # Arguments
+    ///
+    /// * `amt` - Number of bytes to mark as consumed
+    #[inline]
+    fn consume(&mut self, amt: usize) {
+        let new_pos = self.buffer.position() + amt as u64;
+        self.buffer.set_position(new_pos);
+    }
+}
+
+/// Reads decrypted data into the provided buffer.
+///
+/// This implementation uses the internal buffering mechanism to:
+/// * Minimize system calls
+/// * Handle decryption efficiently
+/// * Manage both encrypted and unencrypted content transparently
+///
+/// # Arguments
+///
+/// * `buf` - Destination buffer for decrypted data
+///
+/// # Returns
+///
+/// Number of bytes read, or an I/O error if reading fails.
 impl<P> Read for Decrypt<P>
 where
     P: StorageProvider,
 {
+    #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        // If the track is not encrypted, we can read directly.
-        if self.cipher == Cipher::NONE {
-            return self.download.read(buf);
-        }
-
-        let mut bytes_on_buffer = self.bytes_on_buffer();
-        let bytes_wanted = buf.len();
-        let mut bytes_read = 0;
-
-        while bytes_read < bytes_wanted {
-            // If the buffer is empty, trigger a seek to read the next block.
-            if bytes_on_buffer == 0 {
-                // equivalent to self.seek(SeekFrom::Current(0))
-                let _ = self.stream_position()?;
-                bytes_on_buffer = self.bytes_on_buffer();
-            }
-
-            // If the buffer is still empty, we have reached the end.
-            if bytes_on_buffer == 0 {
-                break;
-            }
-
-            // Read as many bytes as possible from the buffer. If
-            // `bytes_on_buffer` is larger than `usize`, set it to `usize::MAX`
-            // which should be equal to or larger than `bytes_wanted`.
-            let bytes_to_read = usize::min(
-                bytes_on_buffer.try_into().unwrap_or(usize::MAX),
-                bytes_wanted.saturating_sub(bytes_read),
-            );
-            let bytes_read_from_buffer = self
-                .buffer
-                .read(&mut buf[bytes_read..bytes_read + bytes_to_read])?;
-
-            bytes_on_buffer -= bytes_read_from_buffer as u64;
-            bytes_read += bytes_read_from_buffer;
-        }
-
-        Ok(bytes_read)
+        let available = self.fill_buf()?;
+        let amt = std::cmp::min(available.len(), buf.len());
+        buf[..amt].copy_from_slice(&available[..amt]);
+        self.consume(amt);
+        Ok(amt)
     }
 }
