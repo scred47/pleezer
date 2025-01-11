@@ -8,7 +8,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Fixed
-- [track] Fix bitrate calculation for podcasts
+- [track] Fix bitrate calculation for podcasts and variable quality streams
 
 ## [0.8.0] - 2025-01-05
 
