@@ -117,6 +117,7 @@ impl Handler {
 /// * "SIGTERM" for [`ShutdownSignal::Terminate`]
 /// * "SIGHUP" for [`ShutdownSignal::Reload`]
 impl fmt::Display for ShutdownSignal {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ShutdownSignal::Interrupt => write!(f, "Ctrl+C"),

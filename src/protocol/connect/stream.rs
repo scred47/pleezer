@@ -383,6 +383,7 @@ impl Ident {
 /// println!("{contents}");
 /// ```
 impl fmt::Display for Contents {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.action, self.value.track_id)
     }
@@ -399,6 +400,7 @@ impl fmt::Display for Contents {
 /// assert_eq!(Action::Play.to_string(), "PLAY");
 /// ```
 impl fmt::Display for Action {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Play => write!(f, "{}", Self::PLAY),
@@ -445,6 +447,7 @@ impl FromStr for Action {
 /// assert_eq!(Ident::Limitation.to_string(), "LIMITATION");
 /// ```
 impl fmt::Display for Ident {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Limitation => write!(f, "{}", Self::LIMITATION),

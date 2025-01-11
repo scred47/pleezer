@@ -124,6 +124,7 @@ pub enum ExternalUrl {
 
 /// Display implementation for track type.
 impl fmt::Display for TrackType {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Song => write!(f, "song"),
@@ -310,6 +311,7 @@ pub enum MediumType {
 impl Deref for MediumType {
     type Target = Medium;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Primary(medium) | Self::Fallback(medium) => medium,
@@ -339,6 +341,7 @@ impl Track {
 
     /// Returns the track's unique identifier.
     #[must_use]
+    #[inline]
     pub fn id(&self) -> TrackId {
         self.id
     }
@@ -348,6 +351,7 @@ impl Track {
     /// The duration represents the total playback time of the track.
     /// No duration is available for livestreams.
     #[must_use]
+    #[inline]
     pub fn duration(&self) -> Option<Duration> {
         self.duration
     }
@@ -357,12 +361,14 @@ impl Track {
     /// Always true for songs. Episodes and livestreams may be
     /// region-restricted or temporarily unavailable.
     #[must_use]
+    #[inline]
     pub fn available(&self) -> bool {
         self.available
     }
 
     /// Returns the track type.
     #[must_use]
+    #[inline]
     pub fn typ(&self) -> TrackType {
         self.typ
     }
@@ -374,24 +380,28 @@ impl Track {
     /// * Negative values indicate track is louder than reference
     /// * None indicates no gain information available
     #[must_use]
+    #[inline]
     pub fn gain(&self) -> Option<f32> {
         self.gain
     }
 
     /// Returns the track title.
     #[must_use]
+    #[inline]
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
 
     /// Returns the track artist name.
     #[must_use]
+    #[inline]
     pub fn artist(&self) -> &str {
         &self.artist
     }
 
     /// Returns the album title for this track.
     #[must_use]
+    #[inline]
     pub fn album_title(&self) -> Option<&str> {
         self.album_title.as_deref()
     }
@@ -420,6 +430,7 @@ impl Track {
     /// https://e-cdns-images.dzcdn.net/images/cover/f286f9e7dc818e181c37b944e2461101/500x500.jpg
     /// ```
     #[must_use]
+    #[inline]
     pub fn cover_id(&self) -> &str {
         &self.cover_id
     }
@@ -429,6 +440,7 @@ impl Track {
     /// After this time, the track becomes unavailable for download
     /// and may need token refresh.
     #[must_use]
+    #[inline]
     pub fn expiry(&self) -> Option<SystemTime> {
         self.expiry
     }
@@ -440,6 +452,7 @@ impl Track {
     /// * Progress always reports 100%
     /// * Multiple quality/codec options
     #[must_use]
+    #[inline]
     pub fn is_livestream(&self) -> bool {
         self.typ == TrackType::Livestream
     }
@@ -469,12 +482,14 @@ impl Track {
 
     /// Returns the track's audio quality.
     #[must_use]
+    #[inline]
     pub fn quality(&self) -> AudioQuality {
         self.quality
     }
 
     /// Returns the encryption cipher used for this track.
     #[must_use]
+    #[inline]
     pub fn cipher(&self) -> Cipher {
         self.cipher
     }
@@ -483,6 +498,7 @@ impl Track {
     ///
     /// True if the track uses any cipher other than NONE.
     #[must_use]
+    #[inline]
     pub fn is_encrypted(&self) -> bool {
         self.cipher != Cipher::NONE
     }
@@ -492,6 +508,7 @@ impl Track {
     /// True only for FLAC encoded songs. Episodes and livestreams
     /// are never lossless.
     #[must_use]
+    #[inline]
     pub fn is_lossless(&self) -> bool {
         self.codec().is_some_and(|codec| codec == Codec::FLAC)
     }
@@ -1045,6 +1062,7 @@ impl Track {
     /// * Download hasn't started
     /// * Download was reset
     #[must_use]
+    #[inline]
     pub fn handle(&self) -> Option<StreamHandle> {
         self.handle.clone()
     }
@@ -1057,6 +1075,7 @@ impl Track {
     /// For livestreams, always returns false since they are continuous
     /// streams that can't be fully buffered.
     #[must_use]
+    #[inline]
     pub fn is_complete(&self) -> bool {
         self.duration == self.buffered()
     }
@@ -1087,6 +1106,7 @@ impl Track {
     /// Size becomes available after download starts and server
     /// provides Content-Length.
     #[must_use]
+    #[inline]
     pub fn file_size(&self) -> Option<u64> {
         self.file_size
     }
@@ -1098,6 +1118,7 @@ impl Track {
     /// * Are never encrypted
     /// * Include episodes and livestreams
     #[must_use]
+    #[inline]
     pub fn is_external(&self) -> bool {
         self.external
     }
@@ -1110,6 +1131,7 @@ impl Track {
     /// * Stream-specific (livestreams)
     /// * Unknown (some external content)
     #[must_use]
+    #[inline]
     pub fn bitrate(&self) -> Option<usize> {
         self.bitrate
     }
@@ -1121,6 +1143,7 @@ impl Track {
     /// * FLAC - High quality songs only
     /// * AAC - Some livestreams and episodes
     #[must_use]
+    #[inline]
     pub fn codec(&self) -> Option<Codec> {
         self.codec
     }

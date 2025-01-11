@@ -205,6 +205,7 @@ impl Client {
     /// );
     /// let response = client.execute(request).await?;
     /// ```
+    #[inline]
     pub fn request<U, T>(&self, method: Method, url: U, body: T) -> reqwest::Request
     where
         U: Into<Url>,
@@ -225,6 +226,7 @@ impl Client {
     ///
     /// * `url` - Request URL
     /// * `body` - Request body content
+    #[inline]
     pub fn post<U, T>(&self, url: U, body: T) -> reqwest::Request
     where
         U: Into<Url>,
@@ -241,6 +243,7 @@ impl Client {
     ///
     /// * `url` - Request URL
     /// * `body` - Request body content (usually empty)
+    #[inline]
     pub fn get<U, T>(&self, url: U, body: T) -> reqwest::Request
     where
         U: Into<Url>,

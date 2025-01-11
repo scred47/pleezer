@@ -72,6 +72,7 @@ pub struct UserRadio(pub ListData);
 impl Deref for UserRadio {
     type Target = ListData;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }

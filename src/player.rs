@@ -990,12 +990,14 @@ impl Player {
 
     /// Returns the currently playing track, if any.
     #[must_use]
+    #[inline]
     pub fn track(&self) -> Option<&Track> {
         self.queue.get(self.position)
     }
 
     /// Returns a mutable reference to the currently playing track, if any.
     #[must_use]
+    #[inline]
     pub fn track_mut(&mut self) -> Option<&mut Track> {
         self.queue.get_mut(self.position)
     }
@@ -1015,6 +1017,7 @@ impl Player {
 
     /// Returns a reference to the next track in the queue, if any.
     #[must_use]
+    #[inline]
     pub fn next_track(&self) -> Option<&Track> {
         let next = self.position.saturating_add(1);
         self.queue.get(next)
@@ -1022,6 +1025,7 @@ impl Player {
 
     /// Returns a mutable reference to the next track in the queue, if any.
     #[must_use]
+    #[inline]
     pub fn next_track_mut(&mut self) -> Option<&mut Track> {
         let next = self.position.saturating_add(1);
         self.queue.get_mut(next)
@@ -1154,6 +1158,7 @@ impl Player {
 
     /// Returns the current repeat mode.
     #[must_use]
+    #[inline]
     pub fn repeat_mode(&self) -> RepeatMode {
         self.repeat_mode
     }
@@ -1186,6 +1191,7 @@ impl Player {
     ///
     /// Note: This returns the stored volume setting even if the audio device is closed.
     #[must_use]
+    #[inline]
     pub fn volume(&self) -> Percentage {
         self.volume
     }
@@ -1425,16 +1431,19 @@ impl Player {
 
     /// Returns current position in the queue.
     #[must_use]
+    #[inline]
     pub fn position(&self) -> usize {
         self.position
     }
 
     /// Sets the license token for media access.
+    #[inline]
     pub fn set_license_token(&mut self, license_token: impl Into<String>) {
         self.license_token = license_token.into();
     }
 
     /// Enables or disables volume normalization.
+    #[inline]
     pub fn set_normalization(&mut self, normalization: bool) {
         self.normalization = normalization;
     }
@@ -1457,35 +1466,41 @@ impl Player {
     ///
     /// Note: Actual quality may be lower if track is not
     /// available in requested quality.
+    #[inline]
     pub fn set_audio_quality(&mut self, quality: AudioQuality) {
         self.audio_quality = quality;
     }
 
     /// Returns whether volume normalization is enabled.
     #[must_use]
+    #[inline]
     pub fn normalization(&self) -> bool {
         self.normalization
     }
 
     /// Returns current license token.
     #[must_use]
+    #[inline]
     pub fn license_token(&self) -> &str {
         &self.license_token
     }
 
     /// Returns current preferred audio quality setting.
     #[must_use]
+    #[inline]
     pub fn audio_quality(&self) -> AudioQuality {
         self.audio_quality
     }
 
     /// Returns current normalization target gain.
     #[must_use]
+    #[inline]
     pub fn gain_target_db(&self) -> i8 {
         self.gain_target_db
     }
 
     /// Sets the media content URL.
+    #[inline]
     pub fn set_media_url(&mut self, url: Url) {
         self.media_url = url;
     }
@@ -1507,6 +1522,7 @@ impl Player {
     /// assert!(!player.is_started());
     /// ```
     #[must_use]
+    #[inline]
     pub fn is_started(&self) -> bool {
         self.sink.is_some()
     }

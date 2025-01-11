@@ -65,6 +65,7 @@ pub struct EpisodeData(pub ListData);
 impl Deref for EpisodeData {
     type Target = ListData;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }

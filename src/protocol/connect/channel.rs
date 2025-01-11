@@ -648,6 +648,7 @@ impl FromStr for Channel {
 /// assert_eq!(unspec.to_string(), "-1");
 /// ```
 impl fmt::Display for UserId {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Id(id) => write!(f, "{id}"),
@@ -714,6 +715,7 @@ impl FromStr for UserId {
 /// assert!(matches!(user, UserId::Id(_)));
 /// ```
 impl From<NonZeroU64> for UserId {
+    #[inline]
     fn from(id: NonZeroU64) -> Self {
         Self::Id(id)
     }

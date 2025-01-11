@@ -87,6 +87,7 @@ impl Arl {
     /// assert!(Arl::new("spaces not allowed".to_string()).is_err());
     /// assert!(Arl::new("控制字符".to_string()).is_err());
     /// ```
+    #[inline]
     pub fn new(arl: String) -> Result<Self> {
         Ok(Self(arl))
     }
@@ -110,6 +111,7 @@ impl Deref for Arl {
     /// validation invariants.
     type Target = String;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -135,6 +137,7 @@ impl Deref for Arl {
 /// println!("{:?}", arl);  // Prints: Arl("REDACTED")
 /// ```
 impl fmt::Display for Arl {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }

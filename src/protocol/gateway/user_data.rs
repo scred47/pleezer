@@ -116,6 +116,7 @@ pub struct MediaUrl(pub Url);
 impl Deref for MediaUrl {
     type Target = Url;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -136,6 +137,7 @@ impl Deref for MediaUrl {
 /// let url: Url = media_url.into();
 /// ```
 impl From<MediaUrl> for Url {
+    #[inline]
     fn from(url: MediaUrl) -> Self {
         url.0
     }
@@ -159,6 +161,7 @@ impl From<MediaUrl> for Url {
 /// assert_eq!(url.as_str(), "https://media.deezer.com");
 /// ```
 impl Default for MediaUrl {
+    #[inline]
     fn default() -> Self {
         let media_url = Url::from_str("https://media.deezer.com").expect("invalid media url");
         Self(media_url)
@@ -248,6 +251,7 @@ pub struct Gatekeeps {
 /// assert!(flags.remote_control);
 /// ```
 impl Default for Gatekeeps {
+    #[inline]
     fn default() -> Self {
         Self {
             remote_control: true,
@@ -282,6 +286,7 @@ pub struct Gain {
 /// assert_eq!(gain.target, -15);
 /// ```
 impl Default for Gain {
+    #[inline]
     fn default() -> Self {
         Self { target: -15 }
     }

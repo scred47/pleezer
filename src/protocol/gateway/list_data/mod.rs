@@ -414,6 +414,7 @@ impl ListData {
     /// * "episode" - Podcast episode
     /// * "livestream" - Radio station
     #[must_use]
+    #[inline]
     pub const fn typ(&self) -> &'static str {
         match self {
             ListData::Song { .. } => "song",
@@ -428,6 +429,7 @@ impl ListData {
     /// * Positive - Regular Deezer content
     /// * Negative - User uploaded songs
     #[must_use]
+    #[inline]
     pub fn id(&self) -> TrackId {
         match self {
             ListData::Song { id, .. }
@@ -440,6 +442,7 @@ impl ListData {
     ///
     /// Returns None for livestreams which only have a station name.
     #[must_use]
+    #[inline]
     pub fn title(&self) -> Option<&str> {
         match self {
             ListData::Song { title, .. } | ListData::Episode { title, .. } => Some(title.as_str()),
@@ -454,6 +457,7 @@ impl ListData {
     /// * Podcast name for episodes
     /// * Station name for livestreams
     #[must_use]
+    #[inline]
     pub fn artist(&self) -> &str {
         match self {
             ListData::Song { artist, .. } => artist.as_str(),
@@ -469,6 +473,7 @@ impl ListData {
     /// * Podcast artwork ID for episodes
     /// * Station logo ID for livestreams
     #[must_use]
+    #[inline]
     pub fn cover_id(&self) -> &str {
         match self {
             ListData::Song { album_cover, .. } => album_cover,
@@ -486,6 +491,7 @@ impl ListData {
     /// * Episode duration for podcasts
     /// * None for livestreams
     #[must_use]
+    #[inline]
     pub fn duration(&self) -> Option<Duration> {
         match self {
             ListData::Song { duration, .. } | ListData::Episode { duration, .. } => Some(*duration),
@@ -500,6 +506,7 @@ impl ListData {
     /// * Episodes - Track token for Deezer CDN
     /// * Livestreams - None (uses direct URLs)
     #[must_use]
+    #[inline]
     pub fn track_token(&self) -> Option<&str> {
         match self {
             ListData::Song { track_token, .. } | ListData::Episode { track_token, .. } => {
@@ -516,6 +523,7 @@ impl ListData {
     /// * Episodes - Track token expiry
     /// * Livestreams - None (no token needed)
     #[must_use]
+    #[inline]
     pub fn expiry(&self) -> Option<SystemTime> {
         match self {
             ListData::Song { expiry, .. } | ListData::Episode { expiry, .. } => Some(*expiry),
@@ -552,6 +560,7 @@ pub struct LivestreamUrls {
 impl Deref for LivestreamUrls {
     type Target = LivestreamUrl;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.data
     }

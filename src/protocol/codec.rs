@@ -83,6 +83,7 @@ impl Codec {
 /// * "flac"
 /// * "mp3"
 impl fmt::Display for Codec {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Codec::AAC => write!(f, "aac"),

@@ -144,6 +144,7 @@ pub enum Type {
 /// assert_eq!(Type::PREVIEW.to_string(), "PREVIEW");
 /// ```
 impl fmt::Display for Type {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -215,6 +216,7 @@ pub enum Cipher {
 /// assert_eq!(Cipher::NONE.to_string(), "NONE");
 /// ```
 impl fmt::Display for Cipher {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -274,6 +276,7 @@ pub enum Format {
 /// assert_eq!(Format::FLAC.to_string(), "FLAC");
 /// ```
 impl fmt::Display for Format {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -298,6 +301,7 @@ impl fmt::Display for Format {
 /// assert_eq!(AudioQuality::from(Format::EXTERNAL), AudioQuality::Unknown);
 /// ```
 impl From<Format> for AudioQuality {
+    #[inline]
     fn from(format: Format) -> Self {
         match format {
             Format::MP3_64 => AudioQuality::Basic,
@@ -396,6 +400,7 @@ pub struct Error {
 /// assert_eq!(error.to_string(), "Not found (404)");
 /// ```
 impl fmt::Display for Error {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} ({})", self.message, self.code)
     }

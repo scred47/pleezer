@@ -362,6 +362,7 @@ impl Gateway {
     ///
     /// The license token is required for media access.
     #[must_use]
+    #[inline]
     pub fn license_token(&self) -> Option<&str> {
         self.user_data
             .as_ref()
@@ -374,6 +375,7 @@ impl Gateway {
     /// * No user data is available
     /// * Current time is past expiration time
     #[must_use]
+    #[inline]
     pub fn is_expired(&self) -> bool {
         self.expires_at() <= SystemTime::now()
     }
@@ -382,6 +384,7 @@ impl Gateway {
     ///
     /// Returns UNIX epoch if no session is active.
     #[must_use]
+    #[inline]
     pub fn expires_at(&self) -> SystemTime {
         if let Some(data) = &self.user_data {
             return data.user.options.expiration_timestamp;
@@ -391,12 +394,14 @@ impl Gateway {
     }
 
     /// Updates the cached user data.
+    #[inline]
     pub fn set_user_data(&mut self, data: UserData) {
         self.user_data = Some(data);
     }
 
     /// Returns a reference to the current user data if available.
     #[must_use]
+    #[inline]
     pub fn user_data(&self) -> Option<&UserData> {
         self.user_data.as_ref()
     }
@@ -430,6 +435,7 @@ impl Gateway {
 
     /// Returns the user's display name if available.
     #[must_use]
+    #[inline]
     pub fn user_name(&self) -> Option<&str> {
         self.user_data.as_ref().map(|data| data.user.name.as_str())
     }
@@ -601,6 +607,7 @@ impl Gateway {
     ///
     /// Forces a refresh on next token request while preserving
     /// other API functionality.
+    #[inline]
     pub fn flush_user_token(&mut self) {
         // Force refreshing user data, but do not set `user_data` to `None` so
         // so we can continue using the `api_token` it contains.

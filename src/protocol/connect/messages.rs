@@ -418,6 +418,7 @@ enum Stanza {
 /// assert_eq!(Stanza::Send.to_string(), "Send");
 /// ```
 impl fmt::Display for Stanza {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
     }

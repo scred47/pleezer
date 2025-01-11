@@ -84,6 +84,7 @@ pub struct LivestreamData(pub ListData);
 impl Deref for LivestreamData {
     type Target = ListData;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }

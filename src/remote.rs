@@ -258,15 +258,19 @@ enum InitialVolume {
 
 /// Calculates a future time instant by adding seconds to now.
 ///
+/// Used for scheduling timers and watchdogs. Handles overflow
+/// by returning None if addition would overflow.
+///
 /// # Arguments
 ///
 /// * `seconds` - Duration to add to current time
 ///
 /// # Returns
 ///
-/// * Some(Instant) - Future time if addition succeeds
-/// * None - If addition would overflow
+/// * `Some(Instant)` - Future time if addition succeeds
+/// * `None` - If addition would overflow
 #[must_use]
+#[inline]
 fn from_now(seconds: Duration) -> Option<tokio::time::Instant> {
     tokio::time::Instant::now().checked_add(seconds)
 }
@@ -791,14 +795,17 @@ impl Client {
         }
     }
 
-    /// Checks whether the current queue is a Flow (personalized radio) queue.
+    /// Returns whether current queue is a Flow (personalized radio).
     ///
-    /// Examines the queue context to determine if it represents a personalized radio stream.
+    /// Examines queue context to identify Flow queues by checking:
+    /// * Queue has contexts
+    /// * First context is a user mix
     ///
     /// # Returns
     ///
-    /// * `true` - Current queue is a Flow queue
-    /// * `false` - Current queue is not Flow or no queue exists
+    /// * `true` - Queue is a Flow queue
+    /// * `false` - Queue is not Flow or no queue exists
+    #[inline]
     fn is_flow(&self) -> bool {
         self.queue.as_ref().is_some_and(|queue| {
             queue
@@ -816,6 +823,7 @@ impl Client {
     /// Resets the receive watchdog timer.
     ///
     /// Called when messages are received from the controller to prevent connection timeout.
+    #[inline]
     fn reset_watchdog_rx(&mut self) {
         if let Some(deadline) = from_now(Self::WATCHDOG_RX_TIMEOUT) {
             self.watchdog_rx.as_mut().reset(deadline);
@@ -825,6 +833,7 @@ impl Client {
     /// Resets the transmit watchdog timer.
     ///
     /// Called when messages are sent to the controller to maintain heartbeat timing.
+    #[inline]
     fn reset_watchdog_tx(&mut self) {
         if let Some(deadline) = from_now(Self::WATCHDOG_TX_TIMEOUT) {
             self.watchdog_tx.as_mut().reset(deadline);
@@ -834,6 +843,7 @@ impl Client {
     /// Resets the playback reporting timer.
     ///
     /// Schedules the next progress report according to the reporting interval.
+    #[inline]
     fn reset_reporting_timer(&mut self) {
         if let Some(deadline) = from_now(Self::REPORTING_INTERVAL) {
             self.reporting_timer.as_mut().reset(deadline);
@@ -1084,6 +1094,7 @@ impl Client {
     /// * true - Connected to controller
     /// * false - Not connected
     #[must_use]
+    #[inline]
     fn is_connected(&self) -> bool {
         if let ConnectionState::Connected { .. } = &self.connection_state {
             return true;
@@ -1094,10 +1105,16 @@ impl Client {
 
     /// Returns ID of currently connected controller if any.
     ///
+    /// Checks both active connections and pending connections:
+    /// * Returns controller ID from active connection if present
+    /// * Returns controller ID from pending connection if no active connection
+    /// * Returns None if no controller connection exists
+    ///
     /// # Returns
     ///
-    /// * Some(DeviceId) - ID of connected controller
-    /// * None - No controller connected
+    /// * `Some(DeviceId)` - ID of connected or connecting controller
+    /// * `None` - No controller connection exists
+    #[inline]
     fn controller(&self) -> Option<DeviceId> {
         if let ConnectionState::Connected { controller, .. } = &self.connection_state {
             return Some(controller.clone());
@@ -1628,6 +1645,18 @@ impl Client {
         }
     }
 
+    /// Sets the current playback position in the queue.
+    ///
+    /// Handles position conversion for shuffled queues:
+    /// * For unshuffled queues - Uses position directly
+    /// * For shuffled queues - Maps position through shuffle order
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - Target position in the queue (in display order)
+    ///
+    /// After position calculation, updates the player's actual queue position.
+    #[inline]
     fn set_position(&mut self, position: usize) {
         let mut position = position;
         if let Some(queue) = self.queue.as_ref() {
@@ -2221,6 +2250,7 @@ impl Client {
     ///
     /// Returns unspecified ID if no user token available.
     #[must_use]
+    #[inline]
     fn user_id(&self) -> UserId {
         self.user_token
             .as_ref()
@@ -2241,6 +2271,7 @@ impl Client {
     ///
     /// Channel descriptor for protocol messages
     #[must_use]
+    #[inline]
     fn channel(&self, ident: Ident) -> Channel {
         let user_id = self.user_id();
         let from = if let Ident::UserFeed(_) = ident {

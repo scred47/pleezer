@@ -943,6 +943,7 @@ pub enum Status {
 /// println!("Command completed with status: {}", Status::OK);
 /// ```
 impl fmt::Display for Status {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Status::OK => write!(f, "Ok"),
@@ -1386,6 +1387,7 @@ impl Percentage {
     /// assert_eq!(p.as_percent_f32(), 75.0);
     /// ```
     #[must_use]
+    #[inline]
     pub const fn from_ratio_f32(ratio: f32) -> Self {
         Self(ratio as f64)
     }
@@ -1406,6 +1408,7 @@ impl Percentage {
     /// assert_eq!(p.as_percent_f64(), 50.0);
     /// ```
     #[must_use]
+    #[inline]
     pub const fn from_ratio_f64(ratio: f64) -> Self {
         Self(ratio)
     }
@@ -1426,6 +1429,7 @@ impl Percentage {
     /// assert_eq!(p.as_ratio_f32(), 0.75);
     /// ```
     #[must_use]
+    #[inline]
     pub const fn from_percent_f32(percent: f32) -> Self {
         Self(percent as f64 / 100.0)
     }
@@ -1446,6 +1450,7 @@ impl Percentage {
     /// assert_eq!(p.as_ratio_f64(), 0.75);
     /// ```
     #[must_use]
+    #[inline]
     pub const fn from_percent_f64(percent: f64) -> Self {
         Self(percent / 100.0)
     }
@@ -1478,6 +1483,7 @@ impl Percentage {
     /// assert_eq!(RATIO, 0.333);
     /// ```
     #[must_use]
+    #[inline]
     pub const fn as_ratio_f64(&self) -> f64 {
         self.0
     }
@@ -1510,6 +1516,7 @@ impl Percentage {
     /// assert_eq!(PERCENT, 33.3);
     /// ```
     #[must_use]
+    #[inline]
     pub const fn as_percent_f64(&self) -> f64 {
         self.0 * 100.0
     }
@@ -2420,6 +2427,7 @@ pub enum DeviceType {
 /// assert_eq!(DeviceType::Unknown.to_string(), "unknown");
 /// ```
 impl fmt::Display for DeviceType {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceType::Desktop => write!(f, "desktop"),

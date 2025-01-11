@@ -80,6 +80,7 @@ impl Http {
     /// let proxy = Http::from_env();
     /// ```
     #[must_use]
+    #[inline]
     pub fn from_env() -> Option<Self> {
         let proxy = env::var("HTTPS_PROXY")
             .or_else(|_| env::var("https_proxy"))
@@ -242,6 +243,7 @@ impl FromStr for Http {
 /// Note: Authentication credentials are not included
 /// in the output for security.
 impl Display for Http {
+    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.url)
     }

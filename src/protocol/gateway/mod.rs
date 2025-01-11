@@ -152,6 +152,7 @@ impl<T> Response<T> {
     /// }
     /// ```
     #[must_use]
+    #[inline]
     pub fn first(&self) -> Option<&T> {
         self.all().first()
     }
@@ -168,6 +169,7 @@ impl<T> Response<T> {
     /// }
     /// ```
     #[must_use]
+    #[inline]
     pub fn all(&self) -> &Vec<T> {
         match self {
             Self::Paginated { results, .. } => &results.data,

@@ -129,6 +129,7 @@ impl UserToken {
     /// println!("Token valid for: {:?}", token.time_to_live());
     /// ```
     #[must_use]
+    #[inline]
     pub fn time_to_live(&self) -> Duration {
         self.expires_at
             .duration_since(SystemTime::now())
@@ -162,6 +163,7 @@ impl UserToken {
     /// }
     /// ```
     #[must_use]
+    #[inline]
     pub fn is_expired(&self) -> bool {
         self.expires_at <= SystemTime::now()
     }
@@ -187,6 +189,7 @@ impl UserToken {
 /// assert_eq!(token.to_string(), "secret_token");
 /// ```
 impl fmt::Display for UserToken {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.token)
     }

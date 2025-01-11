@@ -99,6 +99,7 @@ pub struct SongData(pub ListData);
 impl Deref for SongData {
     type Target = ListData;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }

@@ -49,6 +49,7 @@ pub trait ToF32 {
 /// assert!(clamped == f32::MAX);
 /// ```
 impl ToF32 for f64 {
+    #[inline]
     #[expect(clippy::cast_possible_truncation)]
     fn to_f32_lossy(self) -> f32 {
         self.clamp(f64::from(f32::MIN), f64::from(f32::MAX)) as f32
@@ -71,6 +72,7 @@ impl ToF32 for f64 {
 /// assert!(clamped == f32::MAX);
 /// ```
 impl ToF32 for u64 {
+    #[inline]
     #[expect(clippy::cast_possible_truncation)]
     #[expect(clippy::cast_precision_loss)]
     #[expect(clippy::cast_sign_loss)]
@@ -99,6 +101,7 @@ impl ToF32 for u64 {
 /// assert!(clamped == f32::MAX);
 /// ```
 impl ToF32 for u128 {
+    #[inline]
     #[expect(clippy::cast_possible_truncation)]
     #[expect(clippy::cast_precision_loss)]
     #[expect(clippy::cast_sign_loss)]
@@ -127,6 +130,7 @@ impl ToF32 for u128 {
 /// assert!(clamped == f32::MAX);
 /// ```
 impl ToF32 for usize {
+    #[inline]
     #[expect(clippy::cast_possible_truncation)]
     #[expect(clippy::cast_precision_loss)]
     #[expect(clippy::cast_sign_loss)]

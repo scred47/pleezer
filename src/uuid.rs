@@ -45,6 +45,7 @@ pub struct Uuid(pub uuid::Uuid);
 impl Deref for Uuid {
     type Target = uuid::Uuid;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -67,6 +68,7 @@ impl Uuid {
     /// println!("{}", uuid); // Prints a UUID like "550e8400-e29b-41d4-a716-446655440000"
     /// ```
     #[must_use]
+    #[inline]
     pub fn fast_v4() -> Self {
         let random_bytes = fastrand::u128(..).to_ne_bytes();
         let uuid = uuid::Builder::from_random_bytes(random_bytes).into_uuid();
@@ -85,6 +87,7 @@ impl Uuid {
 /// println!("{}", uuid); // e.g., "550e8400-e29b-41d4-a716-446655440000"
 /// ```
 impl fmt::Display for Uuid {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
@@ -126,6 +129,7 @@ impl FromStr for Uuid {
 /// let std_uuid: uuid::Uuid = our_uuid.into();
 /// ```
 impl From<Uuid> for uuid::Uuid {
+    #[inline]
     fn from(value: Uuid) -> Self {
         *value
     }
