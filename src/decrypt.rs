@@ -58,7 +58,7 @@
 //! * Automatic buffer management
 
 use std::{
-    io::{self, BufRead, Cursor, Read, Seek, SeekFrom},
+    io::{self, BufRead, Read, Seek, SeekFrom},
     ops::Deref,
     str::FromStr,
 };
@@ -67,6 +67,7 @@ use blowfish::{cipher::BlockDecryptMut, cipher::KeyIvInit, Blowfish};
 use cbc::cipher::block_padding::NoPadding;
 use md5::{Digest, Md5};
 use stream_download::{storage::StorageProvider, StreamDownload};
+use symphonia::core::io::MediaSource;
 
 use crate::{
     error::{Error, Result},
@@ -118,8 +119,13 @@ where
     /// Decrypted data buffer.
     ///
     /// Contains the current 2KB block (or smaller for the last block)
-    /// of decrypted data. Position tracks how much has been read.
-    buffer: Cursor<Vec<u8>>,
+    /// of decrypted data.
+    buffer: Vec<u8>,
+
+    /// Current position within the buffer.
+    ///
+    /// Tracks how many bytes have been consumed from the current buffer.
+    pos: u64,
 
     /// Current block number being processed.
     ///
@@ -127,6 +133,9 @@ where
     /// blocks need decryption (every third block when using
     /// `BF_CBC_STRIPE`).
     block: Option<u64>,
+
+    /// Whether the stream is seekable.
+    is_seekable: bool,
 }
 
 /// Length of decryption keys in bytes.
@@ -206,6 +215,7 @@ impl FromStr for Key {
 impl Deref for Key {
     type Target = RawKey;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -256,8 +266,10 @@ where
             file_size: track.file_size(),
             cipher: track.cipher(),
             key,
-            buffer: Cursor::new(Vec::new()),
+            buffer: [].to_vec(),
+            pos: 0,
             block: None,
+            is_seekable: !track.is_livestream(),
         })
     }
 
@@ -287,19 +299,10 @@ where
         Key(key)
     }
 
-    /// Returns the number of unread bytes remaining in the current buffer.
-    ///
-    /// This method is used internally to determine when the buffer needs refilling.
-    /// It handles the case where the buffer position might be beyond the buffer length
-    /// after certain seek operations.
+    /// Whether the track is encrypted.
     #[must_use]
-    #[inline]
-    fn bytes_on_buffer(&self) -> u64 {
-        let len = self.buffer.get_ref().len() as u64;
-
-        // The buffer position can be beyond the buffer length if a position
-        // beyond the buffer length is seeked to.
-        len.saturating_sub(self.buffer.position())
+    pub fn is_encrypted(&self) -> bool {
+        self.cipher != Cipher::NONE
     }
 }
 
@@ -348,6 +351,7 @@ where
     /// * Seeking from end with unknown file size
     /// * Position would overflow or become negative
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        // TODO: DRY up error messages
         let target = match pos {
             SeekFrom::Start(pos) => pos,
             SeekFrom::End(pos) => {
@@ -368,15 +372,28 @@ where
                     })?
             }
             SeekFrom::Current(pos) => {
-                let current = if self.cipher == Cipher::NONE {
+                let current = if self.is_encrypted() {
+                    self.block
+                        .unwrap_or_default()
+                        .checked_mul(CBC_BLOCK_SIZE as u64)
+                        .and_then(|block| block.checked_add(self.pos))
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "invalid seek to negative or overflowing position",
+                            )
+                        })?
+                } else {
                     self.download
                         .stream_position()?
-                        .saturating_sub(self.bytes_on_buffer())
-                        .saturating_add(self.buffer.position())
-                } else {
-                    self.block.map_or(0, |block| {
-                        block * CBC_BLOCK_SIZE as u64 + self.buffer.position()
-                    })
+                        .checked_sub(self.buffer.len() as u64)
+                        .and_then(|pos| pos.checked_add(self.pos))
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "invalid seek to negative or overflowing position",
+                            )
+                        })?
                 };
 
                 current.checked_add_signed(pos).ok_or_else(|| {
@@ -395,14 +412,7 @@ where
             ));
         }
 
-        // Clear the buffer in all cases
-        self.buffer = Cursor::new(Vec::new());
-
-        if self.cipher == Cipher::NONE {
-            // For unencrypted tracks, just seek directly
-            self.download.seek(SeekFrom::Start(target))
-        } else {
-            // For encrypted tracks, use existing block-based seeking
+        if self.is_encrypted() {
             let block = target.checked_div(CBC_BLOCK_SIZE as u64).ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -422,8 +432,8 @@ where
                 self.download
                     .seek(SeekFrom::Start(block * CBC_BLOCK_SIZE as u64))?;
 
-                let mut buffer = [0; CBC_BLOCK_SIZE];
-                let length = self.download.read(&mut buffer)?;
+                let mut temp_buffer = [0; CBC_BLOCK_SIZE];
+                let length = self.download.read(&mut temp_buffer)?;
 
                 let is_encrypted = block % CBC_STRIPE_COUNT as u64 == 0;
                 let is_full_block = length == CBC_BLOCK_SIZE;
@@ -433,17 +443,21 @@ where
                         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
 
                     cipher
-                        .decrypt_padded_mut::<NoPadding>(&mut buffer)
+                        .decrypt_padded_mut::<NoPadding>(&mut temp_buffer)
                         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
                 }
 
-                let mut buffer = buffer.to_vec();
-                buffer.truncate(length);
-                self.buffer = Cursor::new(buffer);
+                self.buffer = temp_buffer[..length].to_vec();
             }
 
-            self.buffer.set_position(offset);
+            self.pos = offset;
             Ok(target)
+        } else {
+            // For unencrypted tracks, just seek directly
+            let new_pos = self.download.seek(SeekFrom::Start(target))?;
+            self.buffer.clear();
+            self.pos = 0;
+            Ok(new_pos)
         }
     }
 }
@@ -469,24 +483,25 @@ where
     ///
     /// Returns any I/O errors from reading or decrypting the data.
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        // If buffer is empty, fill it
-        if self.bytes_on_buffer() == 0 {
-            if self.cipher == Cipher::NONE {
-                // For unencrypted tracks, just read directly into buffer
-                let mut buf = vec![0; CBC_BLOCK_SIZE];
-                let bytes_read = self.download.read(&mut buf)?;
-                buf.truncate(bytes_read);
-                self.buffer = Cursor::new(buf);
-            } else {
-                // For encrypted tracks, use existing block reading/decryption logic:
-                // if buffer is empty, trigger a read of the next block
+        if self.pos >= self.buffer.len() as u64 {
+            if self.is_encrypted() {
+                // Fill buffer with next decrypted block
                 let _ = self.stream_position()?;
+            } else {
+                // Read directly into buffer
+                self.buffer.resize(CBC_BLOCK_SIZE, 0);
+                let bytes_read = self.download.read(&mut self.buffer)?;
+                self.buffer.truncate(bytes_read);
+                self.pos = 0;
             }
         }
-
-        // Return remaining buffer contents
-        let position = usize::try_from(self.buffer.position()).unwrap_or(usize::MAX);
-        Ok(&self.buffer.get_ref()[position..])
+        let pos = usize::try_from(self.pos).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "buffer position would be out of bounds",
+            )
+        })?;
+        Ok(&self.buffer[pos..])
     }
 
     /// Marks a certain number of bytes as consumed from the buffer.
@@ -499,8 +514,7 @@ where
     /// * `amt` - Number of bytes to mark as consumed
     #[inline]
     fn consume(&mut self, amt: usize) {
-        let new_pos = self.buffer.position() + amt as u64;
-        self.buffer.set_position(new_pos);
+        self.pos = (self.pos.saturating_add(amt as u64)).min(self.buffer.len() as u64);
     }
 }
 
@@ -525,9 +539,31 @@ where
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let available = self.fill_buf()?;
-        let amt = std::cmp::min(available.len(), buf.len());
+        let amt = available.len().min(buf.len());
         buf[..amt].copy_from_slice(&available[..amt]);
         self.consume(amt);
         Ok(amt)
+    }
+}
+
+/// Implements `MediaSource` to support media playback via Symphonia.
+///
+/// Provides:
+/// * Seekability information
+/// * Total byte length if known
+/// * Thread-safe reading for audio decoding
+impl<P> MediaSource for Decrypt<P>
+where
+    P: StorageProvider,
+    P::Reader: Sync,
+{
+    #[inline]
+    fn is_seekable(&self) -> bool {
+        self.is_seekable
+    }
+
+    #[inline]
+    fn byte_len(&self) -> Option<u64> {
+        self.file_size
     }
 }

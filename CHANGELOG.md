@@ -9,7 +9,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Changed
 - [decrypt] Add explicit `BufRead` implementation to standardize buffering behavior
-- [decrypt] Inline performance-critical buffer operations
+- [decrypt] Improve buffer management performance and efficiency
 - [docs] Remove incorrect mention of "Hi-Res" audio quality
 
 ## [0.8.1] - 2025-01-11

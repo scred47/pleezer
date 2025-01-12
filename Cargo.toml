@@ -80,6 +80,12 @@ serde_repr = "0.1"
 serde_with = { version = "3.12", features = ["json"] }
 stream-download = { version = "0.14", features = ["reqwest-rustls"] }
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+symphonia = { version = "0.5", default-features = false, features = [
+    "isomp4",
+    "aac",
+    "flac",
+    "mp3",
+] }
 thiserror = "2"
 time = "0.3"
 tokio = { version = "1", features = [

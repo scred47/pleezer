@@ -1811,6 +1811,7 @@ dependencies = [
  "serde_repr",
  "serde_with",
  "stream-download",
+ "symphonia",
  "sysinfo",
  "thiserror 2.0.11",
  "time",
@@ -2654,6 +2655,7 @@ dependencies = [
  "symphonia-bundle-mp3",
  "symphonia-codec-aac",
  "symphonia-core",
+ "symphonia-format-isomp4",
  "symphonia-metadata",
 ]
 
@@ -2703,6 +2705,19 @@ dependencies = [
  "bytemuck",
  "lazy_static",
  "log",
+]
+
+[[package]]
+name = "symphonia-format-isomp4"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abfdf178d697e50ce1e5d9b982ba1b94c47218e03ec35022d9f0e071a16dc844"
+dependencies = [
+ "encoding_rs",
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+ "symphonia-utils-xiph",
 ]
 
 [[package]]
