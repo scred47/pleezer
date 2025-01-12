@@ -86,14 +86,18 @@
 //! concurrently.
 
 #![deny(clippy::all)]
-#![warn(clippy::pedantic)]
 #![doc(test(attr(ignore)))]
+#![forbid(unsafe_code)]
+#![warn(clippy::pedantic)]
+#![warn(rust_2018_idioms)]
+#![warn(future_incompatible)]
 
 #[macro_use]
 extern crate log;
 
 pub mod arl;
 pub mod config;
+pub mod decoder;
 pub mod decrypt;
 pub mod error;
 pub mod events;

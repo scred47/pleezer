@@ -176,7 +176,7 @@ pub enum Message {
 ///
 /// Currently has a known limitation where padding is not respected.
 impl fmt::Display for Message {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // FIXME: padding is not respected.
         match self {
             Self::Send { channel, contents } => {
@@ -419,7 +419,7 @@ enum Stanza {
 /// ```
 impl fmt::Display for Stanza {
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }

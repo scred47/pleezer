@@ -125,7 +125,7 @@ pub enum ExternalUrl {
 /// Display implementation for track type.
 impl fmt::Display for TrackType {
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Song => write!(f, "song"),
             Self::Episode => write!(f, "episode"),
@@ -1270,7 +1270,7 @@ impl From<gateway::ListData> for Track {
 /// 12345: "Artist Name - Track Title"
 /// ```
 impl fmt::Display for Track {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let artist = self.artist();
         if let Some(title) = &self.title() {
             write!(f, "{}: \"{} - {}\"", self.id, artist, title)

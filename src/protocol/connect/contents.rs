@@ -231,7 +231,7 @@ pub struct Contents {
 /// The current implementation has a known limitation where padding may not
 /// be respected in all contexts. This is marked for future improvement.
 impl fmt::Display for Contents {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // FIXME: padding is not respected.
         write!(f, "{:<16}", self.body.message_type())
     }
@@ -328,7 +328,7 @@ pub struct Headers {
 /// println!("{}", headers);  // "from 550e8400-e29b-41d4-a716-446655440000 to target-123"
 /// ```
 impl fmt::Display for Headers {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "from {}", self.from)?;
 
         if let Some(destination) = &self.destination {
@@ -491,7 +491,7 @@ impl FromStr for DeviceId {
 /// assert_eq!(device.to_string(), "android-123");
 /// ```
 impl fmt::Display for DeviceId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Uuid(uuid) => write!(f, "{uuid}"),
             Self::Other(s) => write!(f, "{s}"),
@@ -2496,7 +2496,7 @@ impl FromStr for DeviceType {
 /// * Protocol Buffer serialization fails
 /// * DEFLATE compression fails
 impl fmt::Display for Payload {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut buffer: Vec<u8> = vec![];
 
         if let Payload::PublishQueue(queue) = self {
@@ -3177,7 +3177,7 @@ impl TryFrom<WireBody> for Body {
 /// println!("Received message type: {}", MessageType::ConnectionOffer);
 /// ```
 impl fmt::Display for MessageType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }

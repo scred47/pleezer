@@ -145,7 +145,7 @@ pub enum Type {
 /// ```
 impl fmt::Display for Type {
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -217,7 +217,7 @@ pub enum Cipher {
 /// ```
 impl fmt::Display for Cipher {
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -277,7 +277,7 @@ pub enum Format {
 /// ```
 impl fmt::Display for Format {
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -401,7 +401,7 @@ pub struct Error {
 /// ```
 impl fmt::Display for Error {
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} ({})", self.message, self.code)
     }
 }
