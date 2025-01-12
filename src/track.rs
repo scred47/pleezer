@@ -260,6 +260,11 @@ pub struct Track {
     /// * For livestreams: Determined from stream URL
     codec: Option<Codec>,
 
+    /// Fallback track to use when primary track is unavailable.
+    /// * Contains complete track metadata
+    /// * Used for alternative versions of same song
+    /// * Swapped with primary track when fallback is needed
+    /// * Reset when switching to preserve download state
     fallback: Option<Box<Self>>,
 }
 
