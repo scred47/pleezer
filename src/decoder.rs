@@ -43,9 +43,10 @@ use symphonia::{
 
 use crate::{
     error::{Error, Result},
-    player::{SampleFormat, DEFAULT_CHANNELS, DEFAULT_SAMPLE_RATE},
+    player::{SampleFormat, DEFAULT_SAMPLE_RATE},
     protocol::Codec,
     track::Track,
+    util::ToF32,
 };
 
 /// Audio decoder supporting multiple formats through Symphonia.
@@ -88,6 +89,15 @@ pub struct Decoder {
 
     /// Current position in the sample buffer
     position: usize,
+
+    /// Number of audio channels in the stream
+    channels: u16,
+
+    /// Sample rate of the audio stream in Hz
+    sample_rate: u32,
+
+    /// Total duration of the audio stream
+    total_duration: Option<Duration>,
 }
 
 /// Maximum number of consecutive corrupted packets to skip before giving up.
@@ -169,12 +179,32 @@ impl Decoder {
                 &MetadataOptions::default(),
             )?
             .format;
-        let track = demuxer
+        let default_track = demuxer
             .default_track()
             .ok_or(Error::not_found("default track not found"))?;
 
-        let codec_params = &track.codec_params;
+        let codec_params = &default_track.codec_params;
+        trace!(
+            "sampling rate: {} kHz",
+            codec_params
+                .sample_rate
+                .map_or("unknown".to_string(), |rate| (rate.to_f32_lossy() / 1000.)
+                    .to_string())
+        );
         let decoder = codecs.make(codec_params, &DecoderOptions::default())?;
+
+        let sample_rate = codec_params.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE);
+        let channels = codec_params.channels.map_or_else(
+            || track.typ().default_channels(),
+            |channels| u16::try_from(channels.count()).unwrap_or(u16::MAX),
+        );
+
+        let mut total_duration = None;
+        if let Some(time_base) = codec_params.time_base {
+            if let Some(frames) = codec_params.n_frames {
+                total_duration = Some(time_base.calc_time(frames).into());
+            }
+        }
 
         Ok(Self {
             demuxer,
@@ -183,6 +213,10 @@ impl Decoder {
 
             buffer: None,
             position: 0,
+
+            channels,
+            sample_rate,
+            total_duration,
         })
     }
 }
@@ -201,12 +235,7 @@ impl rodio::Source for Decoder {
     /// Falls back to [`DEFAULT_CHANNELS`] if channel count cannot be determined.
     #[inline]
     fn channels(&self) -> u16 {
-        self.decoder
-            .codec_params()
-            .channels
-            .map_or(DEFAULT_CHANNELS, |channels| {
-                u16::try_from(channels.count()).unwrap_or(u16::MAX)
-            })
+        self.channels
     }
 
     /// Returns the sample rate of the audio stream in Hz.
@@ -214,24 +243,15 @@ impl rodio::Source for Decoder {
     /// Falls back to [`DEFAULT_SAMPLE_RATE`] if sample rate cannot be determined.
     #[inline]
     fn sample_rate(&self) -> u32 {
-        self.decoder
-            .codec_params()
-            .sample_rate
-            .unwrap_or(DEFAULT_SAMPLE_RATE)
+        self.sample_rate
     }
 
     /// Returns the total duration of the audio stream.
     ///
     /// Returns `None` if duration cannot be determined (e.g., for streams).
+    #[inline]
     fn total_duration(&self) -> Option<Duration> {
-        let mut total_duration = None;
-        let codec_params = self.decoder.codec_params();
-        if let Some(time_base) = codec_params.time_base {
-            if let Some(frames) = codec_params.n_frames {
-                total_duration = Some(time_base.calc_time(frames).into());
-            }
-        }
-        total_duration
+        self.total_duration
     }
 
     /// Attempts to seek to the specified position in the audio stream.

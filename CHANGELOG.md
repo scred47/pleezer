@@ -20,6 +20,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [decrypt] Add explicit `BufRead` implementation to standardize buffering behavior
 - [decrypt] Improve buffer management performance and efficiency
 - [docs] Remove incorrect mention of "Hi-Res" audio quality
+- [player] Default to mono audio for podcasts to prevent garbled sound when channel count is missing
 
 ## [0.8.1] - 2025-01-11
 

@@ -120,6 +120,28 @@ pub enum TrackType {
     Livestream,
 }
 
+impl TrackType {
+    /// Stereo audio channel count.
+    const STEREO: u16 = 2;
+    /// Mono audio channel count.
+    const MONO: u16 = 1;
+
+    /// Default number of audio channels for this track type.
+    ///
+    /// * Songs and livestreams use stereo (2 channels)
+    /// * Episodes (podcasts) use mono (1 channel)
+    ///
+    /// These defaults match typical encoding settings for each content type.
+    /// Actual channel count may differ based on source material.
+    #[must_use]
+    pub fn default_channels(&self) -> u16 {
+        match self {
+            Self::Song | Self::Livestream => Self::STEREO,
+            Self::Episode => Self::MONO,
+        }
+    }
+}
+
 /// External streaming URL configuration.
 ///
 /// Handles streaming URLs for non-standard content:
@@ -535,6 +557,18 @@ impl Track {
     #[inline]
     pub fn is_lossless(&self) -> bool {
         self.codec().is_some_and(|codec| codec == Codec::FLAC)
+    }
+
+    /// Returns whether the track is a podcast episode.
+    ///
+    /// Episodes are external content with:
+    /// * Variable bitrate encoding
+    /// * Mono audio (by default)
+    /// * Direct streaming URLs
+    #[must_use]
+    #[inline]
+    pub fn is_podcast(&self) -> bool {
+        self.typ == TrackType::Episode
     }
 
     /// Cipher format for 64kbps MP3 files using Blowfish CBC stripe encryption.

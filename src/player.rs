@@ -79,8 +79,8 @@ use crate::{
     util::ToF32,
 };
 
+/// Default audio sample rate in Hz.
 pub const DEFAULT_SAMPLE_RATE: u32 = 44_100;
-pub const DEFAULT_CHANNELS: u16 = 2;
 
 /// Audio sample type used by the decoder.
 ///
@@ -1387,7 +1387,7 @@ impl Player {
                 // If the requested position is beyond what is buffered, seek to the buffered
                 // position instead. This prevents blocking the player and disconnections.
                 if let Some(buffered) = track.buffered() {
-                    if buffered < duration {
+                    if duration > buffered {
                         if position > buffered {
                             position = buffered;
                         }
