@@ -1524,23 +1524,18 @@ impl Percentage {
 
 /// Compares two percentages for equality.
 ///
-/// Uses floating point epsilon comparison to handle imprecise representations.
-/// Two percentages are considered equal if their absolute difference is less
-/// than `f64::EPSILON` (approximately 2.22e-16).
+/// Simply delegates to the underlying f64 equality comparison.
 ///
 /// # Examples
-/// ```
+/// ```rust
 /// let p1 = Percentage::from_ratio_f64(0.5);
 /// let p2 = Percentage::from_ratio_f64(0.5);
 /// assert_eq!(p1, p2);
-///
-/// // Small differences are handled
-/// let p3 = Percentage::from_ratio_f64(0.5 + f64::EPSILON / 2.0);
-/// assert_eq!(p1, p3);
 /// ```
 impl PartialEq for Percentage {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
-        (self.0 - other.0).abs() < f64::EPSILON
+        self.0.eq(&other.0)
     }
 }
 

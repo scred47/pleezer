@@ -4,8 +4,22 @@
 //! * Track metadata management
 //! * Media source retrieval
 //! * Download management
-//! * Format handling
-//! * Encryption detection
+//! * Audio format handling
+//! * Content encryption
+//!
+//! # Audio Format Support
+//!
+//! Different content types support different formats:
+//! * Songs (Deezer catalog):
+//!   - MP3 (CBR at 64/128/320 kbps)
+//!   - FLAC (lossless)
+//! * Episodes (Podcasts):
+//!   - MP3 (variable bitrate)
+//!   - AAC (in ADTS or MP4 container)
+//!   - WAV (uncompressed PCM)
+//! * Livestreams:
+//!   - AAC (in ADTS container)
+//!   - MP3
 //!
 //! # Track Lifecycle
 //!
@@ -271,8 +285,13 @@ pub struct Track {
 /// Internal stream state for content download.
 ///
 /// Combines:
-/// * HTTP stream for downloading
-/// * Source URL for codec/quality detection
+/// * HTTP stream for downloading content
+/// * Source URL for format/codec detection
+///
+/// Format detection rules:
+/// * Songs: Determined by quality level (MP3 or FLAC)
+/// * Episodes: Inferred from URL extension
+/// * Livestreams: Determined from stream metadata
 struct StreamUrl {
     /// HTTP stream for downloading content.
     stream: HttpStream<reqwest::Client>,
@@ -777,8 +796,21 @@ impl Track {
     /// User uploads are identified by negative IDs and only
     /// available for songs.
     #[must_use]
+    #[inline]
     pub fn is_user_uploaded(&self) -> bool {
         self.id.is_negative()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn is_deezer(&self) -> bool {
+        self.typ == TrackType::Song && !self.is_user_uploaded()
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn is_cbr(&self) -> bool {
+        self.is_deezer() && !self.is_lossless()
     }
 
     /// Opens a stream for downloading or streaming content.
@@ -1285,7 +1317,7 @@ impl fmt::Display for Track {
     }
 }
 
-/// Finds codec and bitrate for a given stream URL in livestream URLs.
+/// Finds audio format and bitrate for a given stream URL in livestream URLs.
 ///
 /// # Arguments
 ///
@@ -1294,15 +1326,15 @@ impl fmt::Display for Track {
 ///
 /// # Returns
 ///
-/// Some((Codec, usize)) if the URL is found:
-/// * Codec - AAC or MP3 depending on match
+/// Some((Format, usize)) if the URL is found:
+/// * Format - ADTS (for AAC audio) or MP3
 /// * usize - Bitrate in kbps
 ///
-/// None if URL is not found in any codec/bitrate combination
+/// None if URL is not found in any format/bitrate combination
 fn find_codec_bitrate(haystack: &LivestreamUrls, needle: &Url) -> Option<(Codec, usize)> {
     for (kbps, codec) in &haystack.data {
         if codec.aac.as_ref().is_some_and(|aac| aac == needle) {
-            return Some((Codec::AAC, kbps.parse().ok()?));
+            return Some((Codec::ADTS, kbps.parse().ok()?));
         } else if codec.mp3.as_ref().is_some_and(|mp3| mp3 == needle) {
             return Some((Codec::MP3, kbps.parse().ok()?));
         }

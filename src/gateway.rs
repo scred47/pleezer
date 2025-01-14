@@ -4,6 +4,7 @@
 //! * Authentication (ARL tokens and user credentials)
 //! * Session management
 //! * User data retrieval
+//! * Media streaming configuration
 //! * Queue and track information
 //! * Flow recommendations
 //!
@@ -12,6 +13,13 @@
 //! Supports two authentication methods:
 //! * Email/password login (preferred, allows token refresh)
 //! * ARL token (requires manual renewal when expired)
+//!
+//! # Media Formats
+//!
+//! Different content types support different formats:
+//! * Songs: MP3 (CBR) and FLAC
+//! * Podcasts: MP3, AAC (ADTS), MP4, WAV
+//! * Livestreams: AAC (ADTS) and MP3
 //!
 //! # Example
 //!
@@ -408,6 +416,13 @@ impl Gateway {
 
     /// Returns the user's preferred streaming quality for connected devices.
     ///
+    /// Quality settings affect format selection:
+    /// * Basic/Standard/High: MP3 at different bitrates (64/128/320 kbps)
+    /// * Lossless: FLAC (when available)
+    ///
+    /// Note: Quality setting only affects songs from Deezer's catalogue.
+    /// Other content types (podcasts, livestreams) use their own format selection.
+    ///
     /// Returns the default quality if no preference is set.
     #[must_use]
     pub fn audio_quality(&self) -> AudioQuality {
@@ -454,6 +469,11 @@ impl Gateway {
     /// Converts a protocol buffer track list into a queue.
     ///
     /// Fetches detailed track information for each track in the list.
+    /// Different track types support different formats:
+    /// * Songs: MP3 (CBR) or FLAC
+    /// * Episodes: MP3, AAC (ADTS), MP4, or WAV
+    /// * Livestreams: AAC (ADTS) or MP3
+    /// * Chapters: Not currently supported
     ///
     /// # Arguments
     ///
@@ -463,7 +483,7 @@ impl Gateway {
     ///
     /// Returns an error if:
     /// * Track IDs are invalid
-    /// * Track type is unsupported
+    /// * Track type is unsupported (e.g., audiobooks)
     /// * Network request fails
     /// * Response parsing fails
     pub async fn list_to_queue(&mut self, list: &queue::List) -> Result<Queue> {
@@ -492,7 +512,7 @@ impl Gateway {
                 queue::TrackType::TRACK_TYPE_LIVE => {
                     let radio = livestream::Request {
                         livestream_id: first.id.parse()?,
-                        supported_codecs: vec![Codec::AAC, Codec::MP3],
+                        supported_codecs: vec![Codec::ADTS, Codec::MP3],
                     };
                     let request = serde_json::to_string(&radio)?;
                     self.request::<LivestreamData>(request, None)

@@ -7,6 +7,15 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- [decoder] New Symphonia-based audio decoder for improved performance and quality:
+  - Higher audio quality (`f32` processing instead of `i16`)
+  - More robust AAC in ADTS format support
+  - WAV support for podcasts
+  - Faster seeking in MP3 files
+  - Faster decoder initialization
+  - Lower memory usage
+
 ### Changed
 - [decrypt] Add explicit `BufRead` implementation to standardize buffering behavior
 - [decrypt] Improve buffer management performance and efficiency

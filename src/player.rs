@@ -2,25 +2,20 @@
 //!
 //! This module handles:
 //! * Audio device configuration and output
-//! * Track playback and decryption
+//! * Track playback and decoding (using Symphonia)
 //! * Queue management and track access
-//! * Volume normalization
+//! * Volume normalization and control
 //! * Event notifications
-//!
-//! # Device Management
-//!
-//! The audio device is handled in three phases:
-//! 1. Device specification storage during construction (`new()`)
-//! 2. Configuration and opening on demand (`start()`)
-//! 3. Closing when done (`stop()`)
-//!
-//! This design prevents ALSA from acquiring the device until it's actually needed.
 //!
 //! # Audio Pipeline
 //!
 //! The playback pipeline consists of:
 //! 1. Track download and decryption
-//! 2. Audio format decoding (MP3/FLAC)
+//! 2. Format-specific decoding:
+//!    * MP3 (CBR): Fast seeking for Deezer songs
+//!    * FLAC: Native frame-aligned seeking
+//!    * AAC (ADTS): Proper frame synchronization
+//!    * WAV: Direct PCM access
 //! 3. Volume normalization (optional)
 //! 4. Logarithmic volume control
 //! 5. Fade-out processing for smooth transitions
@@ -28,6 +23,7 @@
 //!
 //! # Features
 //!
+//! * Efficient format-specific decoding
 //! * Track preloading for gapless playback
 //! * Volume normalization with limiter
 //! * Flexible audio device selection
@@ -62,10 +58,12 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use md5::{Digest, Md5};
 use rodio::Source;
 use stream_download::storage::{adaptive::AdaptiveStorageProvider, temp::TempStorageProvider};
+use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use url::Url;
 
 use crate::{
     config::Config,
+    decoder::Decoder,
     decrypt::{Decrypt, Key},
     error::{Error, ErrorKind, Result},
     events::Event,
@@ -76,26 +74,33 @@ use crate::{
             Percentage,
         },
         gateway::{self, MediaUrl},
-        Codec,
     },
     track::{Track, TrackId},
     util::ToF32,
 };
 
+pub const DEFAULT_SAMPLE_RATE: u32 = 44_100;
+pub const DEFAULT_CHANNELS: u16 = 2;
+
 /// Audio sample type used by the decoder.
 ///
 /// This is the native format that rodio's decoder produces,
 /// used for internal audio processing.
-type SampleFormat = <rodio::decoder::Decoder<std::fs::File> as Iterator>::Item;
+pub type SampleFormat = f32;
 
 /// Audio playback manager.
 ///
 /// Handles:
 /// * Audio device management
-/// * Track downloading and decoding
+/// * Format-specific decoding via Symphonia
 /// * Queue management and ordering
 /// * Playback control
 /// * Volume normalization
+///
+/// Format support:
+/// * Songs: MP3 (CBR) and FLAC
+/// * Podcasts: MP3, AAC (ADTS), MP4, WAV
+/// * Livestreams: AAC (ADTS) and MP3
 ///
 /// Audio device lifecycle:
 /// * Device specification is stored during construction
@@ -625,10 +630,14 @@ impl Player {
 
     /// Loads and prepares a track for playback.
     ///
-    /// Downloads, decrypts, and configures audio processing for a track:
+    /// Downloads, decrypts, and configures audio processing:
     /// 1. Downloads encrypted content
     /// 2. Sets up decryption
-    /// 3. Configures audio decoder
+    /// 3. Configures format-specific decoder:
+    ///    * MP3: Optimized for CBR content
+    ///    * FLAC: Native frame handling
+    ///    * AAC: ADTS frame synchronization
+    ///    * WAV: Direct PCM processing
     /// 4. Applies volume normalization if enabled
     ///
     /// # Arguments
@@ -680,15 +689,14 @@ impl Player {
             })
             .await??;
 
-            // Append the track to the sink.
+            // Create a new decryptor and decoder for the track. If the track is unencrypted,
+            // the decryptor will be a buffered pass-through
             let decryptor = Decrypt::new(track, download, &self.bf_secret)?;
-            let mut decoder = match track.codec() {
-                Some(Codec::FLAC) => rodio::Decoder::new_flac(decryptor),
-                Some(Codec::MP3) => rodio::Decoder::new_mp3(decryptor),
-                Some(Codec::AAC) => rodio::Decoder::new_aac(decryptor),
-                None => rodio::Decoder::new(decryptor),
-            }?;
+            let stream =
+                MediaSourceStream::new(Box::new(decryptor), MediaSourceStreamOptions::default());
+            let mut decoder = Decoder::new(track, stream)?;
 
+            // Seek to the deferred position if set.
             if let Some(progress) = self.deferred_seek.take() {
                 // Set the track position only if `progress` is beyond the track start. We start
                 // at the beginning anyway, and this prevents decoder errors.
@@ -699,6 +707,7 @@ impl Player {
                 }
             }
 
+            // Apply volume normalization if enabled.
             let mut difference = 0.0;
             let mut ratio = 1.0;
             if self.normalization {
@@ -1387,8 +1396,10 @@ impl Player {
                         // frame just before it. Hardcoding this to 44.1 kHz is safe for higher
                         // sample rates (that podcasts could be in), as the frame duration will be
                         // shorter.
-                        let frame_duration =
-                            track.codec().unwrap_or_default().frame_duration(44_100);
+                        let frame_duration = track
+                            .codec()
+                            .unwrap_or_default()
+                            .frame_duration(DEFAULT_SAMPLE_RATE);
                         position = position.saturating_sub(frame_duration);
                     }
                 }

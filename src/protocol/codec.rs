@@ -1,61 +1,103 @@
-//! Audio codec support for Deezer content.
+//! Audio format support for Deezer content.
 //!
-//! Defines supported audio formats:
-//! * AAC - Advanced Audio Coding (streams)
-//! * FLAC - Free Lossless Audio Codec (downloads)
-//! * MP3 - MPEG Layer-3 (both)
+//! This module handles both audio containers and codecs:
 //!
-//! Different content types support different codecs:
-//! * Songs - MP3 and FLAC
-//! * Episodes - MP3 only
-//! * Livestreams - AAC and MP3
+//! Containers:
+//! * ADTS - Audio Data Transport Stream (AAC)
+//! * FLAC - Free Lossless Audio Codec (native container)
+//! * MP3 - MPEG Layer-3 (native container)
+//! * MP4 - MPEG-4 Part 14 (AAC, MP3 or even FLAC)
+//! * WAV - Waveform Audio File Format (PCM)
+//!
+//! Codecs:
+//! * AAC - Advanced Audio Coding (in ADTS or MP4)
+//! * FLAC - Free Lossless Audio Codec
+//! * MP3 - MPEG Layer-3
+//! * PCM - Pulse Code Modulation (in WAV)
+//!
+//! Content type mapping:
+//! * Songs: MP3 or FLAC (native containers)
+//! * Episodes: MP3, MP4 (AAC), or WAV
+//! * Livestreams: ADTS (AAC) or MP3
 
 use serde_with::SerializeDisplay;
 use std::{fmt, str::FromStr, time::Duration};
 
 use crate::{error::Error, util::ToF32};
 
-/// Supported audio codecs for live streams.
-/// Note: Deezer does not use FLAC for live streams.
+/// Supported audio formats.
 #[derive(Copy, Clone, Default, Eq, PartialEq, SerializeDisplay, Debug, Hash)]
 pub enum Codec {
-    /// Advanced Audio Coding
-    AAC,
-    /// Free Lossless Audio Codec
+    /// Audio Data Transport Stream container
+    ///
+    /// A container format specifically for AAC audio streams.
+    /// Used for live streams and some podcasts.
+    ADTS,
+
+    /// FLAC native container
+    ///
+    /// Both a codec and container format for lossless compression.
+    /// High-Fidelity format for Deezer's streaming catalogue.
     FLAC,
-    /// MPEG Layer-3
+
+    /// MP3 native container
+    ///
+    /// Both a codec and container format.
+    /// Primary format for Deezer's streaming catalogue.
     #[default]
     MP3,
+
+    /// MPEG-4 Part 14 container
+    ///
+    /// A container format that typically holds AAC audio but can also contain MP3
+    /// or even FLAC streams. Used for podcasts and some live streams.
+    MP4,
+
+    /// WAV container
+    ///
+    /// Container format for uncompressed PCM audio.
+    /// Used for some podcast content.
+    WAV,
 }
 
 impl Codec {
     /// AAC frames are fixed at 1024 samples.
+    /// Used in both ADTS and MP4 containers.
     const AAC_SAMPLES_PER_FRAME: usize = 1_024;
 
     /// FLAC frames are variable, but may not exceed 4,608 samples up to 48 kHz.
+    /// FLAC codec and container are unified.
     const FLAC_MAX_SAMPLES_PER_FRAME: usize = 4_608;
 
     /// FLAC frames are variable, but may not exceed 16,384 samples above 48 kHz.
+    /// Higher limit for high-resolution audio.
     const FLAC_MAX_SAMPLES_PER_FRAME_HI_RES: usize = 16_384;
 
     /// MP3 frames are fixed at 1,152 samples.
+    /// MP3 codec and container are unified.
     const MP3_SAMPLES_PER_FRAME: usize = 1_152;
 
-    /// Returns the maximum duration of a frame for the codec at the given sample rate.
+    /// WAV frames contain uncompressed PCM data, one sample per channel.
+    const WAV_SAMPLES_PER_FRAME: usize = 2;
+
+    /// Returns the maximum duration of a frame for the format's codec at the given sample rate.
     ///
-    /// Frame sizes at 44.1 kHz:
-    /// * AAC: 1024 samples ≈ 23.220ms (fixed)
+    /// Frame sizes at 44.1 kHz by codec:
+    /// * AAC (in ADTS/MP4): 1024 samples ≈ 23.220ms (fixed)
     /// * MP3: 1152 samples ≈ 26.122ms (fixed)
     /// * FLAC: Up to 4608 samples ≈ 104.490ms (variable)
+    /// * PCM (in WAV): 2 samples ≈ 0.045ms (fixed, stereo)
     ///
     /// For FLAC at higher sample rates (>48 kHz), allows up to 16384 samples per frame.
     ///
-    /// Note: While FLAC frames can be variable length, we return the maximum possible
-    /// frame duration to ensure seeks land before frame boundaries.
+    /// Notes:
+    /// - For MP4 containers, we assume AAC codec
+    /// - For FLAC, we return maximum possible frame duration for safe seeking
+    /// - For WAV, assumes stereo PCM data
     #[must_use]
-    pub fn frame_duration(&self, sample_rate: usize) -> Duration {
+    pub fn frame_duration(&self, sample_rate: u32) -> Duration {
         let samples = match self {
-            Codec::AAC => Self::AAC_SAMPLES_PER_FRAME,
+            Codec::ADTS | Codec::MP4 => Self::AAC_SAMPLES_PER_FRAME,
             Codec::FLAC => {
                 if sample_rate > 48_000 {
                     Self::FLAC_MAX_SAMPLES_PER_FRAME_HI_RES
@@ -64,6 +106,7 @@ impl Codec {
                 }
             }
             Codec::MP3 => Self::MP3_SAMPLES_PER_FRAME,
+            Codec::WAV => Self::WAV_SAMPLES_PER_FRAME,
         }
         .to_f32_lossy();
 
@@ -74,57 +117,120 @@ impl Codec {
             Duration::from_secs_f32(span)
         }
     }
-}
 
-/// Formats codec type for display.
-///
-/// Used for serialization and logging. Shows codec name in lowercase:
-/// * "aac"
-/// * "flac"
-/// * "mp3"
-impl fmt::Display for Codec {
+    /// Returns the standard file extension for this format.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pleezer::protocol::Format;
+    ///
+    /// assert_eq!(Format::ADTS.extension(), "aac");
+    /// assert_eq!(Format::MP4.extension(), "m4a");
+    /// ```
+    #[must_use]
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    pub fn extension(&self) -> &'static str {
         match self {
-            Codec::AAC => write!(f, "aac"),
-            Codec::FLAC => write!(f, "flac"),
-            Codec::MP3 => write!(f, "mp3"),
+            Codec::ADTS => "aac",
+            Codec::FLAC => "flac",
+            Codec::MP3 => "mp3",
+            Codec::MP4 => "m4a",
+            Codec::WAV => "wav",
+        }
+    }
+
+    /// Returns the MIME type for this format.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pleezer::protocol::Format;
+    ///
+    /// assert_eq!(Format::ADTS.mime_type(), "audio/aac");
+    /// assert_eq!(Format::MP4.mime_type(), "audio/mp4");
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn mime_type(&self) -> &'static str {
+        match self {
+            Codec::ADTS => "audio/aac",
+            Codec::FLAC => "audio/flac",
+            Codec::MP3 => "audio/mpeg",
+            Codec::MP4 => "audio/mp4",
+            Codec::WAV => "audio/wav",
         }
     }
 }
 
-/// Converts a string to a [`Codec`].
+/// Formats the audio format for display.
 ///
-/// # Supported formats
-/// - AAC: "aac", "m4a", "m4b"
-/// - FLAC: "flac"
-/// - MP3: "mp3"
-///
-/// # Errors
-/// Returns [`Error::invalid_argument`] if the string doesn't match any supported codec format.
+/// Shows the primary codec name in lowercase, regardless of container:
+/// * ADTS/MP4 -> "aac"
+/// * FLAC -> "flac"
+/// * MP3 -> "mp3"
+/// * WAV -> "wav"
 ///
 /// # Examples
+/// ```rust
+/// use pleezer::protocol::Format;
+///
+/// assert_eq!(Format::ADTS.to_string(), "aac");
+/// assert_eq!(Format::MP4.to_string(), "aac");  // MP4 assumed to contain AAC
 /// ```
+impl fmt::Display for Codec {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Codec::ADTS | Codec::MP4 => write!(f, "aac"),
+            Codec::FLAC => write!(f, "flac"),
+            Codec::MP3 => write!(f, "mp3"),
+            Codec::WAV => write!(f, "wav"),
+        }
+    }
+}
+
+/// Parses a string into an audio format.
+///
+/// Recognizes both container and common file extensions:
+///
+/// # Container formats
+/// - ADTS: "adts", "aac"
+/// - FLAC: "flac"
+/// - MP3: "mp3"
+/// - MP4: "mp4", "m4a", "m4b"
+/// - WAV: "wav"
+///
+/// Note that some strings map to container formats that typically
+/// hold specific codecs (e.g., "aac" maps to ADTS container).
+///
+/// # Examples
+/// ```rust
 /// use std::str::FromStr;
-/// use pleezer::protocol::Codec;
+/// use pleezer::protocol::Format;
 ///
-/// assert_eq!(Codec::from_str("aac").unwrap(), Codec::AAC);
-/// assert_eq!(Codec::from_str("m4a").unwrap(), Codec::AAC);
-/// assert_eq!(Codec::from_str("m4b").unwrap(), Codec::AAC);
-/// assert_eq!(Codec::from_str("flac").unwrap(), Codec::FLAC);
-/// assert_eq!(Codec::from_str("mp3").unwrap(), Codec::MP3);
+/// // Container format parsing
+/// assert_eq!(Format::from_str("adts")?, Format::ADTS);
+/// assert_eq!(Format::from_str("mp4")?, Format::MP4);
 ///
-/// assert!(Codec::from_str("wav").is_err());
+/// // Common extension parsing
+/// assert_eq!(Format::from_str("m4a")?, Format::MP4);
+/// assert_eq!(Format::from_str("aac")?, Format::ADTS);
 /// ```
+///
+/// # Errors
+/// Returns [`Error::invalid_argument`] if the string doesn't match any supported format.
 impl FromStr for Codec {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "aac" | "m4a" | "m4b" => Ok(Codec::AAC),
+            "aac" | "adts" => Ok(Codec::ADTS),
             "flac" => Ok(Codec::FLAC),
             "mp3" => Ok(Codec::MP3),
-            _ => Err(Error::invalid_argument(format!("{s} is not a valid codec"))),
+            "m4a" | "m4b" | "mp4" => Ok(Codec::MP4),
+            "wav" => Ok(Codec::WAV),
+            _ => Err(Error::invalid_argument(format!(
+                "unable to parse codec from {s}",
+            ))),
         }
     }
 }

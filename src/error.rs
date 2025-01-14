@@ -863,3 +863,26 @@ impl From<uuid::Error> for Error {
         Self::invalid_argument(e.to_string())
     }
 }
+
+/// Converts Symphonia errors into appropriate error kinds.
+///
+/// Maps audio decoding errors:
+/// * `IoError` → `DataLoss`
+/// * `DecodeError` → `DataLoss`
+/// * `LimitError` → `ResourceExhausted`
+/// * `ResetRequired` → `Internal`
+/// * `SeekError` → `Unavailable`
+/// * `Unsupported` → `Unimplemented`
+impl From<symphonia::core::errors::Error> for Error {
+    fn from(e: symphonia::core::errors::Error) -> Self {
+        use symphonia::core::errors::Error::*;
+        match e {
+            IoError(e) => Self::data_loss(e),
+            DecodeError(e) => Self::data_loss(e),
+            LimitError(e) => Self::resource_exhausted(e),
+            ResetRequired => Self::internal("reset required"),
+            SeekError(e) => Self::unavailable(format!("seek error: {e:?}")),
+            Unsupported(e) => Self::unimplemented(e),
+        }
+    }
+}
