@@ -24,7 +24,7 @@
 
 use std::time::Duration;
 
-use rodio::{source::SeekError, Source};
+use rodio::source::SeekError;
 use symphonia::{
     core::{
         audio::SampleBuffer,
@@ -98,6 +98,9 @@ pub struct Decoder {
 
     /// Total duration of the audio stream
     total_duration: Option<Duration>,
+
+    /// Total number of samples in the stream
+    total_samples: Option<usize>,
 }
 
 /// Maximum number of consecutive corrupted packets to skip before giving up.
@@ -205,6 +208,11 @@ impl Decoder {
                 total_duration = Some(time_base.calc_time(frames).into());
             }
         }
+        let total_samples = codec_params.n_frames.and_then(|frames| {
+            frames
+                .checked_mul(channels.into())
+                .and_then(|samples| usize::try_from(samples).ok())
+        });
 
         Ok(Self {
             demuxer,
@@ -217,6 +225,7 @@ impl Decoder {
             channels,
             sample_rate,
             total_duration,
+            total_samples,
         })
     }
 }
@@ -231,16 +240,12 @@ impl rodio::Source for Decoder {
     }
 
     /// Returns the number of channels in the audio stream.
-    ///
-    /// Falls back to [`DEFAULT_CHANNELS`] if channel count cannot be determined.
     #[inline]
     fn channels(&self) -> u16 {
         self.channels
     }
 
     /// Returns the sample rate of the audio stream in Hz.
-    ///
-    /// Falls back to [`DEFAULT_SAMPLE_RATE`] if sample rate cannot be determined.
     #[inline]
     fn sample_rate(&self) -> u32 {
         self.sample_rate
@@ -383,13 +388,7 @@ impl Iterator for Decoder {
     /// Otherwise returns (0, None) for streams.
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let total_samples = self.decoder.codec_params().n_frames.and_then(|frames| {
-            frames
-                .checked_mul(self.channels().into())
-                .and_then(|samples| usize::try_from(samples).ok())
-        });
-
-        (total_samples.unwrap_or(0), total_samples)
+        (self.total_samples.unwrap_or(0), self.total_samples)
     }
 }
 
