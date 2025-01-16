@@ -935,6 +935,62 @@ impl Track {
         )))
     }
 
+    fn init_download(&mut self, url: &Url) {
+        // Determine the codec and bitrate of the track.
+        if let Some(ExternalUrl::WithQuality(urls)) = &self.external_url {
+            // Livestreams specify the codec and bitrate with the URL.
+            let result = find_codec_bitrate(urls, url);
+            self.codec = result.map(|some| some.0);
+            self.bitrate = result.map(|some| some.1);
+        } else {
+            // For episodes, we can infer the codec from the URL.
+            if let Some(ExternalUrl::Direct(url)) = &self.external_url {
+                if let Some(extension) = url.path().split('.').last() {
+                    if let Ok(codec) = extension.parse() {
+                        self.codec = Some(codec);
+                    }
+                }
+            } else if self.is_user_uploaded() {
+                self.codec = Some(Codec::MP3);
+            } else {
+                self.codec = self.quality.codec();
+            }
+
+            // For songs, the audio quality determines the codec. When the codec
+            // is MP3, the bitrate is constant and determined by the quality. For
+            // FLAC, the bitrate is variable and determined by the file size and
+            // duration.
+            //
+            // For episodes, we have no metadata and must rely on the file size
+            // and duration to determine the bitrate. This is not perfect, but it
+            // is a good approximation.
+            self.bitrate = match self.quality {
+                AudioQuality::Lossless | AudioQuality::Unknown => {
+                    self.file_size
+                        .unwrap_or_default()
+                        .checked_div(self.duration.unwrap_or_default().as_secs())
+                        .map(|bytes| {
+                            let mut kbps = usize::try_from(bytes * 8 / 1000).unwrap_or(usize::MAX);
+
+                            // Limit the bitrate to the maximum allowed by the quality.
+                            // This is to prevent the bitrate from being too high due to
+                            // metadata and visuals in the file.
+                            let max_bitrate = match self.codec() {
+                                Some(Codec::ADTS | Codec::MP4) => 576,
+                                Some(Codec::MP3) => 320,
+                                Some(Codec::FLAC) => 1411,
+                                Some(Codec::WAV) => 3072,
+                                None => usize::MAX,
+                            };
+                            kbps = kbps.min(max_bitrate);
+                            kbps
+                        })
+                }
+                _ => self.quality.bitrate(),
+            };
+        }
+    }
+
     /// Starts downloading the track.
     ///
     /// Initiates background download and creates `AudioFile` that:
@@ -1031,42 +1087,7 @@ impl Track {
             info!("downloading {} {self} with unknown file size", self.typ);
         }
 
-        // Determine the codec and bitrate of the track.
-        if let Some(ExternalUrl::WithQuality(urls)) = &self.external_url {
-            // Livestreams specify the codec and bitrate with the URL.
-            let result = find_codec_bitrate(urls, &url);
-            self.codec = result.map(|some| some.0);
-            self.bitrate = result.map(|some| some.1);
-        } else {
-            // For episodes, we can infer the codec from the URL.
-            if let Some(ExternalUrl::Direct(url)) = &self.external_url {
-                if let Some(extension) = url.path().split('.').last() {
-                    if let Ok(codec) = extension.parse() {
-                        self.codec = Some(codec);
-                    }
-                }
-            } else {
-                self.codec = self.quality.codec();
-            }
-
-            // For songs, the audio quality determines the codec. When the codec
-            // is MP3, the bitrate is constant and determined by the quality. For
-            // FLAC, the bitrate is variable and determined by the file size and
-            // duration.
-            //
-            // For episodes, we have no metadata and must rely on the file size
-            // and duration to determine the bitrate. This is not perfect, but it
-            // is a good approximation.
-            self.bitrate = match self.quality {
-                AudioQuality::Lossless | AudioQuality::Unknown => self
-                    .file_size
-                    .unwrap_or_default()
-                    .checked_div(self.duration.unwrap_or_default().as_secs())
-                    .map(|bytes| usize::try_from(bytes * 8 / 1000).unwrap_or(usize::MAX)),
-
-                _ => self.quality.bitrate(),
-            };
-        }
+        self.init_download(&url);
 
         // Calculate the prefetch size based on the bitrate and duration.
         let prefetch_size = self.prefetch_size();
@@ -1222,9 +1243,11 @@ impl Track {
     /// Returns the audio codec used for this content.
     ///
     /// Possible codecs:
-    /// * MP3 - Most common, used for all content types
+    /// * ADTS - Some livestreams
     /// * FLAC - High quality songs only
-    /// * AAC - Some livestreams and episodes
+    /// * MP3 - Most common, used for all content types
+    /// * MP4 - Some episodes
+    /// * WAV - Some episodes
     #[must_use]
     #[inline]
     pub fn codec(&self) -> Option<Codec> {

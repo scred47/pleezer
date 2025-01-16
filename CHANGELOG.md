@@ -25,6 +25,10 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [player] Default to mono audio for podcasts to prevent garbled sound when channel count is missing
 - [track] Return `AudioFile` instead of raw download stream
 
+### Fixed
+- [track] Correct bitrate calculation for user-uploaded MP3s by excluding ID3 tags and album art
+- [track] Cap reported bitrates to codec maximums (320 kbps for MP3, 1411 kbps for FLAC, etc.)
+
 ## [0.8.1] - 2025-01-11
 
 ### Added
