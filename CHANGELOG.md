@@ -13,7 +13,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
   - Higher audio quality (`f32` processing instead of `i16`)
   - More robust AAC support in both ADTS and MP4 formats
   - WAV support (for some podcasts)
-  - Faster seeking in MP3 files
+  - Faster seeking in FLAC and MP3 files
   - Faster decoder initialization
   - Lower memory usage
 
