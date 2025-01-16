@@ -10,12 +10,12 @@
 //! # Audio Pipeline
 //!
 //! The playback pipeline consists of:
-//! 1. Track download and decryption
+//! 1. Track download and format handling through `AudioFile` abstraction
 //! 2. Format-specific decoding:
-//!    * MP3 (CBR): Fast seeking for Deezer songs
-//!    * FLAC: Native frame-aligned seeking
-//!    * AAC (ADTS): Proper frame synchronization
-//!    * WAV: Direct PCM access
+//!    * MP3: Fast seeking for CBR streams
+//!    * FLAC: Raw frame handling
+//!    * AAC: ADTS stream parsing
+//!    * WAV: PCM decoding
 //! 3. Volume normalization (optional)
 //! 4. Logarithmic volume control
 //! 5. Fade-out processing for smooth transitions
@@ -23,7 +23,8 @@
 //!
 //! # Features
 //!
-//! * Efficient format-specific decoding
+//! * Unified audio stream handling
+//! * Optimized CBR MP3 seeking
 //! * Track preloading for gapless playback
 //! * Volume normalization with limiter
 //! * Flexible audio device selection
@@ -58,13 +59,12 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use md5::{Digest, Md5};
 use rodio::Source;
 use stream_download::storage::{adaptive::AdaptiveStorageProvider, temp::TempStorageProvider};
-use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use url::Url;
 
 use crate::{
     config::Config,
     decoder::Decoder,
-    decrypt::{Decrypt, Key},
+    decrypt::{self},
     error::{Error, ErrorKind, Result},
     events::Event,
     http,
@@ -120,11 +120,6 @@ pub struct Player {
     ///
     /// Required for downloading encrypted tracks.
     license_token: String,
-
-    /// Key for track decryption.
-    ///
-    /// Used with Blowfish CBC encryption.
-    bf_secret: Key,
 
     /// Ordered list of tracks for playback.
     /// Order may be changed by shuffle operations.
@@ -279,7 +274,9 @@ impl Player {
             Config::try_key(&client).await?
         };
 
-        if format!("{:x}", Md5::digest(*bf_secret)) != Config::BF_SECRET_MD5 {
+        if format!("{:x}", Md5::digest(*bf_secret)) == Config::BF_SECRET_MD5 {
+            decrypt::set_bf_secret(bf_secret)?;
+        } else {
             return Err(Error::permission_denied("the bf_secret is not valid"));
         }
 
@@ -294,7 +291,6 @@ impl Player {
             client,
             license_token: String::new(),
             media_url: MediaUrl::default().into(),
-            bf_secret,
             repeat_mode: RepeatMode::default(),
             normalization: config.normalization,
             gain_target_db,
@@ -628,17 +624,19 @@ impl Player {
     /// This value is equal to what Spotify uses.
     const AGC_RELEASE_TIME: Duration = Duration::from_millis(100);
 
+    /// Time before network operations timeout.
+    const NETWORK_TIMEOUT: Duration = Duration::from_secs(2);
+
     /// Loads and prepares a track for playback.
     ///
-    /// Downloads, decrypts, and configures audio processing:
-    /// 1. Downloads encrypted content
-    /// 2. Sets up decryption
-    /// 3. Configures format-specific decoder:
-    ///    * MP3: Optimized for CBR content
-    ///    * FLAC: Native frame handling
-    ///    * AAC: ADTS frame synchronization
-    ///    * WAV: Direct PCM processing
-    /// 4. Applies volume normalization if enabled
+    /// Downloads and configures audio processing:
+    /// 1. Downloads content through unified `AudioFile` interface
+    /// 2. Configures format-specific decoder:
+    ///    * MP3: Optimized seeking for CBR content
+    ///    * FLAC: Raw frame handling
+    ///    * AAC: ADTS stream parsing
+    ///    * WAV: PCM decoding
+    /// 3. Applies volume normalization if enabled
     ///
     /// # Arguments
     ///
@@ -649,7 +647,6 @@ impl Player {
     /// Returns error if:
     /// * Audio device is not open (no sources available)
     /// * Track download fails
-    /// * Decryption fails
     /// * Audio decoding fails
     // TODO : consider controlflow
     async fn load_track(
@@ -667,7 +664,7 @@ impl Player {
             .ok_or(Error::unavailable("audio sources not available"))?;
 
         if track.handle().is_none() {
-            let download = tokio::time::timeout(Duration::from_secs(3), async {
+            let download = tokio::time::timeout(Self::NETWORK_TIMEOUT, async {
                 // Start downloading the track.
                 let medium = track
                     .get_medium(
@@ -689,12 +686,8 @@ impl Player {
             })
             .await??;
 
-            // Create a new decryptor and decoder for the track. If the track is unencrypted,
-            // the decryptor will be a buffered pass-through
-            let decryptor = Decrypt::new(track, download, &self.bf_secret)?;
-            let stream =
-                MediaSourceStream::new(Box::new(decryptor), MediaSourceStreamOptions::default());
-            let mut decoder = Decoder::new(track, stream)?;
+            // Create a new decoder for the track.
+            let mut decoder = Decoder::new(track, download)?;
 
             // Seek to the deferred position if set.
             if let Some(progress) = self.deferred_seek.take() {

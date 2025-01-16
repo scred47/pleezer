@@ -3,9 +3,9 @@
 //! This module handles Deezer track operations including:
 //! * Track metadata management
 //! * Media source retrieval
+//! * Audio stream handling through `AudioFile`
 //! * Download management
-//! * Audio format handling
-//! * Content encryption
+//! * Format detection
 //!
 //! # Audio Format Support
 //!
@@ -32,10 +32,15 @@
 //!    * Negotiates quality/format
 //!    * Validates availability
 //!
-//! 3. Download Management
-//!    * Background downloading
-//!    * Progress tracking
-//!    * Buffer management
+//! 3. Stream Preparation
+//!    * Creates `AudioFile` abstraction
+//!    * Handles encryption if needed
+//!    * Manages download buffering
+//!
+//! 4. Playback Management
+//!    * Tracks download progress
+//!    * Manages buffer state
+//!    * Enables seeking within buffered data
 //!
 //! # Quality Fallback
 //!
@@ -49,6 +54,7 @@
 //! Works with:
 //! * [`player`](crate::player) - For playback management
 //! * [`gateway`](crate::gateway) - For track metadata
+//! * [`audio_file`](crate::audio_file) - For unified stream handling
 //! * [`decrypt`](crate::decrypt) - For encrypted content
 //!
 //! # Example
@@ -88,6 +94,7 @@ use url::Url;
 use veil::Redact;
 
 use crate::{
+    audio_file::AudioFile,
     error::{Error, Result},
     http,
     protocol::{
@@ -930,10 +937,11 @@ impl Track {
 
     /// Starts downloading the track.
     ///
-    /// Initiates a background download task that:
+    /// Initiates background download and creates `AudioFile` that:
     /// * Streams content from source
+    /// * Handles format detection
+    /// * Manages encryption if needed
     /// * Tracks download progress
-    /// * Updates buffer state
     /// * Enables playback before completion
     ///
     /// # Arguments
@@ -942,10 +950,13 @@ impl Track {
     /// * `medium` - Media source information
     /// * `storage` - Storage provider with prefetch buffer
     ///
-    /// The storage buffer size is configured based on:
-    /// * Track bitrate (if known)
-    /// * Default size for unknown bitrates
-    /// * See `prefetch_size()` for details
+    /// # Returns
+    ///
+    /// Returns an `AudioFile` instance that provides:
+    /// * Unified Read/Seek interface
+    /// * Transparent encryption handling
+    /// * Format-specific optimizations
+    /// * Buffer management
     ///
     /// # Fallback Handling
     ///
@@ -980,9 +991,10 @@ impl Track {
         client: &http::Client,
         medium: &MediumType,
         storage: P,
-    ) -> Result<StreamDownload<P>>
+    ) -> Result<AudioFile>
     where
-        P: StorageProvider + 'static,
+        P: StorageProvider + Sync + 'static,
+        P::Reader: Sync,
     {
         let medium = match medium {
             MediumType::Primary(medium) => medium,
@@ -1124,7 +1136,7 @@ impl Track {
         .await?;
 
         self.handle = Some(download.handle());
-        Ok(download)
+        AudioFile::try_from_download(self, download)
     }
 
     /// Returns the current download handle if active.

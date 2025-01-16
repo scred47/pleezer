@@ -33,7 +33,7 @@
 //! use std::io::{BufRead, Read};
 //!
 //! // Create decryptor with track and key
-//! let mut decryptor = Decrypt::new(&track, download, &key)?;
+//! let mut decryptor = Decrypt::new(&track, download)?;
 //!
 //! // Read using BufRead for efficiency
 //! while let Ok(buffer) = decryptor.fill_buf() {
@@ -58,6 +58,7 @@
 //! * Automatic buffer management
 
 use std::{
+    cell::OnceCell,
     io::{self, BufRead, Read, Seek, SeekFrom},
     ops::Deref,
     str::FromStr,
@@ -67,7 +68,6 @@ use blowfish::{cipher::BlockDecryptMut, cipher::KeyIvInit, Blowfish};
 use cbc::cipher::block_padding::NoPadding;
 use md5::{Digest, Md5};
 use stream_download::{storage::StorageProvider, StreamDownload};
-use symphonia::core::io::MediaSource;
 
 use crate::{
     error::{Error, Result},
@@ -83,13 +83,13 @@ use crate::{
 ///
 /// # Buffering
 ///
-/// Uses 2KB blocks for decryption. No additional buffering is needed
-/// as the `Read` implementation handles blocks efficiently.
+/// Uses 2KB blocks for all content. The `Read` implementation uses
+/// buffered reading for both encrypted and unencrypted data.
 ///
 /// # Supported Encryption
 ///
 /// Currently supports:
-/// * No encryption (passthrough)
+/// * No encryption (buffered reading)
 /// * Blowfish CBC with striping (every third 2KB block)
 pub struct Decrypt<P>
 where
@@ -133,9 +133,6 @@ where
     /// blocks need decryption (every third block when using
     /// `BF_CBC_STRIPE`).
     block: Option<u64>,
-
-    /// Whether the stream is seekable.
-    is_seekable: bool,
 }
 
 /// Length of decryption keys in bytes.
@@ -224,16 +221,52 @@ impl Deref for Key {
 /// Fixed IV for CBC decryption.
 const CBC_BF_IV: &[u8; 8] = b"\x00\x01\x02\x03\x04\x05\x06\x07";
 
-/// Size of each block in bytes (2KB).
+/// Block size for encryption and buffering (2KB).
+/// This matches Deezer's encryption block size and provides
+/// efficient buffering for both encrypted and unencrypted content.
 const CBC_BLOCK_SIZE: usize = 2 * 1024;
 
-/// Number of blocks in a stripe (3).
-///
-/// Every third block is encrypted.
+/// Striping pattern for encrypted blocks.
+/// Every third block is encrypted, matching Deezer's format.
 const CBC_STRIPE_COUNT: usize = 3;
 
 /// Supported encryption methods.
 const SUPPORTED_CIPHERS: [Cipher; 2] = [Cipher::NONE, Cipher::BF_CBC_STRIPE];
+
+thread_local! {
+    /// Global decryption key, set once and used for all decryption.
+    static BF_SECRET: OnceCell<Key> = const { OnceCell::new() };
+}
+
+/// Sets the global decryption key.
+///
+/// Must be called before any decryption operations.
+/// Can only be set once - subsequent calls will fail.
+///
+/// # Arguments
+/// * `secret` - Master decryption key
+///
+/// # Errors
+/// * `Error::Unimplemented` - Key has already been set
+pub fn set_bf_secret(secret: Key) -> Result<()> {
+    BF_SECRET.with(|cell| {
+        cell.set(secret)
+            .map_err(|_| Error::unimplemented("decryption key already set"))
+    })
+}
+
+/// Retrieves the global decryption key.
+///
+/// # Errors
+///
+/// Returns `Error::Unimplemented` if the key hasn't been set.
+fn bf_secret() -> Result<Key> {
+    BF_SECRET.with(|cell| {
+        cell.get()
+            .copied()
+            .ok_or_else(|| Error::permission_denied("decryption key not set"))
+    })
+}
 
 impl<P> Decrypt<P>
 where
@@ -242,15 +275,17 @@ where
     /// Creates a new decryption stream for a track.
     ///
     /// # Arguments
-    ///
     /// * `track` - Track metadata including encryption information
     /// * `download` - Source stream providing the encrypted data
-    /// * `salt` - Master decryption key used to derive track-specific key
+    ///
+    /// # Returns
+    /// A new decryptor configured for the track's encryption method
     ///
     /// # Errors
-    ///
-    /// Returns `Error::Unimplemented` if the track uses an unsupported encryption method.
-    pub fn new(track: &Track, download: StreamDownload<P>, salt: &Key) -> Result<Self>
+    /// * `Error::Unimplemented` - Track uses unsupported encryption method
+    /// * `Error::PermissionDenied` - Global decryption key not set
+    /// * `Error::InvalidData` - Failed to generate track-specific key
+    pub fn new(track: &Track, download: StreamDownload<P>) -> Result<Self>
     where
         P: StorageProvider,
     {
@@ -259,7 +294,8 @@ where
         }
 
         // Calculate decryption key.
-        let key = Self::key_for_track_id(track.id(), salt);
+        let salt = bf_secret()?;
+        let key = Self::key_for_track_id(track.id(), &salt);
 
         Ok(Self {
             download,
@@ -269,7 +305,6 @@ where
             buffer: [].to_vec(),
             pos: 0,
             block: None,
-            is_seekable: !track.is_livestream(),
         })
     }
 
@@ -306,12 +341,11 @@ where
     }
 }
 
-/// Seeks within the decrypted stream.
+/// Seeks within the stream.
 ///
 /// The implementation handles:
 /// * Block alignment for encrypted content
-/// * Direct seeking for unencrypted content
-/// * Buffer management across seeks
+/// * Buffer management for all content
 /// * Position calculations for both modes
 ///
 /// For encrypted content:
@@ -319,37 +353,23 @@ where
 /// * Only decrypts blocks when necessary
 /// * Preserves stripe pattern (every third block)
 ///
+/// # Arguments
+///
+/// * `pos` - Seek position (Start/Current/End)
+///
+/// # Returns
+///
+/// New position in the stream
+///
 /// # Errors
 ///
-/// Returns errors for:
-/// * Seeking beyond end of file
-/// * Seeking from end with unknown file size
-/// * Invalid seek positions (negative or overflow)
+/// * `InvalidInput` - Seeking to negative or overflowing position
+/// * `UnexpectedEof` - Seeking beyond end of file
+/// * `Unsupported` - Seeking from end with unknown file size
 impl<P> Seek for Decrypt<P>
 where
     P: StorageProvider,
 {
-    /// Seeks to a position in the decrypted stream.
-    ///
-    /// The implementation handles:
-    /// * Block alignment for encrypted content
-    /// * Direct seeking for unencrypted content
-    /// * Buffer management across seeks
-    ///
-    /// # Arguments
-    ///
-    /// * `pos` - Seek position (Start/Current/End)
-    ///
-    /// # Returns
-    ///
-    /// New position in the stream, or an I/O error if seeking fails.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// * Seeking beyond end of file
-    /// * Seeking from end with unknown file size
-    /// * Position would overflow or become negative
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         // TODO: DRY up error messages
         let target = match pos {
@@ -462,26 +482,43 @@ where
     }
 }
 
-/// Provides buffered reading of decrypted content.
+/// Provides buffered reading of content.
 ///
 /// The implementation:
-/// * Uses a 2KB buffer for both encrypted and unencrypted content
+/// * Uses a 2KB buffer for all content
 /// * Automatically fills buffer when empty
-/// * For encrypted content, handles block-based decryption
-/// * For unencrypted content, reads directly from source
+/// * Handles block-based decryption where needed
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::io::BufRead;
+///
+/// let mut decryptor = // ... create decryptor
+/// while let Ok(buffer) = decryptor.fill_buf() {
+///     if buffer.is_empty() {
+///         break;
+///     }
+///     // Process buffer...
+///     decryptor.consume(buffer.len());
+/// }
+/// ```
 impl<P> BufRead for Decrypt<P>
 where
     P: StorageProvider,
 {
-    /// Provides access to the internal buffer of decoded data.
+    /// Returns a reference to the internal buffer.
     ///
-    /// This method will fill the internal buffer if it's empty:
-    /// * For unencrypted tracks, reads directly from source
-    /// * For encrypted tracks, reads and decrypts a 2KB block
+    /// Fills the buffer if empty, handling decryption if needed.
+    ///
+    /// # Returns
+    ///
+    /// Reference to buffered data
     ///
     /// # Errors
     ///
-    /// Returns any I/O errors from reading or decrypting the data.
+    /// * `InvalidInput` - Buffer position would be out of bounds
+    /// * `InvalidData` - Decryption failed
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         if self.pos >= self.buffer.len() as u64 {
             if self.is_encrypted() {
@@ -504,10 +541,7 @@ where
         Ok(&self.buffer[pos..])
     }
 
-    /// Marks a certain number of bytes as consumed from the buffer.
-    ///
-    /// After consuming bytes, subsequent calls to `fill_buf` will return
-    /// the remaining data starting after the consumed bytes.
+    /// Marks a number of bytes as consumed.
     ///
     /// # Arguments
     ///
@@ -518,20 +552,26 @@ where
     }
 }
 
-/// Reads decrypted data into the provided buffer.
+/// Reads data from the buffered stream.
 ///
-/// This implementation uses the internal buffering mechanism to:
+/// The implementation uses the internal buffering mechanism to:
 /// * Minimize system calls
-/// * Handle decryption efficiently
-/// * Manage both encrypted and unencrypted content transparently
+/// * Handle decryption when needed
+/// * Provide consistent buffered reading
 ///
 /// # Arguments
 ///
-/// * `buf` - Destination buffer for decrypted data
+/// * `buf` - Destination buffer for read data
 ///
 /// # Returns
 ///
-/// Number of bytes read, or an I/O error if reading fails.
+/// Number of bytes read, or 0 at end of stream
+///
+/// # Errors
+///
+/// * `InvalidInput` - Buffer position would be out of bounds
+/// * `InvalidData` - Decryption failed
+/// * Standard I/O errors from underlying stream operations
 impl<P> Read for Decrypt<P>
 where
     P: StorageProvider,
@@ -543,27 +583,5 @@ where
         buf[..amt].copy_from_slice(&available[..amt]);
         self.consume(amt);
         Ok(amt)
-    }
-}
-
-/// Implements `MediaSource` to support media playback via Symphonia.
-///
-/// Provides:
-/// * Seekability information
-/// * Total byte length if known
-/// * Thread-safe reading for audio decoding
-impl<P> MediaSource for Decrypt<P>
-where
-    P: StorageProvider,
-    P::Reader: Sync,
-{
-    #[inline]
-    fn is_seekable(&self) -> bool {
-        self.is_seekable
-    }
-
-    #[inline]
-    fn byte_len(&self) -> Option<u64> {
-        self.file_size
     }
 }

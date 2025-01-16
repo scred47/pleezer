@@ -2,25 +2,27 @@
 //!
 //! This module provides a decoder that:
 //! * Supports multiple formats (AAC/ADTS, FLAC, MP3, MP4, WAV)
-//! * Enables efficient seeking
+//! * Enables seeking with format-specific handling
 //! * Handles both constant and variable bitrate streams
 //! * Processes audio in floating point
 //!
 //! # Format Support
 //!
-//! Format-specific optimizations:
-//! * MP3: Fast seeking for CBR streams using coarse mode
-//! * FLAC: Native seeking with frame boundaries
-//! * AAC: Proper ADTS frame synchronization
-//! * WAV: Direct PCM access
+//! Supported formats and characteristics:
+//! * AAC: ADTS framing
+//! * FLAC: Lossless compression
+//! * MP3: Fast coarse seeking for CBR streams
+//! * MP4: AAC audio in MP4 container
+//! * WAV: Uncompressed PCM
 //!
 //! # Performance
 //!
 //! The decoder is optimized for:
 //! * Low memory usage (reuses sample buffers)
 //! * Fast initialization
-//! * Efficient seeking
+//! * Optimized CBR MP3 seeking
 //! * Robust error recovery
+//! * Direct pass-through for unencrypted streams
 
 use std::time::Duration;
 
@@ -31,7 +33,7 @@ use symphonia::{
         codecs::{CodecRegistry, DecoderOptions},
         errors::Error as SymphoniaError,
         formats::{FormatOptions, FormatReader, SeekMode, SeekTo},
-        io::{MediaSource, MediaSourceStream},
+        io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions},
         meta::MetadataOptions,
         probe::{Hint, Probe},
     },
@@ -42,6 +44,7 @@ use symphonia::{
 };
 
 use crate::{
+    audio_file::AudioFile,
     error::{Error, Result},
     player::{SampleFormat, DEFAULT_SAMPLE_RATE},
     protocol::Codec,
@@ -52,19 +55,20 @@ use crate::{
 /// Audio decoder supporting multiple formats through Symphonia.
 ///
 /// Features:
-/// * Format-specific optimizations
-/// * Efficient seeking modes
+/// * Multi-format support
+/// * Optimized MP3 CBR seeking
 /// * Buffer reuse
 /// * Error recovery
+/// * Transparent handling of encrypted and unencrypted streams
 ///
 /// # Example
 /// ```no_run
 /// use pleezer::decoder::Decoder;
-/// use symphonia::core::io::MediaSourceStream;
+/// use pleezer::audio_file::AudioFile;
 ///
 /// let track = /* ... */;
-/// let stream = MediaSourceStream::new(/* ... */);
-/// let mut decoder = Decoder::new(&track, stream)?;
+/// let file = /* AudioFile instance ... */;
+/// let mut decoder = Decoder::new(&track, file)?;
 ///
 /// // Seek to 1 minute
 /// decoder.try_seek(std::time::Duration::from_secs(60))?;
@@ -107,12 +111,17 @@ pub struct Decoder {
 const MAX_RETRIES: usize = 3;
 
 impl Decoder {
-    /// Creates a new decoder for the given track and media stream.
+    /// Creates a new decoder for the given track and audio file.
     ///
     /// Optimizes decoder initialization by:
     /// * Using format-specific decoders when codec is known
-    /// * Selecting appropriate seek mode (coarse for CBR, accurate for VBR)
+    /// * Enabling coarse seeking for CBR MP3 content
     /// * Pre-allocating buffers based on format parameters
+    /// * Using direct pass-through for unencrypted content
+    ///
+    /// # Arguments
+    /// * `track` - Track metadata including codec information
+    /// * `file` - Unified audio file interface handling encryption transparently
     ///
     /// # Errors
     ///
@@ -121,7 +130,9 @@ impl Decoder {
     /// * Codec initialization fails
     /// * Required track is not found
     /// * Stream parameters are invalid
-    pub fn new(track: &Track, stream: MediaSourceStream) -> Result<Self> {
+    pub fn new(track: &Track, file: AudioFile) -> Result<Self> {
+        let stream = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
+
         // We know the codec for all tracks except podcasts, so be as specific as possible.
         let mut hint = Hint::new();
         let mut codecs = CodecRegistry::default();
@@ -141,7 +152,7 @@ impl Decoder {
                     probes.register_all::<MpaReader>();
                 }
                 Codec::MP4 => {
-                    // MP4 files can contain any type of audio codec, but most likely AAC.
+                    // MP4 files can contain many audio codecs, but most likely AAC.
                     codecs.register_all::<AacDecoder>();
                     probes.register_all::<IsoMp4Reader>();
                 }
@@ -195,6 +206,9 @@ impl Decoder {
                     .to_string())
         );
         let decoder = codecs.make(codec_params, &DecoderOptions::default())?;
+
+        // Update the codec parameters with the actual decoder parameters.
+        let codec_params = decoder.codec_params();
 
         let sample_rate = codec_params.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE);
         let channels = codec_params.channels.map_or_else(

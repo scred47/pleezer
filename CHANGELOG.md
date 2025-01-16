@@ -8,10 +8,11 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
+- [audio_file] Add unified `AudioFile` abstraction for audio stream handling
 - [decoder] New Symphonia-based audio decoder for improved performance and quality:
   - Higher audio quality (`f32` processing instead of `i16`)
-  - More robust AAC in ADTS format support
-  - WAV support for podcasts
+  - More robust AAC support in both ADTS and MP4 formats
+  - WAV support (for some podcasts)
   - Faster seeking in MP3 files
   - Faster decoder initialization
   - Lower memory usage
@@ -21,6 +22,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [decrypt] Improve buffer management performance and efficiency
 - [docs] Remove incorrect mention of "Hi-Res" audio quality
 - [player] Default to mono audio for podcasts to prevent garbled sound when channel count is missing
+- [track] Return `AudioFile` instead of raw download stream
 
 ## [0.8.1] - 2025-01-11
 

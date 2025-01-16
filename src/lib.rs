@@ -21,7 +21,9 @@
 //!   - [`remote`]: Implements Deezer Connect protocol
 //!
 //! * **Audio Processing**
+//!   - [`audio_file`]: Unified interface for audio stream handling
 //!   - [`decrypt`]: Handles encrypted content
+//!   - [`decoder`]: Audio format decoding
 //!   - [`player`]: Controls audio playback and queues
 //!   - [`track`]: Manages track metadata and downloads
 //!
@@ -96,6 +98,7 @@
 extern crate log;
 
 pub mod arl;
+pub mod audio_file;
 pub mod config;
 pub mod decoder;
 pub mod decrypt;
