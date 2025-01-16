@@ -34,7 +34,7 @@ use symphonia::{
         errors::Error as SymphoniaError,
         formats::{FormatOptions, FormatReader, SeekMode, SeekTo},
         io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions},
-        meta::MetadataOptions,
+        meta::{MetadataOptions, StandardTagKey, Value},
         probe::{Hint, Probe},
     },
     default::{
@@ -208,6 +208,7 @@ impl Decoder {
         let decoder = codecs.make(codec_params, &DecoderOptions::default())?;
 
         // Update the codec parameters with the actual decoder parameters.
+        // This may yield information not available before decoder initialization.
         let codec_params = decoder.codec_params();
 
         let sample_rate = codec_params.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE);
@@ -241,6 +242,45 @@ impl Decoder {
             total_duration,
             total_samples,
         })
+    }
+
+    /// Returns the track's `ReplayGain` value in dB, if available.
+    ///
+    /// While Deezer normally provides gain information through its API for proper
+    /// normalization to its -15 LUFS target, this method serves as a fallback when
+    /// that information is missing. It extracts `ReplayGain` metadata from the audio
+    /// file itself.
+    ///
+    /// Note that audio files served by Deezer do not contain `ReplayGain` metadata.
+    /// This method is primarily useful for external content like podcasts that may
+    /// include their own `ReplayGain` tags.
+    ///
+    /// `ReplayGain` is a standard for measuring and adjusting perceived audio loudness.
+    /// The reference level for `ReplayGain` is -14 LUFS. When normalizing to Deezer's
+    /// -15 LUFS target:
+    ///
+    /// 1. Calculate actual LUFS: -14 - `replay_gain`
+    /// 2. Calculate difference: -15 - `actual_LUFS`
+    /// 3. Convert to gain factor: 10^(difference/20)
+    ///
+    /// Returns `None` if no `ReplayGain` metadata is present in the audio file.
+    pub fn replay_gain(&mut self) -> Option<f32> {
+        self.demuxer
+            .metadata()
+            .skip_to_latest()
+            .and_then(|metadata| {
+                for tag in metadata.tags() {
+                    if tag
+                        .std_key
+                        .is_some_and(|key| key == StandardTagKey::ReplayGainTrackGain)
+                    {
+                        if let Value::Float(gain) = tag.value {
+                            return Some(gain.to_f32_lossy());
+                        }
+                    }
+                }
+                None
+            })
     }
 }
 

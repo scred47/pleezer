@@ -5,6 +5,10 @@
 //! * Track playback and decoding (using Symphonia)
 //! * Queue management and track access
 //! * Volume normalization and control
+//!   - Primary: Uses Deezer-provided gain values
+//!   - Fallback: `ReplayGain` metadata from external files (e.g., podcasts)
+//!   - Target: -15 LUFS with headroom protection
+//!   - Dynamic range compression for loud content
 //! * Event notifications
 //!
 //! # Audio Pipeline
@@ -95,11 +99,15 @@ pub type SampleFormat = f32;
 /// * Format-specific decoding via Symphonia
 /// * Queue management and ordering
 /// * Playback control
-/// * Volume normalization
+/// * Volume normalization:
+///   - Primarily uses Deezer-provided gain values
+///   - Falls back to `ReplayGain` metadata for external content
+///   - Targets -15 LUFS with headroom protection
+///   - Applies dynamic range compression when needed
 ///
 /// Format support:
-/// * Songs: MP3 (CBR) and FLAC
-/// * Podcasts: MP3, AAC (ADTS), MP4, WAV
+/// * Songs: MP3 (CBR) and FLAC (no `ReplayGain`, uses Deezer gain)
+/// * Podcasts: MP3, AAC (ADTS), MP4, WAV (may contain `ReplayGain`)
 /// * Livestreams: AAC (ADTS) and MP3
 ///
 /// Audio device lifecycle:
@@ -627,6 +635,32 @@ impl Player {
     /// Time before network operations timeout.
     const NETWORK_TIMEOUT: Duration = Duration::from_secs(2);
 
+    /// The `ReplayGain` 2.0 reference level in LUFS.
+    const REPLAY_GAIN_LUFS: i8 = -18;
+
+    /// Converts a decibel value to a linear amplitude ratio.
+    ///
+    /// Used for volume normalization calculations:
+    /// * 0 dB -> ratio of 1.0 (no change)
+    /// * Positive dB -> ratio > 1.0 (amplification)
+    /// * Negative dB -> ratio < 1.0 (attenuation)
+    ///
+    /// # Arguments
+    ///
+    /// * `db` - Decibel value to convert
+    ///
+    /// # Returns
+    ///
+    /// Linear amplitude ratio corresponding to the decibel value
+    #[must_use]
+    pub fn db_to_ratio(db: f32) -> f32 {
+        if db == 0.0 {
+            1.0
+        } else {
+            f32::powf(10.0, db / 20.0)
+        }
+    }
+
     /// Loads and prepares a track for playback.
     ///
     /// Downloads and configures audio processing:
@@ -702,29 +736,30 @@ impl Player {
 
             // Apply volume normalization if enabled.
             let mut difference = 0.0;
-            let mut ratio = 1.0;
             if self.normalization {
                 match track.gain() {
-                    Some(gain) => {
-                        difference = f32::from(self.gain_target_db) - gain;
-
-                        // Keep -1 dBTP of headroom on tracks with lossy decoding to avoid
-                        // clipping due to inter-sample peaks.
-                        if difference > 0.0 && !track.is_lossless() {
-                            difference -= 1.0;
-                        }
-
-                        ratio = f32::powf(10.0, difference / 20.0);
-                    }
+                    Some(gain) => difference = f32::from(self.gain_target_db) - gain,
                     None => {
-                        warn!(
-                            "{} {track} has no gain information, skipping normalization",
-                            track.typ()
-                        );
+                        if let Some(replay_gain) = decoder.replay_gain() {
+                            debug!("track replay gain: {replay_gain:.1} dB");
+                            let track_lufs = f32::from(Self::REPLAY_GAIN_LUFS) - replay_gain;
+                            difference = f32::from(self.gain_target_db) - track_lufs;
+                        } else {
+                            warn!(
+                                "{} {track} has no gain information, skipping normalization",
+                                track.typ()
+                            );
+                        }
                     }
                 }
+            };
+            // Keep -1 dBTP of headroom on tracks with lossy decoding to avoid
+            // clipping due to inter-sample peaks.
+            if difference > 0.0 && !track.is_lossless() {
+                difference -= 1.0;
             }
 
+            let ratio = Self::db_to_ratio(difference);
             let rx = if ratio < 1.0 {
                 debug!(
                     "attenuating {} {track} by {difference:.1} dB ({})",

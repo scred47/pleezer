@@ -16,6 +16,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
   - Faster seeking in FLAC and MP3 files
   - Faster decoder initialization
   - Lower memory usage
+- [player] Use ReplayGain metadata as fallback for volume normalization when Deezer gain information is unavailable
 
 ### Changed
 - [decrypt] Add explicit `BufRead` implementation to standardize buffering behavior
