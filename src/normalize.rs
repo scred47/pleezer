@@ -70,6 +70,8 @@ where
     I::Item: Sample,
 {
     let sample_rate = input.sample_rate();
+    let channels = input.channels() as usize;
+
     let attack = duration_to_coefficient(attack, sample_rate);
     let release = duration_to_coefficient(release, sample_rate);
 
@@ -82,8 +84,9 @@ where
         attack,
         release,
 
-        normalisation_integrator: ZERO_DB,
-        normalisation_peak: ZERO_DB,
+        normalisation_integrators: vec![ZERO_DB; channels],
+        normalisation_peaks: vec![ZERO_DB; channels],
+        position: 0,
     }
 }
 
@@ -141,11 +144,14 @@ where
     /// Release smoothing coefficient
     release: f32,
 
-    /// Peak detector integrator state (dB)
-    normalisation_integrator: f32,
+    /// Per-channel peak detector integrator states (dB)
+    normalisation_integrators: Vec<f32>,
 
-    /// Smoothed peak level (dB)
-    normalisation_peak: f32,
+    /// Per-channel smoothed peak levels (dB)
+    normalisation_peaks: Vec<f32>,
+
+    /// Current sample position for channel tracking
+    position: usize,
 }
 
 impl<I> Normalize<I>
@@ -199,6 +205,9 @@ where
     fn next(&mut self) -> Option<I::Item> {
         let sample = self.input.next()?;
 
+        let channel = self.position % self.input.channels() as usize;
+        self.position = self.position.wrapping_add(1);
+
         // step 0: apply gain stage
         sample.amplify(self.ratio);
 
@@ -249,8 +258,8 @@ where
         // 3. we were in release,
         // ...and that attack/release were not finished yet.
         if limiter_db > ZERO_DB
-            || self.normalisation_integrator > ZERO_DB
-            || self.normalisation_peak > ZERO_DB
+            || self.normalisation_integrators[channel] > ZERO_DB
+            || self.normalisation_peaks[channel] > ZERO_DB
         {
             // step 5: smooth, decoupled peak detector
             //
@@ -258,9 +267,10 @@ where
             // ```
             // release_cf * self.normalisation_integrator + (1.0 - release_cf) * limiter_db
             // ```
-            self.normalisation_integrator = f32::max(
+            self.normalisation_integrators[channel] = f32::max(
                 limiter_db,
-                release_cf * self.normalisation_integrator - release_cf * limiter_db + limiter_db,
+                release_cf * self.normalisation_integrators[channel] - release_cf * limiter_db
+                    + limiter_db,
             );
 
             // Textbook:
@@ -268,12 +278,19 @@ where
             // attack_cf * self.normalisation_peak + (1.0 - attack_cf)
             // * self.normalisation_integrator
             // ```
-            self.normalisation_peak = attack_cf * self.normalisation_peak
-                - attack_cf * self.normalisation_integrator
-                + self.normalisation_integrator;
+            self.normalisation_peaks[channel] = attack_cf * self.normalisation_peaks[channel]
+                - attack_cf * self.normalisation_integrators[channel]
+                + self.normalisation_integrators[channel];
+
+            // Find maximum peak across all channels
+            let max_peak = self
+                .normalisation_peaks
+                .iter()
+                .copied()
+                .fold(ZERO_DB, f32::max);
 
             // steps 6-8: conversion into level and multiplication into gain stage
-            sample.amplify(util::db_to_ratio(-self.normalisation_peak));
+            sample.amplify(util::db_to_ratio(-max_peak));
         }
 
         Some(sample)
@@ -332,6 +349,12 @@ where
     /// Also resets limiter state to prevent artifacts.
     #[inline]
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
-        self.input.try_seek(pos)
+        self.input.try_seek(pos)?;
+
+        self.normalisation_integrators = vec![ZERO_DB; self.channels() as usize];
+        self.normalisation_peaks = vec![ZERO_DB; self.channels() as usize];
+        self.position = 0;
+
+        Ok(())
     }
 }
