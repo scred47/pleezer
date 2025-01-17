@@ -233,11 +233,16 @@ fn init_logger(config: &Args) {
 
     // Filter log messages of external crates.
     for external_module in [
-        "symphonia_codec_aac",
+        "symphonia",
         "symphonia_bundle_flac",
         "symphonia_bundle_mp3",
+        "symphonia_codec_aac",
+        "symphonia_codec_pcm",
         "symphonia_core",
+        "symphonia_format_isomp4",
+        "symphonia_format_riff",
         "symphonia_metadata",
+        "symphonia_utils_xiph",
     ] {
         logger.filter_module(external_module, external_level);
     }
