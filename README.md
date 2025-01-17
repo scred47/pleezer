@@ -341,10 +341,15 @@ Emitted when the track changes. The variables differ based on content type:
 The `FORMAT` value shows the audio configuration (e.g., "MP3 320K" for constant bitrate,
 or "FLAC 1.234M" for variable bitrate).
 
-The `COVER_ID` can be used to construct image URLs:
-```
-https://e-cdns-images.dzcdn.net/images/cover/{cover_id}/{resolution}x{resolution}.{format}
-```
+The `COVER_ID` can be used to construct image URLs based on content type:
+* For songs and radio:
+  ```
+  https://cdn-images.dzcdn.net/images/cover/{cover_id}/{resolution}x{resolution}.{format}
+  ```
+* For podcasts:
+  ```
+  https://cdn-images.dzcdn.net/images/talk/{cover_id}/{resolution}x{resolution}.{format}
+  ```
 where `{resolution}` is the desired resolution in pixels (up to 1920) and
 `{format}` is either `jpg` (smaller file size) or `png` (higher quality).
 Deezer's default is `500x500.jpg`.

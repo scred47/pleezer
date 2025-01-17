@@ -459,29 +459,18 @@ impl Track {
         self.album_title.as_deref()
     }
 
-    /// The ID of the cover art.
+    /// Returns the cover art identifier for this track.
     ///
-    /// This ID can be used to construct a URL for retrieving the cover art.
-    /// Covers are always square and available in various resolutions up to 1920x1920.
+    /// Returns:
+    /// * Album cover ID for songs (use with "<https://cdn-images.dzcdn.net/images/cover>/")
+    /// * Podcast artwork ID for episodes (use with "<https://cdn-images.dzcdn.net/images/talk>/")
+    /// * Station logo ID for livestreams (use with "<https://cdn-images.dzcdn.net/images/cover>/")
     ///
-    /// # URL Format
-    /// ```text
-    /// https://e-cdns-images.dzcdn.net/images/cover/{cover_id}/{resolution}x{resolution}.{format}
-    /// ```
-    /// where:
-    /// - `{cover_id}` is the ID returned by this method
-    /// - `{resolution}` is the desired resolution in pixels (e.g., 500)
-    /// - `{format}` is either `jpg` or `png`
+    /// Append "/{id}/{resolution}x{resolution}.{format}" where:
+    /// * `resolution` is the desired size in pixels (up to 1920)
+    /// * `format` is either `jpg` (smaller) or `png` (higher quality)
     ///
-    /// # Recommended Usage
-    /// - Default resolution: 500x500
-    /// - Default format: `jpg` (smaller file size)
-    /// - Alternative: `png` (higher quality but larger file size)
-    ///
-    /// # Example
-    /// ```text
-    /// https://e-cdns-images.dzcdn.net/images/cover/f286f9e7dc818e181c37b944e2461101/500x500.jpg
-    /// ```
+    /// Deezer's default is 500x500.jpg
     #[must_use]
     #[inline]
     pub fn cover_id(&self) -> &str {

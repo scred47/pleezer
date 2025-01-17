@@ -172,7 +172,7 @@ pub enum ListData {
         ///
         /// When available, this ID can be used to construct image URLs:
         /// ```text
-        /// https://e-cdns-images.dzcdn.net/images/cover/{album_cover}/{resolution}x{resolution}.{format}
+        /// https://cdn-images.dzcdn.net/images/cover/{album_cover}/{resolution}x{resolution}.{format}
         /// ```
         /// Where:
         /// * `resolution` is the desired size in pixels (up to 1920)
@@ -302,7 +302,7 @@ pub enum ListData {
         ///
         /// When available, this ID can be used to construct image URLs:
         /// ```text
-        /// https://e-cdns-images.dzcdn.net/images/cover/{podcast_art}/{resolution}x{resolution}.{format}
+        /// https://cdn-images.dzcdn.net/images/talk/{podcast_art}/{resolution}x{resolution}.{format}
         /// ```
         /// Where:
         /// * `resolution` is the desired size in pixels (up to 1920)
@@ -355,7 +355,7 @@ pub enum ListData {
         ///
         /// When available, this ID can be used to construct image URLs:
         /// ```text
-        /// https://e-cdns-images.dzcdn.net/images/cover/{cover_id}/{resolution}x{resolution}.{format}
+        /// https://cdn-images.dzcdn.net/images/cover/{cover_id}/{resolution}x{resolution}.{format}
         /// ```
         /// Where:
         /// * `resolution` is the desired size in pixels (up to 1920)

@@ -26,6 +26,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [track] Return `AudioFile` instead of raw download stream
 
 ### Fixed
+- [docs] Update artwork URLs to use correct CDN paths for different content types
 - [track] Correct bitrate calculation for user-uploaded MP3s by excluding ID3 tags and album art
 - [track] Cap reported bitrates to codec maximums (320 kbps for MP3, 1411 kbps for FLAC, etc.)
 
