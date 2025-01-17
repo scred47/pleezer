@@ -29,6 +29,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Fixed
 - [docs] Update artwork URLs to use correct CDN paths for different content types
+- [remote] Improve network resilience by automatically reconnecting after connection errors
 - [track] Correct bitrate calculation for user-uploaded MP3s by excluding ID3 tags and album art
 - [track] Cap reported bitrates to codec maximums (320 kbps for MP3, 1411 kbps for FLAC, etc.)
 

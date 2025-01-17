@@ -523,20 +523,6 @@ impl Client {
     /// * Websocket connection fails
     /// * Message handling fails critically
     pub async fn start(&mut self) -> Result<()> {
-        // let mut urls = HashMap::new();
-        // let mut codec_url = CodecUrl::default();
-        // codec_url.aac = Some("http://localhost".parse().unwrap());
-        // urls.insert("96".to_string(), codec_url);
-        // let json = livestream::LivestreamData(ListData::Livestream {
-        //     id: TrackId::new(1).unwrap(),
-        //     title: "title".to_string(),
-        //     live_stream_art: "md5".to_string(),
-        //     external_urls: LivestreamUrls { data: urls },
-        //     available: true,
-        // });
-        // let body = serde_json::to_string(&json).unwrap();
-        // panic!("{body:#?}");
-
         // Purge discovery sessions from any previous session to prevent memory exhaustion.
         self.discovery_sessions = HashMap::new();
 
@@ -652,7 +638,7 @@ impl Client {
                                 }
                             }
                         }
-                        Err(e) => error!("error receiving message: {e}"),
+                        Err(e) => break Err(Error::aborted(e.to_string())),
                     }
                 }
 

@@ -513,7 +513,7 @@ async fn run(args: Args) -> Result<ShutdownSignal> {
                                     // Retry `BACKOFF_ATTEMPTS` times with exponential backoff
                                     // on network errors.
                                     Some(duration) => {
-                                        warn!("{e}; retrying in {duration:?} ({}/{BACKOFF_ATTEMPTS})", i+1);
+                                        error!("{e}; retrying in {duration:?} ({}/{BACKOFF_ATTEMPTS})", i+1);
                                         tokio::time::sleep(duration).await;
                                     }
                                     // Bail out if we have exhausted all retries.
