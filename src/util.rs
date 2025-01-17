@@ -4,6 +4,30 @@
 //! * Type conversion traits for audio processing
 //! * Numeric value handling for sample calculations
 //! * Safe floating point conversions
+//! * Audio gain calculations:
+//!   - Decibel to ratio conversion
+//!   - Ratio to decibel conversion
+//!   - Common audio constants
+//!
+//! # Audio Constants
+//!
+//! * `DB_VOLTAGE_RATIO`: 20.0 (for voltage/amplitude calculations)
+//! * `UNITY_GAIN`: 1.0 (no amplification/attenuation)
+//! * `ZERO_DB`: 0.0 (reference level)
+//!
+//! # Example
+//!
+//! ```rust
+//! use pleezer::util::{ToF32, db_to_ratio, ratio_to_db};
+//!
+//! // Safe numeric conversion
+//! let large_value: f64 = 1e308;
+//! let clamped: f32 = large_value.to_f32_lossy();
+//!
+//! // Audio gain calculations
+//! let ratio = db_to_ratio(-6.0);  // Convert -6 dB to ratio
+//! let db = ratio_to_db(0.5);      // Convert 0.5 ratio to dB
+//! ```
 
 /// Trait for converting numeric values to `f32` with controlled truncation.
 ///
@@ -175,5 +199,61 @@ impl ToF32 for usize {
         } else {
             self as f32
         }
+    }
+}
+
+/// Constant for converting between decibels and voltage ratios.
+/// Used in audio calculations where amplitude ratios are involved.
+pub const DB_VOLTAGE_RATIO: f32 = 20.0;
+
+/// Unity gain (no amplification or attenuation).
+pub const UNITY_GAIN: f32 = 1.0;
+
+/// Zero decibels reference level.
+pub const ZERO_DB: f32 = 0.0;
+
+/// Converts a decibel value to a linear amplitude ratio.
+///
+/// Used for volume normalization calculations:
+/// * 0 dB -> ratio of 1.0 (no change)
+/// * Positive dB -> ratio > 1.0 (amplification)
+/// * Negative dB -> ratio < 1.0 (attenuation)
+///
+/// # Arguments
+///
+/// * `db` - Decibel value to convert
+///
+/// # Returns
+///
+/// Linear amplitude ratio corresponding to the decibel value
+#[must_use]
+pub fn db_to_ratio(db: f32) -> f32 {
+    if db == ZERO_DB {
+        UNITY_GAIN
+    } else {
+        f32::powf(10.0, db / DB_VOLTAGE_RATIO)
+    }
+}
+
+/// Converts a linear amplitude ratio to decibels.
+///
+/// Inverse of `db_to_ratio`:
+/// * Ratio of 1.0 -> 0 dB (no change)
+/// * Ratio > 1.0 -> Positive dB (amplification)
+/// * Ratio < 1.0 -> Negative dB (attenuation)
+///
+/// # Arguments
+///
+/// * `ratio` - Linear amplitude ratio to convert
+///
+/// # Returns
+///
+/// Decibel value corresponding to the amplitude ratio
+#[must_use]
+pub fn ratio_to_db(ratio: f32) -> f32 {
+    if ratio == UNITY_GAIN {
+        ZERO_DB
+    } else {
+        ratio.log10() * DB_VOLTAGE_RATIO
     }
 }

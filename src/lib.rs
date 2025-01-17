@@ -24,6 +24,7 @@
 //!   - [`audio_file`]: Unified interface for audio stream handling
 //!   - [`decrypt`]: Handles encrypted content
 //!   - [`decoder`]: Audio format decoding
+//!   - [`normalize`]: Audio leveling and dynamic range control
 //!   - [`player`]: Controls audio playback and queues
 //!   - [`track`]: Manages track metadata and downloads
 //!
@@ -106,6 +107,7 @@ pub mod error;
 pub mod events;
 pub mod gateway;
 pub mod http;
+pub mod normalize;
 pub mod player;
 pub mod protocol;
 pub mod proxy;

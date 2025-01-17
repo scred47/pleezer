@@ -80,7 +80,7 @@ use crate::{
         gateway::{self, MediaUrl},
     },
     track::{Track, TrackId},
-    util::ToF32,
+    util::{self, ToF32, UNITY_GAIN},
 };
 
 /// Default audio sample rate in Hz.
@@ -234,7 +234,7 @@ impl Player {
     /// Default volume level.
     ///
     /// Constant value of 100% (1.0) used as initial volume setting.
-    const DEFAULT_VOLUME: Percentage = Percentage::from_ratio_f32(1.0);
+    const DEFAULT_VOLUME: Percentage = Percentage::from_ratio_f32(UNITY_GAIN);
 
     /// Logarithmic volume scale factor for a dynamic range of 60 dB.
     ///
@@ -624,42 +624,30 @@ impl Player {
         }
     }
 
-    /// The audio gain control (AGC) attack time.
-    /// This value is equal to what Spotify uses.
-    const AGC_ATTACK_TIME: Duration = Duration::from_millis(5);
+    /// The normalization attack time (5ms).
+    /// This is the time it takes for the limiter to respond to level increases.
+    /// Value matches Spotify's implementation for consistent behavior.
+    const NORMALIZE_ATTACK_TIME: Duration = Duration::from_millis(5);
 
-    /// The audio gain control (AGC) release time.
-    /// This value is equal to what Spotify uses.
-    const AGC_RELEASE_TIME: Duration = Duration::from_millis(100);
+    /// The normalization release time (100ms).
+    /// This is the time it takes for the limiter to recover after level decreases.
+    /// Value matches Spotify's implementation for consistent behavior.
+    const NORMALIZE_RELEASE_TIME: Duration = Duration::from_millis(100);
+
+    /// Threshold level where limiting begins.
+    /// Set to -1 dB to provide headroom for inter-sample peaks.
+    const NORMALIZE_THRESHOLD_DB: f32 = -1.0;
+
+    /// Width of the soft knee in dB.
+    /// A 4 dB width provides smooth transition into limiting.
+    const NORMALIZE_KNEE_WIDTH_DB: f32 = 4.0;
 
     /// Time before network operations timeout.
     const NETWORK_TIMEOUT: Duration = Duration::from_secs(2);
 
     /// The `ReplayGain` 2.0 reference level in LUFS.
+    /// Used when calculating normalization from `ReplayGain` metadata.
     const REPLAY_GAIN_LUFS: i8 = -18;
-
-    /// Converts a decibel value to a linear amplitude ratio.
-    ///
-    /// Used for volume normalization calculations:
-    /// * 0 dB -> ratio of 1.0 (no change)
-    /// * Positive dB -> ratio > 1.0 (amplification)
-    /// * Negative dB -> ratio < 1.0 (attenuation)
-    ///
-    /// # Arguments
-    ///
-    /// * `db` - Decibel value to convert
-    ///
-    /// # Returns
-    ///
-    /// Linear amplitude ratio corresponding to the decibel value
-    #[must_use]
-    pub fn db_to_ratio(db: f32) -> f32 {
-        if db == 0.0 {
-            1.0
-        } else {
-            f32::powf(10.0, db / 20.0)
-        }
-    }
 
     /// Loads and prepares a track for playback.
     ///
@@ -759,30 +747,24 @@ impl Player {
                 difference -= 1.0;
             }
 
-            let ratio = Self::db_to_ratio(difference);
-            let rx = if ratio < 1.0 {
-                debug!(
-                    "attenuating {} {track} by {difference:.1} dB ({})",
-                    track.typ(),
-                    Percentage::from_ratio_f32(ratio)
-                );
-                let attenuated = decoder.amplify(ratio);
-                sources.append_with_signal(attenuated)
-            } else if ratio > 1.0 {
-                debug!(
-                    "amplifying {} {track} by {difference:.1} dB ({}) (with limiter)",
-                    track.typ(),
-                    Percentage::from_ratio_f32(ratio)
-                );
-                let amplified = decoder.automatic_gain_control(
-                    ratio,
-                    Self::AGC_ATTACK_TIME.as_secs_f32(),
-                    Self::AGC_RELEASE_TIME.as_secs_f32(),
-                    difference,
-                );
-                sources.append_with_signal(amplified)
-            } else {
+            let rx = if difference == 0.0 {
+                // No normalization needed, just append the decoder.
                 sources.append_with_signal(decoder)
+            } else {
+                let ratio = util::db_to_ratio(difference);
+                debug!(
+                    "normalizing {} {track} by {difference:.1} dB ({})",
+                    track.typ(),
+                    Percentage::from_ratio_f32(ratio)
+                );
+                let normalized = decoder.normalize(
+                    ratio,
+                    Self::NORMALIZE_THRESHOLD_DB,
+                    Self::NORMALIZE_KNEE_WIDTH_DB,
+                    Self::NORMALIZE_ATTACK_TIME,
+                    Self::NORMALIZE_RELEASE_TIME,
+                );
+                sources.append_with_signal(normalized)
             };
 
             let codec = track
@@ -1265,12 +1247,12 @@ impl Player {
         info!("setting volume to {target}");
 
         // Clamp just in case the volume is set outside the valid range.
-        let volume = target.as_ratio_f32().clamp(0.0, 1.0);
+        let volume = target.as_ratio_f32().clamp(0.0, UNITY_GAIN);
         let mut amplitude = volume;
 
         // Apply logarithmic volume scaling with a smooth transition to zero.
         // Source: https://www.dr-lex.be/info-stuff/volumecontrols.html
-        if amplitude > 0.0 && amplitude < 1.0 {
+        if amplitude > 0.0 && amplitude < UNITY_GAIN {
             amplitude =
                 f32::exp(Self::LOG_VOLUME_GROWTH_RATE * volume) / Self::LOG_VOLUME_SCALE_FACTOR;
             if volume < 0.1 {

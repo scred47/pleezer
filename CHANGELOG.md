@@ -15,8 +15,10 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
   - WAV support (for some podcasts)
   - Faster seeking in FLAC and MP3 files
   - Faster decoder initialization
-  - Lower memory usage
+  - Lower memory pressure
+- [normalize] Add professional-grade feedforward limiter for volume normalization
 - [player] Use ReplayGain metadata as fallback for volume normalization when Deezer gain information is unavailable
+- [util] Add audio gain conversion utilities for volume normalization calculations
 
 ### Changed
 - [decrypt] Add explicit `BufRead` implementation to standardize buffering behavior

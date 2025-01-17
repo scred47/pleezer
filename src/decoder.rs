@@ -46,6 +46,7 @@ use symphonia::{
 use crate::{
     audio_file::AudioFile,
     error::{Error, Result},
+    normalize::{self, Normalize},
     player::{SampleFormat, DEFAULT_SAMPLE_RATE},
     protocol::Codec,
     track::Track,
@@ -242,6 +243,38 @@ impl Decoder {
             total_duration,
             total_samples,
         })
+    }
+
+    /// Creates a normalized version of this decoder's output.
+    ///
+    /// Applies a feedforward limiter in the log domain to prevent clipping
+    /// while maintaining perceived loudness.
+    ///
+    /// # Arguments
+    ///
+    /// * `ratio` - Basic gain ratio to apply before limiting
+    /// * `threshold` - Level in dB above which limiting begins
+    /// * `knee_width` - Softening range around threshold in dB
+    /// * `attack` - Time for limiter to respond to level increases
+    /// * `release` - Time for limiter to recover after level decreases
+    ///
+    /// # Returns
+    ///
+    /// A `Normalize` wrapper that processes the decoder's output through
+    /// the limiter.
+    #[must_use]
+    pub fn normalize(
+        self,
+        ratio: f32,
+        threshold: f32,
+        knee_width: f32,
+        attack: Duration,
+        release: Duration,
+    ) -> Normalize<Self>
+    where
+        Self: Sized,
+    {
+        normalize::normalize(self, ratio, threshold, knee_width, attack, release)
     }
 
     /// Returns the track's `ReplayGain` value in dB, if available.
