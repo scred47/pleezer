@@ -7,6 +7,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+- [docs] Restructure installation section to acknowledge pre-packaged availability
+
 ### Fixed
 - [normalize] Fix edge-case imaging in limiter by removing incorrect single-channel optimization
 

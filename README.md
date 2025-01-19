@@ -63,43 +63,58 @@
 
 ## Installation
 
-Before installing **pleezer**, ensure your system has the necessary build environment set up. Refer to the [Setting Up Your Build Environment](#setting-up-your-build-environment) section for instructions.
+**pleezer** can be installed in several ways:
 
-**pleezer** can be installed in one of two ways:
+## Installation
 
-1. **Install the Latest Stable Version**
+**pleezer** can be installed in several ways:
 
-   You can install the latest stable release of **pleezer** directly from [crates.io](https://crates.io/crates/pleezer) using Cargo:
+1. **Pre-packaged Installations**
 
-   ```bash
-   cargo install pleezer
-   ```
+   **pleezer** may be available as part of other software, hardware products, or distributions that have integrated it. For example:
+   - [moOde audio player](https://moodeaudio.org/): A complete Raspberry Pi-based audiophile music player distribution
 
-   This command downloads, compiles, and installs the latest release version of **pleezer**. The binary will be placed in `~/.cargo/bin/` on Unix-like systems or `C:\Users\<YourUsername>\.cargo\bin\` on Windows.
+   If you maintain a project, product, or distribution that includes **pleezer**, feel free to submit a pull request to add it to this list.
 
-2. **Build the Latest Development Version**
+2. **Direct Installation**
 
-   If you want the latest development version, follow these steps:
+   If you prefer to install **pleezer** directly, ensure your system has the necessary build environment set up first. Refer to the [Setting Up Your Build Environment](#setting-up-your-build-environment) section for instructions.
 
-   1. Clone the repository:
+   You can then install **pleezer** in one of two ways:
+
+   a. **Install the Latest Stable Version**
+
+      You can install the latest stable release of **pleezer** directly from [crates.io](https://crates.io/crates/pleezer) using Cargo:
+
       ```bash
-      git clone https://github.com/your-repo/pleezer.git
-      cd pleezer
+      cargo install pleezer
       ```
 
-   2. Build the project:
-      ```bash
-      cargo build --release
-      ```
+      This command downloads, compiles, and installs the latest release version of **pleezer**. The binary will be placed in `~/.cargo/bin/` on Unix-like systems or `C:\Users\<YourUsername>\.cargo\bin\` on Windows.
 
-      This command compiles the project and produces the binary in the `target/release/` directory.
+   b. **Build the Latest Development Version**
 
-   3. (Optional) Install the built version system-wide:
-      ```bash
-      cargo install --path .
-      ```
+      If you want the latest development version, follow these steps:
 
-      This installs the binary into `~/.cargo/bin/` on Unix-like systems or `C:\Users\<YourUsername>\.cargo\bin\` on Windows.
+      1. Clone the repository:
+         ```bash
+         git clone https://github.com/your-repo/pleezer.git
+         cd pleezer
+         ```
+
+      2. Build the project:
+         ```bash
+         cargo build --release
+         ```
+
+         This command compiles the project and produces the binary in the `target/release/` directory.
+
+      3. (Optional) Install the built version system-wide:
+         ```bash
+         cargo install --path .
+         ```
+
+         This installs the binary into `~/.cargo/bin/` on Unix-like systems or `C:\Users\<YourUsername>\.cargo\bin\` on Windows.
 
 ## Usage
 
