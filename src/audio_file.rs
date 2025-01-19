@@ -1,8 +1,8 @@
 //! Provides the `AudioFile` abstraction for handling audio stream playback.
 //!
 //! This module implements a unified interface for both encrypted and unencrypted audio files,
-//! abstracting away the complexity of handling different stream types while providing
-//! necessary traits for media playback.
+//! providing buffered reading optimized for media playback. All downloads are wrapped in
+//! a 32 KiB buffer, with additional 2 KiB block processing for encrypted content.
 //!
 //! # Examples
 //!
@@ -44,25 +44,19 @@ pub trait ReadSeek: Read + Seek + Send + Sync {}
 /// Blanket implementation for any type that implements both Read and Seek
 impl<T: Read + Seek + Send + Sync> ReadSeek for T {}
 
-/// Default buffer size for unencrypted audio stream reads (32 KiB).
+/// Default buffer size for audio stream reads (32 KiB).
 ///
 /// This size is chosen to match Symphonia's read pattern, which reads
-/// sequentially in increasing chunks up to 32 KiB.
-///
-/// Note: Encrypted streams use their own 2 KiB buffer through the `Decrypt` implementation.
+/// sequentially in increasing chunks up to 32 KiB. This buffering is applied
+/// to all downloads, with encrypted content receiving additional 2 KiB block
+/// processing through the [`Decrypt`] implementation.
 pub const BUFFER_LEN: usize = 32 * 1024;
 
 /// Represents an audio file stream that can be either encrypted or unencrypted.
 ///
-/// `AudioFile` provides a unified interface for handling audio streams, automatically
-/// managing encryption/decryption when needed while maintaining direct pass-through
-/// for unencrypted content for optimal performance.
-///
-/// # Performance
-///
-/// The implementation uses different buffering strategies depending on the content:
-/// * Unencrypted files use a 32 KiB buffer optimized for sequential audio reads
-/// * Encrypted files use the `Decrypt` implementation with a 2 KiB buffer
+/// `AudioFile` provides a unified interface for handling audio streams, wrapping
+/// all downloads in a 32 KiB buffer. For encrypted content, additional 2 KiB
+/// block processing is applied through the [`Decrypt`] implementation.
 pub struct AudioFile {
     /// The underlying stream implementation, either a direct stream or a decryptor
     inner: Box<dyn ReadSeek>,
@@ -77,10 +71,9 @@ pub struct AudioFile {
 impl AudioFile {
     /// Creates a new `AudioFile` from a track and its download stream.
     ///
-    /// This method automatically determines whether decryption is needed and sets up
-    /// the appropriate stream handler:
-    /// * For encrypted tracks: wraps the download in a `Decrypt` handler (2 KiB buffer)
-    /// * For unencrypted tracks: uses buffered I/O with a 32 KiB buffer
+    /// This method wraps the download in a 32 KiB buffer and then:
+    /// * For encrypted tracks: adds [`Decrypt`] handler for 2 KiB block processing
+    /// * For unencrypted tracks: uses the buffered download directly
     ///
     /// # Arguments
     ///
@@ -109,15 +102,16 @@ impl AudioFile {
         let is_seekable = !track.is_livestream();
         let byte_len = track.file_size();
 
+        let buffered = BufReader::with_capacity(BUFFER_LEN, download);
+
         let result = if track.is_encrypted() {
-            let decryptor = Decrypt::new(track, download)?;
+            let decryptor = Decrypt::new(track, buffered)?;
             Self {
                 inner: Box::new(decryptor),
                 is_seekable,
                 byte_len,
             }
         } else {
-            let buffered = BufReader::with_capacity(BUFFER_LEN, download);
             Self {
                 inner: Box::new(buffered),
                 is_seekable,

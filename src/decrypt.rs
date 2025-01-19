@@ -1,8 +1,8 @@
 //! Track decryption for Deezer's protected media content.
 //!
-//! This module provides buffered decryption of Deezer tracks while streaming:
-//! * Implements efficient buffered reading via `BufRead`
-//! * Decrypts data in 2KB blocks as needed
+//! This module provides buffered reading of Deezer tracks:
+//! * Processes all content in 2KB blocks
+//! * Decrypts blocks when encryption is used
 //! * Supports Blowfish CBC encryption with striping
 //!
 //! # Encryption Format
@@ -21,30 +21,21 @@
 //!
 //! # Memory Management
 //!
-//! The implementation uses:
-//! * Temporary file storage for the encrypted stream
-//! * 2KB buffer for both encrypted and unencrypted content
-//! * Efficient buffered reading through `BufRead` trait
+//! The implementation:
+//! * Processes all content in 2KB blocks
+//! * Maintains an internal buffer for current block
+//! * Decrypts blocks as needed based on striping pattern
 //!
 //! # Examples
 //!
 //! ```rust
 //! use pleezer::decrypt::{Decrypt, Key};
-//! use std::io::{BufRead, Read};
+//! use std::io::{Read, Seek};
 //!
-//! // Create decryptor with track and key
-//! let mut decryptor = Decrypt::new(&track, download)?;
+//! // Create decryptor with track and reader
+//! let mut decryptor = Decrypt::new(&track, reader)?;
 //!
-//! // Read using BufRead for efficiency
-//! while let Ok(buffer) = decryptor.fill_buf() {
-//!     if buffer.is_empty() {
-//!         break;
-//!     }
-//!     // Process buffer...
-//!     decryptor.consume(buffer.len());
-//! }
-//!
-//! // Or read all content at once
+//! // Read content in blocks
 //! let mut buffer = Vec::new();
 //! decryptor.read_to_end(&mut buffer)?;
 //! ```
@@ -67,36 +58,38 @@ use std::{
 use blowfish::{cipher::BlockDecryptMut, cipher::KeyIvInit, Blowfish};
 use cbc::cipher::block_padding::NoPadding;
 use md5::{Digest, Md5};
-use stream_download::{storage::StorageProvider, StreamDownload};
 
 use crate::{
+    audio_file::ReadSeek,
     error::{Error, Result},
     protocol::media::Cipher,
     track::{Track, TrackId},
 };
 
-/// Streaming decryptor for protected tracks.
+/// Block-based reader for Deezer tracks.
 ///
-/// Provides decryption of Deezer tracks by implementing `Read` and `Seek`.
-/// Uses temporary file storage for the encrypted stream and decrypts
-/// data in 2KB blocks as it's read.
+/// Handles both encrypted and unencrypted tracks by:
+/// * Reading content in 2KB blocks
+/// * Decrypting blocks when encryption is used
+/// * Maintaining proper block alignment during seeks
 ///
-/// # Buffering
+/// # Block Processing
 ///
-/// Uses 2KB blocks for all content. The `Read` implementation uses
-/// buffered reading for both encrypted and unencrypted data.
+/// All content is processed in 2KB blocks:
+/// * Encrypted tracks: every third block is decrypted
+/// * Unencrypted tracks: blocks are used as-is
 ///
 /// # Supported Encryption
 ///
 /// Currently supports:
-/// * No encryption (buffered reading)
+/// * No encryption (block-based reading)
 /// * Blowfish CBC with striping (every third 2KB block)
-pub struct Decrypt<P>
+pub struct Decrypt<R>
 where
-    P: StorageProvider,
+    R: ReadSeek,
 {
     /// Source of encrypted data using temporary file storage.
-    download: StreamDownload<P>,
+    file: R,
 
     /// Total size of the track in bytes, if known.
     ///
@@ -268,15 +261,15 @@ fn bf_secret() -> Result<Key> {
     })
 }
 
-impl<P> Decrypt<P>
+impl<R> Decrypt<R>
 where
-    P: StorageProvider,
+    R: ReadSeek,
 {
     /// Creates a new decryption stream for a track.
     ///
     /// # Arguments
     /// * `track` - Track metadata including encryption information
-    /// * `download` - Source stream providing the encrypted data
+    /// * `file` - Reader providing the encrypted data
     ///
     /// # Returns
     /// A new decryptor configured for the track's encryption method
@@ -285,9 +278,9 @@ where
     /// * `Error::Unimplemented` - Track uses unsupported encryption method
     /// * `Error::PermissionDenied` - Global decryption key not set
     /// * `Error::InvalidData` - Failed to generate track-specific key
-    pub fn new(track: &Track, download: StreamDownload<P>) -> Result<Self>
+    pub fn new(track: &Track, file: R) -> Result<Self>
     where
-        P: StorageProvider,
+        R: ReadSeek,
     {
         if !SUPPORTED_CIPHERS.contains(&track.cipher()) {
             return Err(Error::unimplemented("unsupported encryption algorithm"));
@@ -298,7 +291,7 @@ where
         let key = Self::key_for_track_id(track.id(), &salt);
 
         Ok(Self {
-            download,
+            file,
             file_size: track.file_size(),
             cipher: track.cipher(),
             key,
@@ -366,9 +359,9 @@ where
 /// * `InvalidInput` - Seeking to negative or overflowing position
 /// * `UnexpectedEof` - Seeking beyond end of file
 /// * `Unsupported` - Seeking from end with unknown file size
-impl<P> Seek for Decrypt<P>
+impl<R> Seek for Decrypt<R>
 where
-    P: StorageProvider,
+    R: ReadSeek,
 {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         // TODO: DRY up error messages
@@ -404,7 +397,7 @@ where
                             )
                         })?
                 } else {
-                    self.download
+                    self.file
                         .stream_position()?
                         .checked_sub(self.buffer.len() as u64)
                         .and_then(|pos| pos.checked_add(self.pos))
@@ -449,11 +442,11 @@ where
             // Only read new block if different from current
             if self.block.is_none_or(|current| current != block) {
                 self.block = Some(block);
-                self.download
+                self.file
                     .seek(SeekFrom::Start(block * CBC_BLOCK_SIZE as u64))?;
 
                 let mut temp_buffer = [0; CBC_BLOCK_SIZE];
-                let length = self.download.read(&mut temp_buffer)?;
+                let length = self.file.read(&mut temp_buffer)?;
 
                 let is_encrypted = block % CBC_STRIPE_COUNT as u64 == 0;
                 let is_full_block = length == CBC_BLOCK_SIZE;
@@ -474,7 +467,7 @@ where
             Ok(target)
         } else {
             // For unencrypted tracks, just seek directly
-            let new_pos = self.download.seek(SeekFrom::Start(target))?;
+            let new_pos = self.file.seek(SeekFrom::Start(target))?;
             self.buffer.clear();
             self.pos = 0;
             Ok(new_pos)
@@ -503,9 +496,9 @@ where
 ///     decryptor.consume(buffer.len());
 /// }
 /// ```
-impl<P> BufRead for Decrypt<P>
+impl<R> BufRead for Decrypt<R>
 where
-    P: StorageProvider,
+    R: ReadSeek,
 {
     /// Returns a reference to the internal buffer.
     ///
@@ -527,7 +520,7 @@ where
             } else {
                 // Read directly into buffer
                 self.buffer.resize(CBC_BLOCK_SIZE, 0);
-                let bytes_read = self.download.read(&mut self.buffer)?;
+                let bytes_read = self.file.read(&mut self.buffer)?;
                 self.buffer.truncate(bytes_read);
                 self.pos = 0;
             }
@@ -572,9 +565,9 @@ where
 /// * `InvalidInput` - Buffer position would be out of bounds
 /// * `InvalidData` - Decryption failed
 /// * Standard I/O errors from underlying stream operations
-impl<P> Read for Decrypt<P>
+impl<R> Read for Decrypt<R>
 where
-    P: StorageProvider,
+    R: ReadSeek,
 {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {

@@ -8,10 +8,11 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
-- [audio_file] Add 32 KiB buffering for unencrypted streams to match Symphonia's read pattern
+- [audio_file] Add 32 KiB buffering to all downloads for better performance with Symphonia
 - [track] Report audio parameters through `DECODER` environment variable in hook scripts
 
 ### Changed
+- [decrypt] Replace `StorageProvider` bound with `ReadSeek` for better abstraction
 - [docs] Restructure installation section to acknowledge pre-packaged availability
 - [player] Remove extra -1 dB headroom for lossy tracks as it's handled by the limiter threshold
 
