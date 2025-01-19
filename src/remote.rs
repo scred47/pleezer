@@ -1970,7 +1970,7 @@ impl Client {
                 let queue = self
                     .queue
                     .as_ref()
-                    .ok_or(Error::internal("no active queue"))?;
+                    .ok_or_else(|| Error::internal("no active queue"))?;
 
                 let player_position = self.player.position();
                 let mut position = player_position;

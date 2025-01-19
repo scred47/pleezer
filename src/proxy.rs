@@ -66,6 +66,9 @@ pub struct Http {
     url: String,
 }
 
+/// Default HTTPS port.
+const HTTPS_PORT: u16 = 443;
+
 impl Http {
     /// Creates proxy configuration from environment.
     ///
@@ -108,8 +111,8 @@ impl Http {
         let target_url = Url::parse(target)?;
         let host = target_url
             .host_str()
-            .ok_or(Error::invalid_argument("target host not available"))?;
-        let port = target_url.port().unwrap_or(443);
+            .ok_or_else(|| Error::invalid_argument("target host not available"))?;
+        let port = target_url.port().unwrap_or(HTTPS_PORT);
         let tcp_stream = TcpStream::connect(&self.url).await?;
         Self::tunnel(tcp_stream, host, port, self.auth.as_ref()).await
     }

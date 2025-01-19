@@ -354,11 +354,11 @@ async fn run(args: Args) -> Result<ShutdownSignal> {
                 let email = secrets
                     .get("email")
                     .and_then(|email| email.as_str())
-                    .ok_or(Error::unauthenticated("email not found"))?;
+                    .ok_or_else(|| Error::unauthenticated("email not found"))?;
                 let password = secrets
                     .get("password")
                     .and_then(|password| password.as_str())
-                    .ok_or(Error::unauthenticated("password not found"))?;
+                    .ok_or_else(|| Error::unauthenticated("password not found"))?;
 
                 Credentials::Login {
                     email: email.to_string(),

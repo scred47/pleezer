@@ -688,7 +688,7 @@ impl Player {
         let sources = self
             .sources
             .as_mut()
-            .ok_or(Error::unavailable("audio sources not available"))?;
+            .ok_or_else(|| Error::unavailable("audio sources not available"))?;
 
         if track.handle().is_none() {
             let download = tokio::time::timeout(Self::NETWORK_TIMEOUT, async {
@@ -930,7 +930,7 @@ impl Player {
     fn sink_mut(&mut self) -> Result<&mut rodio::Sink> {
         self.sink
             .as_mut()
-            .ok_or(Error::unavailable("audio sink not available"))
+            .ok_or_else(|| Error::unavailable("audio sink not available"))
     }
 
     /// Starts or resumes playback.
@@ -1419,7 +1419,7 @@ impl Player {
                 // This prevents stalling the player when seeking in a track that has not started.
                 match track
                     .handle()
-                    .ok_or(Error::unavailable("download not yet started"))
+                    .ok_or_else(|| Error::unavailable("download not yet started"))
                     .and_then(|_| {
                         self.sink_mut()
                             .and_then(|sink| sink.try_seek(position).map_err(Into::into))

@@ -211,7 +211,7 @@ impl Config {
         let re = Regex::new(r"https:\/\/.+\/app-web.*\.js").unwrap();
         let url = re
             .find(&source)
-            .ok_or(Error::not_found("unable to find app-web source"))?;
+            .ok_or_else(|| Error::not_found("unable to find app-web source"))?;
 
         // Get the app-web source.
         let url = url.as_str();
@@ -222,11 +222,11 @@ impl Config {
         let re = Regex::new(r"0x61%2C(0x[0-9a-f]{2}%2C){6}0x67").unwrap();
         let a = re
             .find(&source)
-            .ok_or(Error::not_found("unable to find first half of secret key"))?;
+            .ok_or_else(|| Error::not_found("unable to find first half of secret key"))?;
         let re = Regex::new(r"0x31%2C(0x[0-9a-f]{2}%2C){6}0x34").unwrap();
         let b = re
             .find(&source)
-            .ok_or(Error::not_found("unable to find second half of secret key"))?;
+            .ok_or_else(|| Error::not_found("unable to find second half of secret key"))?;
 
         let a = Self::convert_half(a.as_str())?;
         let b = Self::convert_half(b.as_str())?;

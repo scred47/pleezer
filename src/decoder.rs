@@ -227,7 +227,7 @@ impl Decoder {
             .format;
         let default_track = demuxer
             .default_track()
-            .ok_or(Error::not_found("default track not found"))?;
+            .ok_or_else(|| Error::not_found("default track not found"))?;
 
         let codec_params = &default_track.codec_params;
         let decoder = codecs.make(codec_params, &DecoderOptions::default())?;
