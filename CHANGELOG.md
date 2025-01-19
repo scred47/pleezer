@@ -12,6 +12,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Changed
 - [docs] Restructure installation section to acknowledge pre-packaged availability
+- [player] Remove extra -1 dB headroom for lossy tracks as it's handled by the limiter threshold
 
 ### Fixed
 - [normalize] Fix edge-case imaging in limiter by removing incorrect single-channel optimization

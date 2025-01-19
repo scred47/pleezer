@@ -751,11 +751,6 @@ impl Player {
                     }
                 }
             };
-            // Keep -1 dBTP of headroom on tracks with lossy decoding to avoid
-            // clipping due to inter-sample peaks.
-            if difference > 0.0 && !track.is_lossless() {
-                difference -= 1.0;
-            }
 
             let rx = if difference == 0.0 {
                 // No normalization needed, just append the decoder.
