@@ -2380,9 +2380,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.135"
+version = "1.0.136"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b0d7ba2887406110130a978386c4e1befb98c674b4fba677954e4db976630d9"
+checksum = "336a0c23cf42a38d9eaa7cd22c7040d04e1228a19a933890805ffd00a16437d2"
 dependencies = [
  "itoa",
  "memchr",
@@ -2526,9 +2526,9 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "stream-download"
-version = "0.14.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12805df2636c863ea4ab01c288faf6589e8e8d4c9eac8b308d799ed3ac2bbf15"
+checksum = "eca8c7d545d05cbfd508bcde3fc8e5bbb8fd9693b9367ba5b0b7bac269797f62"
 dependencies = [
  "bytes",
  "educe",
@@ -2560,7 +2560,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "symphonia"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "lazy_static",
  "symphonia-bundle-flac",
@@ -2576,7 +2576,7 @@ dependencies = [
 [[package]]
 name = "symphonia-bundle-flac"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "log",
  "symphonia-core",
@@ -2587,7 +2587,7 @@ dependencies = [
 [[package]]
 name = "symphonia-bundle-mp3"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "lazy_static",
  "log",
@@ -2598,7 +2598,7 @@ dependencies = [
 [[package]]
 name = "symphonia-codec-aac"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "lazy_static",
  "log",
@@ -2608,7 +2608,7 @@ dependencies = [
 [[package]]
 name = "symphonia-codec-pcm"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "log",
  "symphonia-core",
@@ -2617,7 +2617,7 @@ dependencies = [
 [[package]]
 name = "symphonia-core"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "arrayvec",
  "bitflags 1.3.2",
@@ -2629,7 +2629,7 @@ dependencies = [
 [[package]]
 name = "symphonia-format-isomp4"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "encoding_rs",
  "log",
@@ -2641,7 +2641,7 @@ dependencies = [
 [[package]]
 name = "symphonia-format-riff"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "extended",
  "log",
@@ -2652,7 +2652,7 @@ dependencies = [
 [[package]]
 name = "symphonia-metadata"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "encoding_rs",
  "lazy_static",
@@ -2663,7 +2663,7 @@ dependencies = [
 [[package]]
 name = "symphonia-utils-xiph"
 version = "0.5.4"
-source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#87786c1faa9bfe20d0c6974097f4ec268b60e1c7"
+source = "git+https://github.com/roderickvd/Symphonia?branch=perf/faster-seeking#f1432455f73a18e628f80b93e6fdb4d76452583b"
 dependencies = [
  "symphonia-core",
  "symphonia-metadata",
