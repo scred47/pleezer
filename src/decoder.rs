@@ -15,6 +15,13 @@
 //! * MP4: AAC audio in MP4 container
 //! * WAV: Uncompressed PCM
 //!
+//! # Audio Parameters
+//!
+//! The decoder detects and provides:
+//! * Sample rate (defaults to 44.1 kHz if unspecified)
+//! * Bits per sample (codec-dependent)
+//! * Channel count (mono/stereo/multi-channel)
+//!
 //! # Performance
 //!
 //! The decoder is optimized for:
@@ -47,13 +54,19 @@ use crate::{
     audio_file::AudioFile,
     error::{Error, Result},
     normalize::{self, Normalize},
-    player::{SampleFormat, DEFAULT_SAMPLE_RATE},
+    player::SampleFormat,
     protocol::Codec,
-    track::Track,
+    track::{Track, DEFAULT_SAMPLE_RATE},
     util::ToF32,
 };
 
 /// Audio decoder supporting multiple formats through Symphonia.
+///
+/// Works in conjunction with [`Track`] to provide:
+/// * Format-specific decoding based on track codec
+/// * Audio parameters (sample rate, bits per sample, channels)
+/// * Duration and seeking information
+/// * Normalization settings
 ///
 /// Features:
 /// * Multi-format support
@@ -61,6 +74,10 @@ use crate::{
 /// * Buffer reuse
 /// * Error recovery
 /// * Transparent handling of encrypted and unencrypted streams
+/// * Automatic detection of audio parameters:
+///   - Sample rate (defaults to 44.1 kHz)
+///   - Bits per sample (codec-dependent)
+///   - Channel count (format/content specific)
 ///
 /// # Example
 /// ```no_run
@@ -119,6 +136,11 @@ impl Decoder {
     /// * Enabling coarse seeking for CBR MP3 content
     /// * Pre-allocating buffers based on format parameters
     /// * Using direct pass-through for unencrypted content
+    ///
+    /// Audio parameters are determined in this order:
+    /// * Sample rate: From codec, falling back to 44.1 kHz
+    /// * Bits per sample: From codec if available
+    /// * Channels: From codec, falling back to content type default
     ///
     /// # Arguments
     /// * `track` - Track metadata including codec information
@@ -199,19 +221,11 @@ impl Decoder {
             .ok_or(Error::not_found("default track not found"))?;
 
         let codec_params = &default_track.codec_params;
-        trace!(
-            "sampling rate: {} kHz",
-            codec_params
-                .sample_rate
-                .map_or("unknown".to_string(), |rate| (rate.to_f32_lossy() / 1000.)
-                    .to_string())
-        );
         let decoder = codecs.make(codec_params, &DecoderOptions::default())?;
 
         // Update the codec parameters with the actual decoder parameters.
         // This may yield information not available before decoder initialization.
         let codec_params = decoder.codec_params();
-
         let sample_rate = codec_params.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE);
         let channels = codec_params.channels.map_or_else(
             || track.typ().default_channels(),
@@ -226,7 +240,7 @@ impl Decoder {
         }
         let total_samples = codec_params.n_frames.and_then(|frames| {
             frames
-                .checked_mul(channels.into())
+                .checked_mul(channels.into()) // Convert frame count to sample count
                 .and_then(|samples| usize::try_from(samples).ok())
         });
 
@@ -248,7 +262,11 @@ impl Decoder {
     /// Creates a normalized version of this decoder's output.
     ///
     /// Applies a feedforward limiter in the log domain to prevent clipping
-    /// while maintaining perceived loudness.
+    /// while maintaining perceived loudness. Works uniformly across all
+    /// sample rates and channel configurations.
+    ///
+    /// Note: The limiter processes audio in floating point, so the original
+    /// bits per sample value does not affect normalization quality.
     ///
     /// # Arguments
     ///
@@ -260,7 +278,7 @@ impl Decoder {
     ///
     /// # Returns
     ///
-    /// A `Normalize` wrapper that processes the decoder's output through
+    /// A [`Normalize`] wrapper that processes the decoder's output through
     /// the limiter.
     #[must_use]
     pub fn normalize(
@@ -314,6 +332,15 @@ impl Decoder {
                 }
                 None
             })
+    }
+
+    /// Returns the number of bits per sample used by the audio codec, if known.
+    ///
+    /// This represents the precision of the audio data as decoded, before
+    /// conversion to floating point samples for playback.
+    #[must_use]
+    pub fn bits_per_sample(&self) -> Option<u32> {
+        self.decoder.codec_params().bits_per_sample
     }
 }
 
@@ -387,7 +414,8 @@ impl rodio::Source for Decoder {
 impl Iterator for Decoder {
     /// A single audio sample as 32-bit floating point.
     ///
-    /// Values are normalized to the range [-1.0, 1.0].
+    /// Values are normalized to the range [-1.0, 1.0] regardless of the
+    /// source audio's bits per sample or format.
     type Item = SampleFormat;
 
     /// Provides the next audio sample.

@@ -38,7 +38,6 @@
 //!     Duration::from_millis(100),  // Release time
 //! );
 //! ```
-//! ```
 
 use std::time::Duration;
 

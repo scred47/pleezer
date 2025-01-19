@@ -324,23 +324,24 @@ The proxy settings will be automatically detected and used for all Deezer Connec
 
 ### Hook Scripts
 
-You can use the `--hook` option to specify a script that will be executed when certain events occur. The script receives event information through environment variables.
+You can use the `--hook` option to specify a script that will be executed when certain events occur. The script will receive information about these events through environment variables.
 
-For all events, the `EVENT` variable contains the event name. Additional variables depend on the specific event:
+#### Event Types
 
-#### `playing`
+Every event includes the `EVENT` variable containing the event name. Additional variables depend on the event type:
+
+#### Playback Events
+
+##### `playing`
 Emitted when playback starts
-
-Variables:
 - `TRACK_ID`: The ID of the track being played
 
-#### `paused`
+##### `paused`
 Emitted when playback is paused
+- No additional variables
 
-No additional variables
-
-#### `track_changed`
-Emitted when the track changes. The variables differ based on content type:
+##### `track_changed`
+Emitted when the track changes
 
 | Variable      | Music                    | Podcast                    | Radio                    |
 |---------------|--------------------------|----------------------------|--------------------------|
@@ -352,9 +353,19 @@ Emitted when the track changes. The variables differ based on content type:
 | `COVER_ID`    | Album art                | Podcast art                | Station logo             |
 | `DURATION`    | Song duration (seconds)  | Episode duration (seconds) | _(not set)_              |
 | `FORMAT`      | Audio format and bitrate | Audio format and bitrate   | Audio format and bitrate |
+| `DECODER`     | Decoded audio format     | Decoded audio format       | Decoded audio format     |
 
-The `FORMAT` value shows the audio configuration (e.g., "MP3 320K" for constant bitrate,
-or "FLAC 1.234M" for variable bitrate).
+The `FORMAT` and `DECODER` variables provide details about the audio stream:
+
+- `FORMAT`: Shows input format and bitrate
+  * Constant bitrate: "MP3 320K"
+  * Variable bitrate: "FLAC 1.234M"
+
+- `DECODER`: Shows decoded audio configuration
+  * Sample format (bit depth)
+  * Sample rate in kHz
+  * Channel configuration
+  * Example: "PCM 16 bit 44.1 kHz, Stereo"
 
 The `COVER_ID` can be used to construct image URLs based on content type:
 * For songs and radio:
@@ -365,21 +376,20 @@ The `COVER_ID` can be used to construct image URLs based on content type:
   ```
   https://cdn-images.dzcdn.net/images/talk/{cover_id}/{resolution}x{resolution}.{format}
   ```
-where `{resolution}` is the desired resolution in pixels (up to 1920) and
+where `{resolution}` is the desired size in pixels (up to 1920) and
 `{format}` is either `jpg` (smaller file size) or `png` (higher quality).
 Deezer's default is `500x500.jpg`.
 
-#### `connected`
-Emitted when a Deezer client connects to control playback
+#### Connection Events
 
-Variables:
+##### `connected`
+Emitted when a controller connects
 - `USER_ID`: The Deezer user ID
 - `USER_NAME`: The Deezer username
 
-#### `disconnected`
-Emitted when the controlling Deezer client disconnects
-
-No additional variables
+##### `disconnected`
+Emitted when the controller disconnects
+- No additional variables
 
 #### Example
 Note: The script must properly escape received values to prevent command injection when using them in shell commands. In bash, `printf %q` provides safe escaping:
@@ -392,11 +402,21 @@ case "$EVENT" in
 "track_changed")
     # Use printf %q to prevent command injection when using values in commands
     echo "Track changed: $(printf %q "$TITLE") by $(printf %q "$ARTIST")"
+    echo "Input format: $(printf %q "$FORMAT")"
+    echo "Decoded as: $(printf %q "$DECODER")"
     ;;
 "connected")
     echo "Connected as: $(printf %q "$USER_NAME")"
     ;;
 esac
+```
+
+Example output:
+```
+Event: track_changed
+Track changed: "Example Song" by "Example Artist"
+Input format: "MP3 320K"
+Decoded as: "PCM 16 bit 44.1 kHz, Stereo"
 ```
 
 ### Stateless Configuration

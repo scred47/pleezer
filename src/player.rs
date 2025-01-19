@@ -79,12 +79,9 @@ use crate::{
         },
         gateway::{self, MediaUrl},
     },
-    track::{Track, TrackId},
+    track::{Track, TrackId, DEFAULT_SAMPLE_RATE},
     util::{self, ToF32, UNITY_GAIN},
 };
-
-/// Default audio sample rate in Hz.
-pub const DEFAULT_SAMPLE_RATE: u32 = 44_100;
 
 /// Audio sample type used by the decoder.
 ///
@@ -99,6 +96,10 @@ pub type SampleFormat = f32;
 /// * Format-specific decoding via Symphonia
 /// * Queue management and ordering
 /// * Playback control
+/// * Audio parameters:
+///   - Sample rate (defaults to 44.1 kHz)
+///   - Bits per sample (codec-dependent)
+///   - Channel count (content-specific)
 /// * Volume normalization:
 ///   - Primarily uses Deezer-provided gain values
 ///   - Falls back to `ReplayGain` metadata for external content
@@ -658,7 +659,11 @@ impl Player {
     ///    * FLAC: Raw frame handling
     ///    * AAC: ADTS stream parsing
     ///    * WAV: PCM decoding
-    /// 3. Applies volume normalization if enabled
+    /// 3. Detects audio parameters:
+    ///    * Sample rate from codec (defaults to 44.1 kHz)
+    ///    * Bits per sample if available
+    ///    * Channel count from codec or content type
+    /// 4. Applies volume normalization if enabled
     ///
     /// # Arguments
     ///
@@ -710,6 +715,11 @@ impl Player {
 
             // Create a new decoder for the track.
             let mut decoder = Decoder::new(track, download)?;
+            track.sample_rate = Some(decoder.sample_rate());
+            track.channels = Some(decoder.channels());
+            if let Some(bits_per_sample) = decoder.bits_per_sample() {
+                track.bits_per_sample = Some(bits_per_sample);
+            }
 
             // Seek to the deferred position if set.
             if let Some(progress) = self.deferred_seek.take() {
@@ -767,6 +777,9 @@ impl Player {
                 sources.append_with_signal(normalized)
             };
 
+            let sample_rate = track.sample_rate.map_or("unknown".to_string(), |rate| {
+                (rate.to_f32_lossy() / 1000.).to_string()
+            });
             let codec = track
                 .codec()
                 .map_or("unknown".to_string(), |codec| codec.to_string());
@@ -774,7 +787,7 @@ impl Player {
                 .bitrate()
                 .map_or("unknown".to_string(), |kbps| kbps.to_string());
             debug!(
-                "loaded {} {track}; codec: {codec}; bitrate: {bitrate} kbps",
+                "loaded {} {track}; codec: {codec}; sample rate: {sample_rate} kHz; bitrate: {bitrate} kbps",
                 track.typ()
             );
 
@@ -1371,11 +1384,6 @@ impl Player {
     /// * If progress >= 1.0: Skips to next track
     /// * If track not loaded: Defers seek
     ///
-    /// Frame alignment is codec-specific:
-    /// * FLAC: ~93ms frames (4096 samples at 44.1kHz)
-    /// * MP3: ~26ms frames (1152 samples at 44.1kHz)
-    /// * AAC: ~23ms frames (1024 samples at 44.1kHz)
-    ///
     /// # Errors
     ///
     /// Returns error if:
@@ -1403,13 +1411,11 @@ impl Player {
                         }
 
                         // Seek to just before the requested position, to be sure that we find the
-                        // frame just before it. Hardcoding this to 44.1 kHz is safe for higher
-                        // sample rates (that podcasts could be in), as the frame duration will be
-                        // shorter.
-                        let frame_duration = track
-                            .codec()
-                            .unwrap_or_default()
-                            .frame_duration(DEFAULT_SAMPLE_RATE);
+                        // frame just before it.
+                        let frame_duration = track.codec().unwrap_or_default().frame_duration(
+                            track.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE),
+                            track.channels.unwrap_or(track.typ().default_channels()),
+                        );
                         position = position.saturating_sub(frame_duration);
                     }
                 }

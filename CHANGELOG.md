@@ -7,6 +7,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- [track] Report audio parameters through `DECODER` environment variable in hook scripts
+
 ### Changed
 - [docs] Restructure installation section to acknowledge pre-packaged availability
 

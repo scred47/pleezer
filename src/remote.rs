@@ -9,7 +9,59 @@
 //! * Playback reporting
 //! * Event notifications
 //!
-//! # Protocol Flow
+//! # Hook Scripts
+//!
+//! Hook scripts can be configured to execute on events, receiving information
+//! through environment variables. All events include the `EVENT` variable
+//! containing the event name, plus additional variables specific to each event:
+//!
+//! ## `playing`
+//! Emitted when playback starts
+//!
+//! Variables:
+//! - `TRACK_ID`: The ID of the track being played
+//!
+//! ## `paused`
+//! Emitted when playback is paused
+//!
+//! No additional variables
+//!
+//! ## `track_changed`
+//! Emitted when the track changes
+//!
+//! Common variables for all content:
+//! - `TRACK_TYPE`: Content type ("song", "episode", "livestream")
+//! - `TRACK_ID`: Content identifier
+//! - `ARTIST`: Artist name/podcast title/station name
+//! - `COVER_ID`: Cover art identifier
+//! - `FORMAT`: Input format and bitrate (e.g. "MP3 320K", "FLAC 1.234M")
+//! - `DECODER`: Decoded format including:
+//!   * Sample format ("PCM 16/24/32 bit")
+//!   * Sample rate (e.g. "44.1 kHz")
+//!   * Channel configuration (e.g. "Stereo")
+//!
+//! Additional variables for songs and episodes:
+//! - `TITLE`: Track/episode title
+//! - `DURATION`: Length in seconds
+//!
+//! Additional variables for songs:
+//! - `ALBUM_TITLE`: Album name
+//!
+//! ## `connected`
+//! Emitted when a controller connects
+//!
+//! Variables:
+//! - `USER_ID`: The Deezer user ID
+//! - `USER_NAME`: The Deezer username
+//!
+//! ## `disconnected`
+//! Emitted when the controller disconnects
+//!
+//! No additional variables
+//!
+//! # Protocol Details
+//!
+//! ## Connection Flow
 //!
 //! 1. Connection Establishment
 //!    * Client connects to Deezer websocket
@@ -29,7 +81,7 @@
 //!    * Commands flow between devices
 //!    * Queue and playback state synchronized (including shuffle)
 //!
-//! # Connection States
+//! ## Connection States
 //!
 //! A client progresses through several states:
 //! * Disconnected - Initial state
@@ -38,7 +90,7 @@
 //! * Connected - Active control session
 //! * Taken - Connection locked (if interruptions disabled)
 //!
-//! # Message Types
+//! ## Message Types
 //!
 //! The protocol uses several message types:
 //! * Discovery - Device detection
@@ -93,7 +145,7 @@ use crate::{
     },
     proxy,
     tokens::UserToken,
-    track::{Track, TrackId},
+    track::{Track, TrackId, DEFAULT_BITS_PER_SAMPLE, DEFAULT_SAMPLE_RATE},
     util::ToF32,
 };
 
@@ -728,7 +780,7 @@ impl Client {
                         let bitrate = match bitrate {
                             Some(bitrate) => {
                                 if bitrate >= 1000 {
-                                    format!("{}M", bitrate.to_f32_lossy() / 1000.)
+                                    format!(" {}M", bitrate.to_f32_lossy() / 1000.)
                                 } else {
                                     format!(" {bitrate}K")
                                 }
@@ -737,13 +789,32 @@ impl Client {
                             None => String::default(),
                         };
 
+                        let channels =
+                            match track.channels.unwrap_or(track.typ().default_channels()) {
+                                1 => "Mono".to_string(),
+                                2 => "Stereo".to_string(),
+                                3 => "2.1 Stereo".to_string(),
+                                6 => "5.1 Surround Sound".to_string(),
+                                other => format!("{other} channels"),
+                            };
+                        let decoded = format!(
+                            "PCM {} bit {} kHz, {channels}",
+                            track.bits_per_sample.unwrap_or(DEFAULT_BITS_PER_SAMPLE),
+                            track
+                                .sample_rate
+                                .unwrap_or(DEFAULT_SAMPLE_RATE)
+                                .to_f32_lossy()
+                                / 1000.0,
+                        );
+
                         command
                             .env("EVENT", "track_changed")
                             .env("TRACK_TYPE", track.typ().to_string())
                             .env("TRACK_ID", track.id().to_string())
                             .env("ARTIST", track.artist())
                             .env("COVER_ID", track.cover_id())
-                            .env("FORMAT", format!("{codec}{bitrate}"));
+                            .env("FORMAT", format!("{codec}{bitrate}"))
+                            .env("DECODER", decoded);
 
                         if let Some(title) = track.title() {
                             command.env("TITLE", title);

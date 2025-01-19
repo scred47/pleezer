@@ -78,24 +78,31 @@ impl Codec {
     const MP3_SAMPLES_PER_FRAME: usize = 1_152;
 
     /// WAV frames contain uncompressed PCM data, one sample per channel.
-    const WAV_SAMPLES_PER_FRAME: usize = 2;
+    const WAV_SAMPLES_PER_FRAME: usize = 1;
 
     /// Returns the maximum duration of a frame for the format's codec at the given sample rate.
     ///
-    /// Frame sizes at 44.1 kHz by codec:
-    /// * AAC (in ADTS/MP4): 1024 samples ≈ 23.220ms (fixed)
-    /// * MP3: 1152 samples ≈ 26.122ms (fixed)
-    /// * FLAC: Up to 4608 samples ≈ 104.490ms (variable)
-    /// * PCM (in WAV): 2 samples ≈ 0.045ms (fixed, stereo)
+    /// Frame sizes are fixed for most codecs:
+    /// * AAC (in ADTS/MP4): 1024 samples
+    /// * MP3: 1152 samples
+    /// * PCM (in WAV): 1 sample per channel
     ///
-    /// For FLAC at higher sample rates (>48 kHz), allows up to 16384 samples per frame.
+    /// FLAC uses variable-length frames with maximum sizes:
+    /// * Up to 48 kHz: 4608 samples
+    /// * Above 48 kHz: 16384 samples
+    ///
+    /// For example, at 44.1 kHz:
+    /// * AAC: ≈ 23.220ms
+    /// * MP3: ≈ 26.122ms
+    /// * FLAC: up to ≈ 104.490ms
+    /// * PCM: ≈ 0.023ms per channel
     ///
     /// Notes:
     /// - For MP4 containers, we assume AAC codec
     /// - For FLAC, we return maximum possible frame duration for safe seeking
     /// - For WAV, assumes stereo PCM data
     #[must_use]
-    pub fn frame_duration(&self, sample_rate: u32) -> Duration {
+    pub fn frame_duration(&self, sample_rate: u32, channels: u16) -> Duration {
         let samples = match self {
             Codec::ADTS | Codec::MP4 => Self::AAC_SAMPLES_PER_FRAME,
             Codec::FLAC => {
@@ -106,7 +113,7 @@ impl Codec {
                 }
             }
             Codec::MP3 => Self::MP3_SAMPLES_PER_FRAME,
-            Codec::WAV => Self::WAV_SAMPLES_PER_FRAME,
+            Codec::WAV => Self::WAV_SAMPLES_PER_FRAME * channels as usize,
         }
         .to_f32_lossy();
 
@@ -118,15 +125,15 @@ impl Codec {
         }
     }
 
-    /// Returns the standard file extension for this format.
+    /// Audio Data Transport Stream container
     ///
-    /// # Examples
-    /// ```rust
-    /// use pleezer::protocol::Format;
+    /// A container format specifically for AAC audio streams.
+    /// Used for live streams and some podcasts.
     ///
-    /// assert_eq!(Format::ADTS.extension(), "aac");
-    /// assert_eq!(Format::MP4.extension(), "m4a");
-    /// ```
+    /// Typical characteristics:
+    /// - Bitrate: 64-256 kbps (CBR/VBR)
+    /// - Sample format: 16-bit
+    /// - Sample rate: 44.1 kHz
     #[must_use]
     #[inline]
     pub fn extension(&self) -> &'static str {

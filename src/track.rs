@@ -5,7 +5,17 @@
 //! * Media source retrieval
 //! * Audio stream handling through `AudioFile`
 //! * Download management
-//! * Format detection
+//! * Format detection and audio parameters
+//!
+//! # Audio Parameters
+//!
+//! Tracks provide audio configuration information:
+//! * Sample rate (defaults to 44.1 kHz)
+//! * Bits per sample (codec-dependent)
+//! * Channel count (content-specific defaults):
+//!   - Songs: Stereo (2 channels)
+//!   - Episodes: Mono (1 channel)
+//!   - Livestreams: Stereo (2 channels)
 //!
 //! # Audio Format Support
 //!
@@ -107,6 +117,12 @@ use crate::{
     util::ToF32,
 };
 
+/// Default audio sample rate in Hz.
+pub const DEFAULT_SAMPLE_RATE: u32 = 44_100;
+
+/// Default number of bits per sample.
+pub const DEFAULT_BITS_PER_SAMPLE: u32 = 16;
+
 /// A unique identifier for a track.
 ///
 /// * Positive IDs: Regular Deezer tracks
@@ -193,6 +209,10 @@ impl FromStr for TrackType {
 /// Represents a Deezer track with metadata and download/buffering state.
 ///
 /// Combines track metadata (title, artist, etc) with:
+/// * Audio parameters:
+///   - Sample rate (defaults to 44.1 kHz)
+///   - Bits per sample (codec-dependent)
+///   - Channel count (content-specific defaults)
 /// * Download management (progress tracking, cancellation)
 /// * Buffer management (seek limits, progress tracking)
 /// * Quality/format information (codecs, bitrates)
@@ -302,6 +322,18 @@ pub struct Track {
     /// * For episodes: Inferred from URL extension
     /// * For livestreams: Determined from stream URL
     codec: Option<Codec>,
+
+    /// Sample rate of the audio track.
+    /// Set by player after decoder initialization.
+    pub sample_rate: Option<u32>,
+
+    /// Number of bits per sample in the track.
+    /// Set by player after decoder initialization.
+    pub bits_per_sample: Option<u32>,
+
+    /// Number of audio channels in the track.
+    /// Set by player after decoder initialization.
+    pub channels: Option<u16>,
 
     /// Fallback track to use when primary track is unavailable.
     /// * Contains complete track metadata
@@ -462,9 +494,9 @@ impl Track {
     /// Returns the cover art identifier for this track.
     ///
     /// Returns:
-    /// * Album cover ID for songs (use with "<https://cdn-images.dzcdn.net/images/cover>/")
-    /// * Podcast artwork ID for episodes (use with "<https://cdn-images.dzcdn.net/images/talk>/")
-    /// * Station logo ID for livestreams (use with "<https://cdn-images.dzcdn.net/images/cover>/")
+    /// * Album cover ID for songs (use with "<https://cdn-images.dzcdn.net/images/cover>")
+    /// * Podcast artwork ID for episodes (use with "<https://cdn-images.dzcdn.net/images/talk>")
+    /// * Station logo ID for livestreams (use with "<https://cdn-images.dzcdn.net/images/cover>")
     ///
     /// Append "/{id}/{resolution}x{resolution}.{format}" where:
     /// * `resolution` is the desired size in pixels (up to 1920)
@@ -1327,8 +1359,10 @@ impl From<gateway::ListData> for Track {
             ),
         };
 
+        let typ = item.typ().parse().unwrap_or_default();
+
         Self {
-            typ: item.typ().parse().unwrap_or_default(),
+            typ,
             id: item.id(),
             track_token: item.track_token().map(ToOwned::to_owned),
             title: item.title().map(ToOwned::to_owned),
@@ -1348,6 +1382,9 @@ impl From<gateway::ListData> for Track {
             external_url,
             bitrate: None,
             codec: None,
+            sample_rate: None,
+            bits_per_sample: None,
+            channels: None,
             fallback: fallback.map(|boxed| Box::new((*boxed).into())),
         }
     }
