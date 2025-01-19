@@ -25,8 +25,10 @@
 //! # Performance
 //!
 //! The decoder is optimized for:
-//! * Low memory usage (reuses sample buffers)
-//! * Fast initialization
+//! * Memory efficient buffering (64 KiB minimum, matching Symphonia's requirements)
+//! * Coordinated with `AudioFile` buffer sizes (32 KiB for unencrypted, 2 KiB for encrypted)
+//! * Low allocation overhead (reuses sample buffers)
+//! * Fast initialization through codec-specific handlers
 //! * Optimized CBR MP3 seeking
 //! * Robust error recovery
 //! * Direct pass-through for unencrypted streams
@@ -51,7 +53,7 @@ use symphonia::{
 };
 
 use crate::{
-    audio_file::AudioFile,
+    audio_file::{AudioFile, BUFFER_LEN},
     error::{Error, Result},
     normalize::{self, Normalize},
     player::SampleFormat,
@@ -62,16 +64,19 @@ use crate::{
 
 /// Audio decoder supporting multiple formats through Symphonia.
 ///
-/// Works in conjunction with [`Track`] to provide:
+/// Works in conjunction with [`AudioFile`] and [`Track`] to provide:
 /// * Format-specific decoding based on track codec
 /// * Audio parameters (sample rate, bits per sample, channels)
 /// * Duration and seeking information
 /// * Normalization settings
+/// * Efficient buffering coordinated with `AudioFile`:
+///   - Uses 64+ KiB internal buffer (Symphonia requirement)
+///   - Works with both 32 KiB unencrypted and 2 KiB encrypted input buffers
 ///
 /// Features:
 /// * Multi-format support
 /// * Optimized MP3 CBR seeking
-/// * Buffer reuse
+/// * Buffer reuse for minimal allocations
 /// * Error recovery
 /// * Transparent handling of encrypted and unencrypted streams
 /// * Automatic detection of audio parameters:
@@ -154,7 +159,11 @@ impl Decoder {
     /// * Required track is not found
     /// * Stream parameters are invalid
     pub fn new(track: &Track, file: AudioFile) -> Result<Self> {
-        let stream = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
+        // Twice the buffer length to allow for Symphonia's read-ahead behavior,
+        // and 64 kB minimum that Symphonia asserts for its ring buffer.
+        let buffer_len = usize::max(64 * 1024, BUFFER_LEN * 2);
+        let stream =
+            MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions { buffer_len });
 
         // We know the codec for all tracks except podcasts, so be as specific as possible.
         let mut hint = Hint::new();

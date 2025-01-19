@@ -8,6 +8,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [Unreleased]
 
 ### Added
+- [audio_file] Add 32 KiB buffering for unencrypted streams to match Symphonia's read pattern
 - [track] Report audio parameters through `DECODER` environment variable in hook scripts
 
 ### Changed
