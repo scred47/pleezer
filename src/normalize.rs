@@ -7,7 +7,8 @@
 //!
 //! Features:
 //! * Soft-knee limiting for natural sound
-//! * Decoupled peak detection
+//! * Decoupled peak detection per channel
+//! * Coupled gain reduction across channels
 //! * Configurable attack/release times
 //! * CPU-efficient processing
 //!
@@ -17,8 +18,9 @@
 //! 1. Initial gain stage
 //! 2. Half-wave rectification and dB conversion
 //! 3. Soft-knee gain computation
-//! 4. Smoothed peak detection
-//! 5. Gain reduction application
+//! 4. Smoothed peak detection (per channel)
+//! 5. Maximum peak detection across channels
+//! 6. Gain reduction application (coupled across channels)
 //!
 //! # Example
 //!
@@ -26,15 +28,16 @@
 //! use std::time::Duration;
 //! use pleezer::normalize::normalize;
 //!
-//! // Configure limiter
+//! // Configure limiter with typical values
 //! let normalized = normalize(
 //!     source,
 //!     1.0,             // Unity gain
-//!     -6.0,            // Threshold (dB)
-//!     12.0,            // Knee width (dB)
+//!     -1.0,            // Threshold (dB)
+//!     4.0,             // Knee width (dB)
 //!     Duration::from_millis(5),    // Attack time
 //!     Duration::from_millis(100),  // Release time
 //! );
+//! ```
 //! ```
 
 use std::time::Duration;
@@ -45,18 +48,31 @@ use crate::util::{self, ToF32, ZERO_DB};
 
 /// Creates a normalized audio filter with configurable limiting.
 ///
+/// The limiter processes each channel independently for envelope detection
+/// but applies gain reduction uniformly across all channels to preserve imaging.
+///
 /// # Arguments
 ///
 /// * `input` - Audio source to process
-/// * `ratio` - Initial gain scaling (1.0 = unity)
-/// * `threshold` - Level where limiting begins (dB)
+/// * `ratio` - Initial gain scaling (1.0 = unity, applied before limiting)
+/// * `threshold` - Level where limiting begins (dB, negative for headroom)
+///    Typical value: -1 to -2 dB to prevent clipping
 /// * `knee_width` - Range over which limiting gradually increases (dB)
+///    Wider knee = smoother transition into limiting
+///    Typical value: 3-4 dB for musical transparency
 /// * `attack` - Time to respond to level increases
+///    Shorter = faster limiting but may distort
+///    Longer = more transparent but may overshoot
+///    Typical value: 5 ms for quick response
 /// * `release` - Time to recover after level decreases
+///    Shorter = faster recovery but may pump
+///    Longer = smoother but may duck subsequent peaks
+///    Typical value: 100 ms for natural decay
 ///
 /// # Returns
 ///
 /// A `Normalize` filter that processes the input audio through the limiter.
+/// State is initialized to zero for all channels.
 pub fn normalize<I>(
     input: I,
     ratio: f32,
@@ -115,7 +131,8 @@ fn duration_to_coefficient(duration: Duration, sample_rate: u32) -> f32 {
 /// 1. Initial gain scaling by `ratio`
 /// 2. Peak detection above `threshold`
 /// 3. Soft-knee limiting over `knee_width`
-/// 4. Smoothing with `attack`/`release` filtering
+/// 4. Independent smoothing with `attack`/`release` filtering per channel
+/// 5. Coupled gain reduction across all channels to preserve imaging
 ///
 /// # Type Parameters
 ///
@@ -138,19 +155,25 @@ where
     /// Range for gradual limiting transition (dB)
     knee_width: f32,
 
-    /// Attack smoothing coefficient
+    /// Attack smoothing coefficient for envelope detection
+    /// Calculated from attack time and sample rate
     attack: f32,
 
-    /// Release smoothing coefficient
+    /// Release smoothing coefficient for envelope detection
+    /// Calculated from release time and sample rate
     release: f32,
 
     /// Per-channel peak detector integrator states (dB)
+    /// One state per channel for independent envelope detection
     normalisation_integrators: Vec<f32>,
 
     /// Per-channel smoothed peak levels (dB)
+    /// One level per channel, but maximum across all channels
+    /// is used for gain reduction to maintain imaging
     normalisation_peaks: Vec<f32>,
 
     /// Current sample position for channel tracking
+    /// Used to determine which channel is being processed
     position: usize,
 }
 
@@ -194,13 +217,19 @@ where
     /// Processes the next audio sample through the limiter.
     ///
     /// Processing steps:
-    /// 1. Apply initial gain scaling
-    /// 2. Convert to dB and detect peaks
-    /// 3. Apply soft-knee limiting curve
-    /// 4. Smooth response with attack/release
-    /// 5. Apply gain reduction
+    /// 1. Apply initial gain scaling (same for all channels)
+    /// 2. Convert to dB and detect peaks:
+    ///    - Protects against non-normal values that would cause NaN/inf
+    ///    - Applies soft-knee curve for smooth limiting
+    /// 3. Update envelope detection:
+    ///    - Tracks peaks independently per channel
+    ///    - Uses attack/release smoothing for natural response
+    /// 4. Calculate gain reduction:
+    ///    - Finds maximum peak across all channels
+    ///    - Applies same reduction to all channels
+    ///    - Preserves stereo/multichannel imaging
     ///
-    /// Returns None when input source is exhausted.
+    /// Returns `None` when input source is exhausted.
     #[inline]
     fn next(&mut self) -> Option<I::Item> {
         let sample = self.input.next()?;
@@ -252,46 +281,41 @@ where
             }
         }
 
-        // Spare the CPU unless:
-        // 1. the limiter is engaged, or
-        // 2. we were in attack, or
-        // 3. we were in release,
-        // ...and that attack/release were not finished yet.
-        if limiter_db > ZERO_DB
-            || self.normalisation_integrators[channel] > ZERO_DB
-            || self.normalisation_peaks[channel] > ZERO_DB
-        {
-            // step 5: smooth, decoupled peak detector
-            //
-            // Textbook:
-            // ```
-            // release_cf * self.normalisation_integrator + (1.0 - release_cf) * limiter_db
-            // ```
-            self.normalisation_integrators[channel] = f32::max(
-                limiter_db,
-                release_cf * self.normalisation_integrators[channel] - release_cf * limiter_db
-                    + limiter_db,
-            );
+        // Previously, we had a check here to see if the limiter was engaged in an attempt
+        // to save CPU cycles. However, the cost of the check was higher than the cost of
+        // the computation, so we removed it.
 
-            // Textbook:
-            // ```
-            // attack_cf * self.normalisation_peak + (1.0 - attack_cf)
-            // * self.normalisation_integrator
-            // ```
-            self.normalisation_peaks[channel] = attack_cf * self.normalisation_peaks[channel]
-                - attack_cf * self.normalisation_integrators[channel]
-                + self.normalisation_integrators[channel];
+        // step 5: smooth, decoupled peak detector
+        //
+        // Textbook:
+        // ```
+        // release_cf * self.normalisation_integrator + (1.0 - release_cf) * limiter_db
+        // ```
+        self.normalisation_integrators[channel] = f32::max(
+            limiter_db,
+            release_cf * self.normalisation_integrators[channel] - release_cf * limiter_db
+                + limiter_db,
+        );
 
-            // Find maximum peak across all channels
-            let max_peak = self
-                .normalisation_peaks
-                .iter()
-                .copied()
-                .fold(ZERO_DB, f32::max);
+        // Textbook:
+        // ```
+        // attack_cf * self.normalisation_peak + (1.0 - attack_cf)
+        // * self.normalisation_integrator
+        // ```
+        self.normalisation_peaks[channel] = attack_cf * self.normalisation_peaks[channel]
+            - attack_cf * self.normalisation_integrators[channel]
+            + self.normalisation_integrators[channel];
 
-            // steps 6-8: conversion into level and multiplication into gain stage
-            sample.amplify(util::db_to_ratio(-max_peak));
-        }
+        // Find maximum peak across all channels to couple the gain across all channels
+        // and maintain multi-channel imaging.
+        let max_peak = self
+            .normalisation_peaks
+            .iter()
+            .copied()
+            .fold(ZERO_DB, f32::max);
+
+        // steps 6-8: conversion into level and multiplication into gain stage
+        sample.amplify(util::db_to_ratio(-max_peak));
 
         Some(sample)
     }
