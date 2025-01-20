@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
+## [Unreleased]
+
+### Changed
+- [codec] Split `frame_duration` into `max_frame_length` and `max_frame_duration`
+- [decoder] Better error handling following Symphonia's recommendations
+- [decoder] Remove `ExactSizeIterator` implementation as total samples can't be determined exactly
+
+### Fixed
+- [decoder] Fix calculation of total number of samples for size hint
+
 ## [v0.10.0] - 2025-01-19
 
 ### Added

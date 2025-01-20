@@ -2,16 +2,16 @@
 //!
 //! This module provides a decoder that:
 //! * Supports multiple formats (AAC/ADTS, FLAC, MP3, MP4, WAV)
-//! * Enables seeking with format-specific handling
+//! * Enables format-specific seeking with proper error recovery
 //! * Handles both constant and variable bitrate streams
-//! * Processes audio in floating point
+//! * Processes audio in floating point format
 //!
 //! # Format Support
 //!
 //! Supported formats and characteristics:
 //! * AAC: ADTS framing
 //! * FLAC: Lossless compression
-//! * MP3: Fast coarse seeking for CBR streams
+//! * MP3: Fast seeking for CBR
 //! * MP4: AAC audio in MP4 container
 //! * WAV: Uncompressed PCM
 //!
@@ -22,6 +22,14 @@
 //! * Bits per sample (codec-dependent)
 //! * Channel count (mono/stereo/multi-channel)
 //!
+//! # Error Handling
+//!
+//! The decoder implements robust error recovery:
+//! * Skips corrupted packets (up to 3 consecutive)
+//! * Handles codec reset requests
+//! * Recovers from seekable I/O errors
+//! * Gracefully handles end of stream
+//!
 //! # Performance
 //!
 //! The decoder is optimized for:
@@ -30,8 +38,6 @@
 //! * Low allocation overhead (reuses sample buffers)
 //! * Fast initialization through codec-specific handlers
 //! * Optimized CBR MP3 seeking
-//! * Robust error recovery
-//! * Direct pass-through for unencrypted streams
 
 use std::time::Duration;
 
@@ -39,7 +45,7 @@ use rodio::source::SeekError;
 use symphonia::{
     core::{
         audio::SampleBuffer,
-        codecs::{CodecRegistry, DecoderOptions},
+        codecs::{CodecParameters, CodecRegistry, DecoderOptions},
         errors::Error as SymphoniaError,
         formats::{FormatOptions, FormatReader, SeekMode, SeekTo},
         io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions},
@@ -128,6 +134,9 @@ pub struct Decoder {
 
     /// Total number of samples in the stream
     total_samples: Option<usize>,
+
+    /// Maximum number of samples per frame for the current codec
+    max_frame_length: Option<usize>,
 }
 
 /// Maximum number of consecutive corrupted packets to skip before giving up.
@@ -235,23 +244,13 @@ impl Decoder {
         // Update the codec parameters with the actual decoder parameters.
         // This may yield information not available before decoder initialization.
         let codec_params = decoder.codec_params();
-        let sample_rate = codec_params.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE);
-        let channels = codec_params.channels.map_or_else(
-            || track.typ().default_channels(),
-            |channels| u16::try_from(channels.count()).unwrap_or(u16::MAX),
-        );
-
-        let mut total_duration = None;
-        if let Some(time_base) = codec_params.time_base {
-            if let Some(frames) = codec_params.n_frames {
-                total_duration = Some(time_base.calc_time(frames).into());
-            }
-        }
-        let total_samples = codec_params.n_frames.and_then(|frames| {
-            frames
-                .checked_mul(channels.into()) // Convert frame count to sample count
-                .and_then(|samples| usize::try_from(samples).ok())
-        });
+        let total_duration = Self::calc_total_duration(codec_params);
+        let channels = Self::calc_channels(codec_params).unwrap_or(track.typ().default_channels());
+        let sample_rate = Self::calc_sample_rate(codec_params);
+        let max_frame_length = track
+            .codec()
+            .map(|codec| codec.max_frame_length(sample_rate, channels));
+        let total_samples = Self::calc_total_samples(codec_params, max_frame_length);
 
         Ok(Self {
             demuxer,
@@ -265,6 +264,7 @@ impl Decoder {
             sample_rate,
             total_duration,
             total_samples,
+            max_frame_length,
         })
     }
 
@@ -349,7 +349,76 @@ impl Decoder {
     /// conversion to floating point samples for playback.
     #[must_use]
     pub fn bits_per_sample(&self) -> Option<u32> {
+        // Not cached because it is called infrequently.
         self.decoder.codec_params().bits_per_sample
+    }
+
+    /// Extracts channel count from codec parameters, converting to `u16`.
+    /// Returns `None` if channel information is unavailable.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the channel count exceeds the maximum value for `u16`.
+    #[must_use]
+    fn calc_channels(codec_params: &CodecParameters) -> Option<u16> {
+        codec_params
+            .channels
+            .map(|channels| channels.count().try_into().expect("channel count overflow"))
+    }
+
+    /// Gets sample rate from codec parameters, defaulting to 44.1 kHz if unspecified.
+    #[must_use]
+    fn calc_sample_rate(codec_params: &CodecParameters) -> u32 {
+        codec_params.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE)
+    }
+
+    /// Calculates total samples in the stream from frame count and maximum frame length.
+    /// Returns `None` if either value is unavailable or multiplication would overflow.
+    #[must_use]
+    fn calc_total_samples(
+        codec_params: &CodecParameters,
+        max_frame_length: Option<usize>,
+    ) -> Option<usize> {
+        if let (Some(n_frames), Some(max_frame_length)) = (codec_params.n_frames, max_frame_length)
+        {
+            usize::try_from(n_frames)
+                .ok()
+                .and_then(|frames| frames.checked_mul(max_frame_length))
+        } else {
+            None
+        }
+    }
+
+    /// Extracts total duration from codec parameters if both time base and frame count are
+    /// available.
+    #[must_use]
+    fn calc_total_duration(codec_params: &CodecParameters) -> Option<Duration> {
+        if let (Some(time_base), Some(frames)) = (codec_params.time_base, codec_params.n_frames) {
+            Some(time_base.calc_time(frames).into())
+        } else {
+            None
+        }
+    }
+
+    /// Updates decoder specifications after a codec reset.
+    ///
+    /// Recalculates:
+    /// * Sample rate
+    /// * Total number of samples
+    /// * Total duration
+    /// * Channel count (only if explicitly provided by codec)
+    fn reload_spec(&mut self) {
+        let codec_params = self.decoder.codec_params();
+
+        self.sample_rate = Self::calc_sample_rate(codec_params);
+        self.total_samples = Self::calc_total_samples(codec_params, self.max_frame_length);
+        self.total_duration = Self::calc_total_duration(codec_params);
+
+        // The channel count is initialized to the default for the track type.
+        // Only update it if the codec provides a specific count.
+        if let Some(channels) = Self::calc_channels(codec_params) {
+            self.channels = channels;
+        }
     }
 }
 
@@ -448,14 +517,51 @@ impl Iterator for Decoder {
         {
             let mut skipped = 0;
             loop {
+                if skipped > 0 {
+                    // Internal buffer *must* be cleared if an error occurs.
+                    self.buffer = None;
+                }
                 if skipped > MAX_RETRIES {
                     error!("skipped too many packets, giving up");
                     return None;
                 }
 
+                // Assume failure until a packet is successfully decoded.
+                skipped = skipped.saturating_add(1);
+
                 match self.demuxer.next_packet() {
                     Ok(packet) => {
-                        let decoded = self.decoder.decode(&packet).ok()?;
+                        let decoded = match self.decoder.decode(&packet) {
+                            Ok(decoded) => decoded,
+
+                            // If a `DecodeError` or `IoError` is returned, the packet is
+                            // undecodeable and should be discarded. Decoding may be continued
+                            // with the next packet.
+                            Err(SymphoniaError::DecodeError(e)) => {
+                                error!("discarding undecodable packet: {e}");
+                                continue;
+                            }
+                            Err(SymphoniaError::IoError(e)) => {
+                                error!("discarding undecodable packet: {e}");
+                                continue;
+                            }
+
+                            // If `ResetRequired` is returned, consumers of the decoded audio data
+                            // should expect the duration and `SignalSpec` of the decoded audio
+                            // buffer to change.
+                            Err(SymphoniaError::ResetRequired) => {
+                                self.decoder.reset();
+                                self.reload_spec();
+                                continue;
+                            }
+
+                            // All other errors are unrecoverable.
+                            Err(e) => {
+                                error!("{e}");
+                                return None;
+                            }
+                        };
+
                         let buffer = match self.buffer.as_mut() {
                             Some(buffer) => buffer,
                             None => {
@@ -472,22 +578,25 @@ impl Iterator for Decoder {
                         break;
                     }
 
-                    Err(SymphoniaError::IoError(e)) => {
-                        if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                            // Not an error, just the end of the stream.
-                            return None;
-                        }
-                        error!("{e}");
-                        return None;
-                    }
-                    Err(SymphoniaError::DecodeError(e)) => {
-                        error!("skipping malformed packet: {e}");
-                        skipped = skipped.saturating_add(1);
-                        continue;
-                    }
+                    // If `ResetRequired` is returned, then the track list must be re-examined and
+                    // all `Decoder`s re-created.
                     Err(SymphoniaError::ResetRequired) => {
-                        self.decoder.reset();
+                        let track = self.demuxer.default_track()?;
+                        let codecs = symphonia::default::get_codecs();
+                        self.decoder = codecs
+                            .make(&track.codec_params, &DecoderOptions::default())
+                            .ok()?;
+                        self.reload_spec();
                         continue;
+                    }
+
+                    // All other errors are unrecoverable.
+                    Err(SymphoniaError::IoError(e)) => {
+                        // `UnexpectedEof` is not an error, just the end of the stream.
+                        if e.kind() != std::io::ErrorKind::UnexpectedEof {
+                            error!("{e}");
+                        }
+                        return None;
                     }
                     Err(e) => {
                         error!("{e}");
@@ -515,5 +624,3 @@ impl Iterator for Decoder {
         (self.total_samples.unwrap_or(0), self.total_samples)
     }
 }
-
-impl ExactSizeIterator for Decoder {}

@@ -80,30 +80,24 @@ impl Codec {
     /// WAV frames contain uncompressed PCM data, one sample per channel.
     const WAV_SAMPLES_PER_FRAME: usize = 1;
 
-    /// Returns the maximum duration of a frame for the format's codec at the given sample rate.
+    /// Returns the maximum number of samples per frame for this codec.
     ///
     /// Frame sizes are fixed for most codecs:
-    /// * AAC (in ADTS/MP4): 1024 samples
+    /// * AAC/MP4: 1024 samples
     /// * MP3: 1152 samples
-    /// * PCM (in WAV): 1 sample per channel
+    /// * WAV: 1 sample per channel
     ///
-    /// FLAC uses variable-length frames with maximum sizes:
-    /// * Up to 48 kHz: 4608 samples
-    /// * Above 48 kHz: 16384 samples
+    /// FLAC uses variable frame sizes with maximums of:
+    /// * 4608 samples for <= 48kHz
+    /// * 16384 samples for > 48kHz
     ///
-    /// For example, at 44.1 kHz:
-    /// * AAC: ≈ 23.220ms
-    /// * MP3: ≈ 26.122ms
-    /// * FLAC: up to ≈ 104.490ms
-    /// * PCM: ≈ 0.023ms per channel
+    /// # Arguments
     ///
-    /// Notes:
-    /// - For MP4 containers, we assume AAC codec
-    /// - For FLAC, we return maximum possible frame duration for safe seeking
-    /// - For WAV, assumes stereo PCM data
+    /// * `sample_rate` - Sample rate in Hz
+    /// * `channels` - Number of audio channels
     #[must_use]
-    pub fn frame_duration(&self, sample_rate: u32, channels: u16) -> Duration {
-        let samples = match self {
+    pub fn max_frame_length(&self, sample_rate: u32, channels: u16) -> usize {
+        match self {
             Codec::ADTS | Codec::MP4 => Self::AAC_SAMPLES_PER_FRAME,
             Codec::FLAC => {
                 if sample_rate > 48_000 {
@@ -115,8 +109,37 @@ impl Codec {
             Codec::MP3 => Self::MP3_SAMPLES_PER_FRAME,
             Codec::WAV => Self::WAV_SAMPLES_PER_FRAME * channels as usize,
         }
-        .to_f32_lossy();
+    }
 
+    /// Returns the maximum duration of a frame for the format's codec at the given sample rate.
+    ///
+    /// Uses codec-specific frame sizes and the provided sample rate to calculate
+    /// the maximum possible frame duration. This is used for seeking and buffer sizing.
+    ///
+    /// Frame sizes are fixed for most codecs:
+    /// * AAC/MP4: 1024 samples
+    /// * MP3: 1152 samples
+    /// * WAV: 1 sample per channel
+    ///
+    /// FLAC uses variable frame sizes with maximums of:
+    /// * 4608 samples for <= 48kHz
+    /// * 16384 samples for > 48kHz
+    ///
+    /// Notes:
+    /// - For MP4 containers, assumes AAC codec
+    /// - For FLAC, returns maximum possible frame duration for safe seeking
+    ///
+    /// # Arguments
+    ///
+    /// * `sample_rate` - Sample rate in Hz
+    /// * `channels` - Number of audio channels
+    ///
+    /// # Returns
+    ///
+    /// Maximum duration of a single frame for this codec
+    #[must_use]
+    pub fn max_frame_duration(&self, sample_rate: u32, channels: u16) -> Duration {
+        let samples = self.max_frame_length(sample_rate, channels).to_f32_lossy();
         let span = (samples / sample_rate.to_f32_lossy()).clamp(0.0, Duration::MAX.as_secs_f32());
         if span.is_nan() {
             Duration::default()

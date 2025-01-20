@@ -1406,12 +1406,15 @@ impl Player {
                         }
 
                         // Seek to just before the requested position, to be sure that we find the
-                        // frame just before it.
-                        let frame_duration = track.codec().unwrap_or_default().frame_duration(
-                            track.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE),
-                            track.channels.unwrap_or(track.typ().default_channels()),
-                        );
-                        position = position.saturating_sub(frame_duration);
+                        // frame just before it. This helps prevents decoder errors.
+                        if let Some(frame_duration) = track.codec().map(|codec| {
+                            codec.max_frame_duration(
+                                track.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE),
+                                track.channels.unwrap_or(track.typ().default_channels()),
+                            )
+                        }) {
+                            position = position.saturating_sub(frame_duration);
+                        }
                     }
                 }
 
