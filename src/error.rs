@@ -814,38 +814,13 @@ impl From<rodio::PlayError> for Error {
 ///
 /// Maps seek errors:
 /// * `NotSupported` -> `Unimplemented`
-/// * `SymphoniaDecoder` -> `DataLoss`
 /// * Others -> `Unknown`
 impl From<rodio::source::SeekError> for Error {
     fn from(e: rodio::source::SeekError) -> Self {
         use rodio::source::SeekError::*;
         match e {
             NotSupported { underlying_source } => Self::unimplemented(underlying_source),
-            SymphoniaDecoder(e) => Self::data_loss(e),
             _ => Self::unknown(e.to_string()),
-        }
-    }
-}
-
-/// Converts decoder errors into appropriate error kinds.
-///
-/// Maps decoder errors:
-/// * `UnrecognizedFormat` -> `Unknown`
-/// * `IoError` -> `DataLoss`
-/// * `DecodeError` -> `DataLoss`
-/// * `LimitError` -> `ResourceExhausted`
-/// * `NoStreams` -> `NotFound`
-/// * etc.
-impl From<rodio::decoder::DecoderError> for Error {
-    fn from(e: rodio::decoder::DecoderError) -> Self {
-        use rodio::decoder::DecoderError::*;
-        match e {
-            UnrecognizedFormat => Self::unknown("format not recognized"),
-            IoError(e) => Self::data_loss(e),
-            DecodeError(e) => Self::data_loss(e),
-            LimitError(e) => Self::resource_exhausted(e),
-            ResetRequired => Self::internal(e),
-            NoStreams => Self::not_found("no streams found"),
         }
     }
 }

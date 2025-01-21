@@ -1,19 +1,10 @@
 //! Audio decoder implementation using Symphonia.
 //!
-//! This module provides a decoder that:
-//! * Supports multiple formats (AAC/ADTS, FLAC, MP3, MP4, WAV)
-//! * Enables format-specific seeking with proper error recovery
-//! * Handles both constant and variable bitrate streams
-//! * Processes audio in floating point format
-//!
-//! # Format Support
-//!
-//! Supported formats and characteristics:
-//! * AAC: ADTS framing
-//! * FLAC: Lossless compression
-//! * MP3: Fast seeking for CBR
-//! * MP4: AAC audio in MP4 container
-//! * WAV: Uncompressed PCM
+//! This module provides a decoder that directly uses Symphonia's capabilities to:
+//! * Support multiple formats (AAC/ADTS, FLAC, MP3, MP4, WAV)
+//! * Enable format-specific seeking with proper error recovery
+//! * Handle both constant and variable bitrate streams
+//! * Process audio in floating point format
 //!
 //! # Audio Parameters
 //!
@@ -21,7 +12,6 @@
 //! * Sample rate (defaults to 44.1 kHz if unspecified)
 //! * Bits per sample (codec-dependent)
 //! * Channel count (mono/stereo/multi-channel)
-//!
 //! # Error Handling
 //!
 //! The decoder implements robust error recovery:
@@ -29,6 +19,7 @@
 //! * Handles codec reset requests
 //! * Recovers from seekable I/O errors
 //! * Gracefully handles end of stream
+//! * Ensures clean state by clearing buffers after any decoder error
 //!
 //! # Performance
 //!
@@ -39,7 +30,7 @@
 //! * Fast initialization through codec-specific handlers
 //! * Optimized CBR MP3 seeking
 
-use std::time::Duration;
+use std::{io, time::Duration};
 
 use rodio::source::SeekError;
 use symphonia::{
@@ -420,6 +411,103 @@ impl Decoder {
             self.channels = channels;
         }
     }
+
+    /// Gets the next decodable packet from the stream.
+    ///
+    /// Handles error recovery by:
+    /// * Skipping corrupted packets (up to `MAX_RETRIES`)
+    /// * Resetting decoder state when required
+    /// * Clearing internal buffer on unrecoverable errors
+    ///
+    /// # Returns
+    ///
+    /// The duration of the decoded packet in codec timebase units.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * Too many consecutive packets are corrupted
+    /// * An unrecoverable decoder error occurs
+    /// * End of stream is reached
+    fn get_next_packet(&mut self) -> Result<u64> {
+        let mut skipped = 0;
+        loop {
+            if skipped > MAX_RETRIES {
+                break Err(Error::cancelled("skipped too many packets, giving up"));
+            }
+
+            // Assume failure until a packet is successfully decoded.
+            skipped = skipped.saturating_add(1);
+            match self.demuxer.next_packet() {
+                Ok(packet) => {
+                    let decoded = match self.decoder.decode(&packet) {
+                        Ok(decoded) => decoded,
+
+                        // If a `DecodeError` or `IoError` is returned, the packet is
+                        // undecodeable and should be discarded. Decoding may be continued
+                        // with the next packet.
+                        Err(SymphoniaError::DecodeError(e)) => {
+                            error!("discarding malformed packet: {e}");
+                            continue;
+                        }
+                        Err(SymphoniaError::IoError(e)) => {
+                            error!("discarding unreadable packet: {e}");
+                            continue;
+                        }
+
+                        // If `ResetRequired` is returned, consumers of the decoded audio data
+                        // should expect the duration and `SignalSpec` of the decoded audio
+                        // buffer to change.
+                        Err(SymphoniaError::ResetRequired) => {
+                            trace!("resetting decoder");
+                            self.decoder.reset();
+                            self.reload_spec();
+                            continue;
+                        }
+
+                        // All other errors are unrecoverable.
+                        Err(e) => {
+                            break Err(e.into());
+                        }
+                    };
+
+                    let buffer = match self.buffer.as_mut() {
+                        Some(buffer) => buffer,
+                        None => {
+                            // The first packet is always the largest, so
+                            // allocate the buffer once and reuse it.
+                            self.buffer.insert(SampleBuffer::new(
+                                decoded.capacity() as u64,
+                                *decoded.spec(),
+                            ))
+                        }
+                    };
+                    buffer.copy_interleaved_ref(decoded);
+                    self.position = 0;
+                    break Ok(packet.dur());
+                }
+
+                // If `ResetRequired` is returned, then the track list must be re-examined and
+                // all `Decoder`s re-created.
+                Err(SymphoniaError::ResetRequired) => {
+                    trace!("re-creating decoder");
+                    let track = self
+                        .demuxer
+                        .default_track()
+                        .ok_or_else(|| Error::not_found("default track not found"))?;
+                    let codecs = symphonia::default::get_codecs();
+                    self.decoder = codecs.make(&track.codec_params, &DecoderOptions::default())?;
+                    self.reload_spec();
+                    continue;
+                }
+
+                // All other errors are unrecoverable.
+                Err(e) => {
+                    break Err(e.into());
+                }
+            }
+        }
+    }
 }
 
 impl rodio::Source for Decoder {
@@ -453,18 +541,19 @@ impl rodio::Source for Decoder {
 
     /// Attempts to seek to the specified position in the audio stream.
     ///
-    /// Uses format-specific optimizations:
+    /// Uses Symphonia's seeking capabilities with format-specific optimizations:
     /// * Coarse seeking for CBR content (faster)
     /// * Accurate seeking for VBR content (more precise)
     ///
-    /// Also resets decoder state to prevent audio glitches after seeking.
+    /// Also resets the decoder state to prevent audio glitches that could occur
+    /// from seeking to a position that requires different decoding parameters.
     ///
     /// # Errors
     ///
     /// Returns error if:
     /// * Seeking operation fails
     /// * Position is beyond stream end
-    /// * Stream doesn't support seeking
+    /// * Stream format doesn't support seeking
     fn try_seek(&mut self, pos: Duration) -> std::result::Result<(), SeekError> {
         self.demuxer
             .seek(
@@ -475,11 +564,7 @@ impl rodio::Source for Decoder {
                     time: pos.into(),
                 },
             )
-            .map_err(|e| {
-                rodio::source::SeekError::SymphoniaDecoder(
-                    rodio::decoder::symphonia::SeekError::BaseSeek(e),
-                )
-            })?;
+            .map_err(|e| SeekError::Other(Box::new(e)))?;
 
         // Seeking is a demuxer operation, so the decoder cannot reliably
         // know when a seek took place. Reset it to avoid audio glitches.
@@ -515,94 +600,18 @@ impl Iterator for Decoder {
             .as_ref()
             .is_none_or(|buffer| self.position >= buffer.len())
         {
-            let mut skipped = 0;
-            loop {
-                if skipped > 0 {
-                    // Internal buffer *must* be cleared if an error occurs.
-                    self.buffer = None;
+            if let Err(e) = self.get_next_packet() {
+                // Internal buffer *must* be cleared if an error occurs.
+                self.buffer = None;
+
+                // `UnexpectedEof` is not an error, just the end of the stream.
+                if e.downcast::<io::Error>()
+                    .is_none_or(|e| e.kind() != std::io::ErrorKind::UnexpectedEof)
+                {
+                    error!("{e}");
                 }
-                if skipped > MAX_RETRIES {
-                    error!("skipped too many packets, giving up");
-                    return None;
-                }
 
-                // Assume failure until a packet is successfully decoded.
-                skipped = skipped.saturating_add(1);
-
-                match self.demuxer.next_packet() {
-                    Ok(packet) => {
-                        let decoded = match self.decoder.decode(&packet) {
-                            Ok(decoded) => decoded,
-
-                            // If a `DecodeError` or `IoError` is returned, the packet is
-                            // undecodeable and should be discarded. Decoding may be continued
-                            // with the next packet.
-                            Err(SymphoniaError::DecodeError(e)) => {
-                                error!("discarding undecodable packet: {e}");
-                                continue;
-                            }
-                            Err(SymphoniaError::IoError(e)) => {
-                                error!("discarding undecodable packet: {e}");
-                                continue;
-                            }
-
-                            // If `ResetRequired` is returned, consumers of the decoded audio data
-                            // should expect the duration and `SignalSpec` of the decoded audio
-                            // buffer to change.
-                            Err(SymphoniaError::ResetRequired) => {
-                                self.decoder.reset();
-                                self.reload_spec();
-                                continue;
-                            }
-
-                            // All other errors are unrecoverable.
-                            Err(e) => {
-                                error!("{e}");
-                                return None;
-                            }
-                        };
-
-                        let buffer = match self.buffer.as_mut() {
-                            Some(buffer) => buffer,
-                            None => {
-                                // The first packet is always the largest, so
-                                // allocate the buffer once and reuse it.
-                                self.buffer.insert(SampleBuffer::new(
-                                    decoded.capacity() as u64,
-                                    *decoded.spec(),
-                                ))
-                            }
-                        };
-                        buffer.copy_interleaved_ref(decoded);
-                        self.position = 0;
-                        break;
-                    }
-
-                    // If `ResetRequired` is returned, then the track list must be re-examined and
-                    // all `Decoder`s re-created.
-                    Err(SymphoniaError::ResetRequired) => {
-                        let track = self.demuxer.default_track()?;
-                        let codecs = symphonia::default::get_codecs();
-                        self.decoder = codecs
-                            .make(&track.codec_params, &DecoderOptions::default())
-                            .ok()?;
-                        self.reload_spec();
-                        continue;
-                    }
-
-                    // All other errors are unrecoverable.
-                    Err(SymphoniaError::IoError(e)) => {
-                        // `UnexpectedEof` is not an error, just the end of the stream.
-                        if e.kind() != std::io::ErrorKind::UnexpectedEof {
-                            error!("{e}");
-                        }
-                        return None;
-                    }
-                    Err(e) => {
-                        error!("{e}");
-                        return None;
-                    }
-                }
+                return None;
             }
         }
 
@@ -617,10 +626,15 @@ impl Iterator for Decoder {
 
     /// Provides size hints for the number of samples.
     ///
-    /// Returns exact count when total frames are known.
-    /// Otherwise returns (0, None) for streams.
+    /// The lower bound is always 0 because the decoder cannot reliably predict how many
+    /// samples will be successfully decoded, due to potential corruption or errors in the
+    /// stream.
+    ///
+    /// The upper bound is:
+    /// * `Some(n)` when the total number of samples can be calculated from frame count
+    /// * `None` for streams where the total length is unknown or larger than `usize::MAX`
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.total_samples.unwrap_or(0), self.total_samples)
+        (0, self.total_samples)
     }
 }

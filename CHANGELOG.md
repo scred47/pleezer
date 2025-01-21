@@ -10,10 +10,14 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [codec] Split `frame_duration` into `max_frame_length` and `max_frame_duration`
 - [decoder] Better error handling following Symphonia's recommendations
+- [decoder] Fix logical error in `size_hint()` lower bound calculation
 - [decoder] Remove `ExactSizeIterator` implementation as total samples can't be determined exactly
 
 ### Fixed
 - [decoder] Fix calculation of total number of samples for size hint
+
+### Removed
+- [error] Remove remaining Rodio decoder leftovers in favor of direct Symphonia usage
 
 ## [v0.10.0] - 2025-01-19
 
