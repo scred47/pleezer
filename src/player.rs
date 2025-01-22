@@ -71,7 +71,7 @@ use crate::{
     decrypt::{self},
     error::{Error, ErrorKind, Result},
     events::Event,
-    http,
+    http, normalize,
     protocol::{
         connect::{
             contents::{AudioQuality, RepeatMode},
@@ -762,7 +762,8 @@ impl Player {
                     track.typ(),
                     Percentage::from_ratio_f32(ratio)
                 );
-                let normalized = decoder.normalize(
+                let normalized = normalize::normalize(
+                    decoder,
                     ratio,
                     Self::NORMALIZE_THRESHOLD_DB,
                     Self::NORMALIZE_KNEE_WIDTH_DB,
@@ -782,8 +783,9 @@ impl Player {
                 .bitrate()
                 .map_or("unknown".to_string(), |kbps| kbps.to_string());
             debug!(
-                "loaded {} {track}; codec: {codec}; sample rate: {sample_rate} kHz; bitrate: {bitrate} kbps",
-                track.typ()
+                "loaded {} {track}; codec: {codec}; sample rate: {sample_rate} kHz; bitrate: {bitrate} kbps; channels: {}",
+                track.typ(),
+                track.channels.unwrap_or_else(|| track.typ().default_channels())
             );
 
             return Ok(Some(rx));

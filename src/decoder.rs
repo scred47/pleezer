@@ -410,6 +410,14 @@ impl Decoder {
         if let Some(channels) = Self::calc_channels(codec_params) {
             self.channels = channels;
         }
+
+        // Drop the buffer to force reinitialization with the new parameters.
+        self.buffer = None;
+
+        debug!(
+            "decoder reloaded with sample rate: {} kHz; channels: {}",
+            self.sample_rate, self.channels,
+        );
     }
 
     /// Gets the next decodable packet from the stream.
@@ -430,14 +438,21 @@ impl Decoder {
     /// * An unrecoverable decoder error occurs
     /// * End of stream is reached
     fn get_next_packet(&mut self) -> Result<u64> {
-        let mut skipped = 0;
+        let mut discarded = 0;
         loop {
-            if skipped > MAX_RETRIES {
-                break Err(Error::cancelled("skipped too many packets, giving up"));
+            if discarded > MAX_RETRIES {
+                break Err(Error::cancelled("discarded too many packets, giving up"));
+            }
+            if discarded > 0 {
+                if let Some(buffer) = self.buffer.as_mut() {
+                    // Internal buffer *must* be cleared if an error occurs.
+                    buffer.clear();
+                }
             }
 
             // Assume failure until a packet is successfully decoded.
-            skipped = skipped.saturating_add(1);
+            discarded = discarded.saturating_add(1);
+
             match self.demuxer.next_packet() {
                 Ok(packet) => {
                     let decoded = match self.decoder.decode(&packet) {
@@ -459,7 +474,6 @@ impl Decoder {
                         // should expect the duration and `SignalSpec` of the decoded audio
                         // buffer to change.
                         Err(SymphoniaError::ResetRequired) => {
-                            trace!("resetting decoder");
                             self.decoder.reset();
                             self.reload_spec();
                             continue;
@@ -474,8 +488,10 @@ impl Decoder {
                     let buffer = match self.buffer.as_mut() {
                         Some(buffer) => buffer,
                         None => {
-                            // The first packet is always the largest, so
-                            // allocate the buffer once and reuse it.
+                            // Although packet sizes are not guaranteed to be constant, the buffer
+                            // size is based on the maximum frame length for the codec, so we can
+                            // allocate once and reuse it for as long as the codec specifications
+                            // remain the same.
                             self.buffer.insert(SampleBuffer::new(
                                 decoded.capacity() as u64,
                                 *decoded.spec(),
@@ -559,8 +575,7 @@ impl rodio::Source for Decoder {
             .seek(
                 self.seek_mode,
                 SeekTo::Time {
-                    // `track_id: None` implies the default track
-                    track_id: None,
+                    track_id: None, // implies the default or first track
                     time: pos.into(),
                 },
             )
@@ -602,6 +617,8 @@ impl Iterator for Decoder {
         {
             if let Err(e) = self.get_next_packet() {
                 // Internal buffer *must* be cleared if an error occurs.
+                // Freeing it here ensures that any next iteration will
+                // reinitialize the buffer with the correct parameters.
                 self.buffer = None;
 
                 // `UnexpectedEof` is not an error, just the end of the stream.
