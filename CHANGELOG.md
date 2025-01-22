@@ -10,6 +10,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [codec] Split `frame_duration` into `max_frame_length` and `max_frame_duration`
 - [decoder] Better error handling following Symphonia's recommendations
+- [decoder] Always use accurate seeking mode for reliable position reporting
 - [decoder] Fix logical error in `size_hint()` lower bound calculation
 - [decoder] Remove `ExactSizeIterator` implementation as total samples can't be determined exactly
 

@@ -39,7 +39,7 @@ use symphonia::{
         codecs::{CodecParameters, CodecRegistry, DecoderOptions},
         errors::Error as SymphoniaError,
         formats::{FormatOptions, FormatReader, SeekMode, SeekTo},
-        io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions},
+        io::{MediaSourceStream, MediaSourceStreamOptions},
         meta::{MetadataOptions, StandardTagKey, Value},
         probe::{Hint, Probe},
     },
@@ -104,9 +104,6 @@ pub struct Decoder {
 
     /// Codec decoder for converting encoded packets to PCM samples
     decoder: Box<dyn symphonia::core::codecs::Decoder>,
-
-    /// Seeking strategy (Coarse for CBR, Accurate for VBR)
-    seek_mode: SeekMode,
 
     /// Reusable sample buffer to minimize allocations
     buffer: Option<SampleBuffer<SampleFormat>>,
@@ -206,14 +203,6 @@ impl Decoder {
             )
         };
 
-        // Coarse seeking without a known byte length causes a panic.
-        // Further, it's not reliable for VBR streams.
-        let seek_mode = if track.is_cbr() && stream.byte_len().is_some() {
-            SeekMode::Coarse
-        } else {
-            SeekMode::Accurate
-        };
-
         let demuxer = probe
             .format(
                 &hint,
@@ -246,7 +235,6 @@ impl Decoder {
         Ok(Self {
             demuxer,
             decoder,
-            seek_mode,
 
             buffer: None,
             position: 0,
@@ -557,10 +545,7 @@ impl rodio::Source for Decoder {
 
     /// Attempts to seek to the specified position in the audio stream.
     ///
-    /// Uses Symphonia's seeking capabilities with format-specific optimizations:
-    /// * Coarse seeking for CBR content (faster)
-    /// * Accurate seeking for VBR content (more precise)
-    ///
+    /// Uses Symphonia's seeking capabilities to find the exact position in the stream.
     /// Also resets the decoder state to prevent audio glitches that could occur
     /// from seeking to a position that requires different decoding parameters.
     ///
@@ -573,7 +558,7 @@ impl rodio::Source for Decoder {
     fn try_seek(&mut self, pos: Duration) -> std::result::Result<(), SeekError> {
         self.demuxer
             .seek(
-                self.seek_mode,
+                SeekMode::Accurate,
                 SeekTo::Time {
                     track_id: None, // implies the default or first track
                     time: pos.into(),
