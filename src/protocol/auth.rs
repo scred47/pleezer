@@ -1,11 +1,17 @@
-//! OAuth authentication response types.
+//! Authentication types for OAuth and JWT.
 //!
-//! This module contains types for handling OAuth authentication responses
-//! from Deezer's login endpoints. These responses include:
-//! * Access tokens for API access
-//! * Token expiration information (currently unused by Deezer)
+//! This module contains types for handling authentication responses from Deezer's
+//! login endpoints, including:
 //!
-//! # Example Response
+//! * OAuth authentication responses
+//!   - Access tokens for API access
+//!   - Token expiration information
+//!
+//! * JWT authentication
+//!   - ARL (Advanced Request Log) tokens
+//!   - Account identification
+//!
+//! # Example OAuth Response
 //!
 //! ```json
 //! {
@@ -15,15 +21,31 @@
 //! }
 //! ```
 //!
+//! # Example JWT Payload
+//!
+//! ```json
+//! {
+//!     "arl": "secret_arl_token",
+//!     "account_id": "12345"
+//! }
+//! ```
+//!
+//! # Authentication Flow
+//!
+//! 1. Initial login provides OAuth access token
+//! 2. Access token used to obtain JWT with ARL
+//! 3. ARL stored as cookie for persistent authentication
+//! 4. JWT renewed automatically before expiration
+//!
 //! # Note
 //!
-//! While the response includes expiration fields, Deezer currently returns 0 for both
-//! `expire` and `expires`. Token expiration is handled through other mechanisms.
-//! These fields are preserved for protocol compatibility.
+//! While the OAuth response includes expiration fields, Deezer currently returns 0
+//! for both `expire` and `expires`. Token expiration is handled through JWT renewal
+//! and cookie management instead.
 
 use std::time::{Duration, SystemTime};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{formats::Flexible, serde_as, DurationSeconds, TimestampSeconds};
 use veil::Redact;
 
@@ -49,4 +71,20 @@ pub struct User {
     /// Note: Currently always returns 0 in Deezer responses
     #[serde_as(as = "Option<TimestampSeconds<i64, Flexible>>")]
     pub expires: Option<SystemTime>,
+}
+
+/// JWT payload for persistent authentication.
+///
+/// Contains the tokens and identifiers needed to maintain a persistent
+/// authenticated session across client restarts.
+///
+/// The ARL token is stored as a cookie and automatically renewed
+/// before expiration to maintain the session.
+#[derive(Clone, Debug, Serialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Jwt {
+    /// Authentication Reference Links for persistent authentication
+    pub arl: String,
+
+    /// Unique identifier for the authenticated account
+    pub account_id: String,
 }

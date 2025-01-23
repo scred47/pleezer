@@ -1,25 +1,41 @@
 //! Gateway API client for Deezer services.
 //!
 //! This module provides access to Deezer's gateway API, handling:
-//! * Authentication (ARL tokens and user credentials)
-//! * Session management
+//! * Authentication and session management
+//!   - Email/password login
+//!   - ARL token authentication
+//!   - JWT-based token renewal
+//!   - Automatic session persistence
 //! * User data retrieval
 //! * Media streaming configuration
 //! * Queue and track information
 //! * Flow recommendations
 //!
-//! # Authentication
+//! # Authentication Flow
 //!
-//! Supports two authentication methods:
-//! * Email/password login (preferred, allows token refresh)
-//! * ARL token (requires manual renewal when expired)
+//! The gateway supports multiple authentication methods with automatic renewal:
+//!
+//! 1. Initial Authentication
+//!    * Email/password login (preferred)
+//!      - Provides OAuth access token
+//!      - Converts to ARL token
+//!      - Enables automatic renewal
+//!    * Direct ARL token
+//!      - Manual token management
+//!      - Requires periodic renewal
+//!
+//! 2. Session Management
+//!    * JWT-based authentication
+//!    * Persistent login across restarts
+//!    * Automatic token renewal
+//!    * Cookie-based session storage
 //!
 //! # Media Formats
 //!
 //! Different content types support different formats:
-//! * Songs: MP3 (CBR) and FLAC
-//! * Podcasts: MP3, AAC (ADTS), MP4, WAV
-//! * Livestreams: AAC (ADTS) and MP3
+//! * Songs, podcasts, and livestreams
+//! * AAC, FLAC, MP3, and WAV
+//! * ADTS and MP4
 //!
 //! # Example
 //!
@@ -28,20 +44,26 @@
 //!
 //! let mut gateway = Gateway::new(&config)?;
 //!
-//! // Login with credentials
-//! let arl = gateway.login("user@example.com", "password").await?;
+//! // Login with credentials (preferred)
+//! let arl = gateway.oauth("user@example.com", "password").await?;
+//! gateway.login_with_arl(&arl).await?;
 //!
 //! // Or use existing ARL
+//! gateway.login_with_arl(&existing_arl).await?;
+//!
+//! // Session automatically renews
 //! gateway.refresh().await?;
 //! ```
 
 use std::time::SystemTime;
 
+use cookie_store::RawCookie;
 use futures_util::TryFutureExt;
 use md5::{Digest, Md5};
 use reqwest::{
     self,
     header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE},
+    Body,
 };
 use serde::Deserialize;
 use url::Url;
@@ -95,12 +117,29 @@ pub struct Gateway {
 }
 
 impl Gateway {
+    /// Cookie origin URL for Deezer services.
+    const COOKIE_ORIGIN: &'static str = "https://deezer.com";
+
     /// Cookie domain for authentication.
-    ///
-    /// Note: This URL is not entirely correct, as the cookies could come from
-    /// `connect.deezer.com` or `www.deezer.com` as well. What matters is
-    /// that the domain matches with `deezer.com`.
-    const COOKIE_ORIGIN: &'static str = "https://www.deezer.com";
+    const COOKIE_DOMAIN: &'static str = "deezer.com";
+
+    /// Language preference cookie name.
+    const LANG_COOKIE: &'static str = "dz_lang";
+
+    /// ARL authentication cookie name.
+    const ARL_COOKIE: &'static str = "arl";
+
+    /// JWT authentication service URL
+    const JWT_AUTH_URL: &'static str = "https://auth.deezer.com";
+
+    /// JWT login endpoint for ARL authentication
+    const JWT_ENDPOINT_LOGIN: &'static str = "/login/arl";
+
+    /// JWT endpoint for renewing authentication
+    const JWT_ENDPOINT_RENEW: &'static str = "/login/renew";
+
+    /// JWT endpoint for logging out
+    const JWT_ENDPOINT_LOGOUT: &'static str = "/logout";
 
     /// Gateway API endpoint URL.
     ///
@@ -188,23 +227,32 @@ impl Gateway {
     /// * Path: /
     /// * Secure flag
     /// * `HttpOnly` flag
-    #[must_use]
-    fn cookie_jar(config: &Config) -> reqwest::cookie::Jar {
-        let cookie_jar = reqwest::cookie::Jar::default();
+    fn cookie_jar(config: &Config) -> Result<reqwest_cookie_store::CookieStore> {
+        let mut cookie_jar = reqwest_cookie_store::CookieStore::new(None);
         let cookie_origin = Self::cookie_origin();
 
-        let lang_cookie = format!(
-            "dz_lang={}; Domain=deezer.com; Path=/; Secure; HttpOnly",
-            &config.app_lang
-        );
-        cookie_jar.add_cookie_str(&lang_cookie, &cookie_origin);
-
-        if let Credentials::Arl(ref arl) = config.credentials {
-            let arl_cookie = format!("arl={arl}; Domain=deezer.com; Path=/; Secure; HttpOnly");
-            cookie_jar.add_cookie_str(&arl_cookie, &cookie_origin);
+        let lang_cookie = RawCookie::build((Self::LANG_COOKIE, &config.app_lang))
+            .domain(Self::COOKIE_DOMAIN)
+            .path("/")
+            .secure(true)
+            .http_only(true)
+            .build();
+        if let Err(e) = cookie_jar.insert_raw(&lang_cookie, &cookie_origin) {
+            // Log the error but continue, as the language cookie is optional.
+            error!("unable to insert language cookie: {e}");
         }
 
-        cookie_jar
+        if let Credentials::Arl(ref arl) = config.credentials {
+            let arl_cookie = RawCookie::build((Self::ARL_COOKIE, arl.as_str()))
+                .domain(Self::COOKIE_DOMAIN)
+                .path("/")
+                .secure(true)
+                .http_only(true)
+                .build();
+            cookie_jar.insert_raw(&arl_cookie, &cookie_origin)?;
+        }
+
+        Ok(cookie_jar)
     }
 
     /// Creates a new gateway client instance.
@@ -221,7 +269,7 @@ impl Gateway {
     /// * Cookie creation fails
     pub fn new(config: &Config) -> Result<Self> {
         // Create a new cookie jar and put the cookies in.
-        let cookie_jar = Self::cookie_jar(config);
+        let cookie_jar = Self::cookie_jar(config)?;
         let http_client = HttpClient::with_cookies(config, cookie_jar)?;
 
         Ok(Self {
@@ -234,12 +282,16 @@ impl Gateway {
     /// Returns the current cookie header value, if available.
     ///
     /// Used for authentication in requests to Deezer services.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the cookie store mutex is poisoned.
     #[must_use]
-    pub fn cookies(&self) -> Option<HeaderValue> {
+    pub fn cookies(&self) -> Option<reqwest_cookie_store::CookieStore> {
         self.http_client
             .cookie_jar
             .as_ref()
-            .and_then(|jar| jar.cookies(&Self::cookie_origin()))
+            .map(|jar| jar.lock().expect("cookie mutex was poisoned").clone())
     }
 
     /// Refreshes user data and authentication state.
@@ -284,8 +336,10 @@ impl Gateway {
                 } else {
                     return Err(Error::not_found("no user data received".to_string()));
                 }
+
                 Ok(())
             }
+
             Err(e) => {
                 if e.kind == ErrorKind::InvalidArgument {
                     // For an invalid or expired `arl`, the response has some
@@ -651,7 +705,7 @@ impl Gateway {
     /// * Network request fails
     /// * Response parsing fails
     /// * ARL parsing fails
-    pub async fn login(&mut self, email: &str, password: &str) -> Result<Arl> {
+    pub async fn oauth(&mut self, email: &str, password: &str) -> Result<Arl> {
         // Check email and password length to prevent out-of-memory conditions.
         const LENGTH_CHECK: std::ops::Range<usize> = 1..255;
         if !LENGTH_CHECK.contains(&email.len()) || !LENGTH_CHECK.contains(&password.len()) {
@@ -688,5 +742,109 @@ impl Gateway {
 
         // Finally use the access token to get an ARL.
         self.get_arl(&result.access_token).await
+    }
+
+    /// Performs JWT authentication request.
+    ///
+    /// Internal helper for JWT operations that:
+    /// * Formats request URL with parameters
+    /// * Sends authenticated request
+    /// * Handles response and cookies
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` - JWT endpoint path
+    /// * `body` - Request body content
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * URL construction fails
+    /// * Network request fails
+    /// * Authentication fails
+    async fn jwt_auth<T>(&mut self, endpoint: &str, body: T) -> Result<()>
+    where
+        T: Into<Body>,
+    {
+        // `c` for cookie (headers), `p` for payload (body)
+        let query = Url::parse(&format!(
+            "{}{}?jo=p&rto=c&i=p",
+            Self::JWT_AUTH_URL,
+            endpoint
+        ))?;
+
+        let request = self.http_client.post(query, body);
+        let response = self.http_client.execute(request).await?;
+
+        if !response.status().is_success() {
+            let message = response.text().await?;
+            return Err(Error::permission_denied(message));
+        }
+
+        // When successful, the `refresh-token` cookie is set within the HTTP client's cookie store.
+        Ok(())
+    }
+
+    /// Authenticates using JWT and ARL token.
+    ///
+    /// Establishes a persistent session using:
+    /// * ARL token for authentication
+    /// * Account ID for identification
+    /// * JWT for session management
+    /// * Cookie-based token storage
+    ///
+    /// # Arguments
+    ///
+    /// * `arl` - ARL token for authentication
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * ARL token is invalid
+    /// * Network request fails
+    /// * Authentication fails
+    pub async fn login_with_arl(&mut self, arl: &Arl) -> Result<()> {
+        let auth = auth::Jwt {
+            arl: arl.to_string(),
+            account_id: self.user_token().await?.user_id.to_string(),
+        };
+        self.jwt_auth(Self::JWT_ENDPOINT_LOGIN, serde_json::to_string(&auth)?)
+            .await
+    }
+
+    /// Renews the current login session.
+    ///
+    /// Uses the stored refresh token to obtain a new session token.
+    /// Should be called before token expiration to maintain session.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// * No refresh token available
+    /// * Network request fails
+    /// * Token renewal fails
+    pub async fn renew_login(&mut self) -> Result<()> {
+        self.jwt_auth(Self::JWT_ENDPOINT_RENEW, "").await
+    }
+
+    /// Logs out and invalidates the current session.
+    ///
+    /// Clears:
+    /// * Authentication tokens
+    /// * Session cookies
+    /// * User data
+    ///
+    /// # Errors
+    ///
+    /// Returns error if network request fails
+    pub async fn logout(&mut self) -> Result<()> {
+        let query = Url::parse(&format!(
+            "{}{}",
+            Self::JWT_AUTH_URL,
+            Self::JWT_ENDPOINT_LOGOUT
+        ))?;
+        let request = self.http_client.get(query, "");
+        self.http_client.execute(request).await?;
+        Ok(())
     }
 }

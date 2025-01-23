@@ -1,9 +1,17 @@
-//! HTTP client with rate limiting and cookie management for Deezer APIs.
+//! HTTP client with rate limiting and session management for Deezer APIs.
 //!
 //! This module provides a wrapper around `reqwest::Client` that adds:
-//! * Request rate limiting to respect Deezer's API quotas
-//! * Cookie management for authentication
+//! * Cookie-based session management for authentication
+//! * Persistent login across client restarts
+//! * Request rate limiting to respect API quotas
 //! * Consistent timeouts and headers
+//!
+//! # Session Management
+//!
+//! Handles authentication cookies for:
+//! * ARL tokens for initial authentication
+//! * Refresh tokens for session renewal
+//! * Language preferences
 //!
 //! # Rate Limiting
 //!
@@ -19,15 +27,17 @@
 //! use pleezer::http::Client;
 //! use reqwest::Url;
 //!
-//! // Create client with cookies for authenticated endpoints
+//! // Create client with session management for authenticated endpoints
 //! let client = Client::with_cookies(&config, cookie_jar)?;
 //!
-//! // Or without cookies for public endpoints
+//! // Or without session management for public endpoints
 //! let client = Client::without_cookies(&config)?;
 //!
-//! // Make rate-limited requests
-//! let request = client.get(url, body);
+//! // Make authenticated requests
+//! let request = client.post(auth_url, credentials);
 //! let response = client.execute(request).await?;
+//!
+//! // Cookies are automatically managed for session persistence
 //! ```
 
 use std::{future::Future, num::NonZeroU32, sync::Arc, time::Duration};
@@ -36,18 +46,17 @@ use futures_util::{FutureExt, TryFutureExt};
 use governor::{DefaultDirectRateLimiter, Quota};
 use reqwest::{
     self,
-    cookie::CookieStore,
     header::{HeaderValue, ACCEPT_LANGUAGE},
     Body, Method, Url,
 };
 
 use crate::{config::Config, error::Result};
 
-/// HTTP client with built-in rate limiting and cookie support.
+/// HTTP client with session management and rate limiting.
 ///
 /// Wraps `reqwest::Client` to provide:
+/// * Cookie-based session persistence
 /// * Rate limiting for API quotas
-/// * Optional cookie storage
 /// * Consistent configuration
 pub struct Client {
     /// Unlimited request client for special cases.
@@ -60,10 +69,15 @@ pub struct Client {
     /// Implements Deezer's 50 calls per 5-second limit.
     rate_limiter: DefaultDirectRateLimiter,
 
-    /// Cookie storage for authentication.
+    /// Cookie store for session management.
+    ///
+    /// Stores authentication tokens and preferences:
+    /// * ARL tokens for authentication
+    /// * Refresh tokens for session renewal
+    /// * Language settings
     ///
     /// Optional to support both authenticated and public endpoints.
-    pub cookie_jar: Option<Arc<dyn CookieStore>>,
+    pub cookie_jar: Option<Arc<reqwest_cookie_store::CookieStoreMutex>>,
 }
 
 impl Client {
@@ -92,12 +106,20 @@ impl Client {
     /// * Maintain responsive streaming
     const READ_TIMEOUT: Duration = Duration::from_secs(2);
 
-    /// Creates a new client with optional cookie storage.
+    /// Creates a new client with optional session management.
     ///
     /// # Arguments
     ///
     /// * `config` - Client configuration including user agent and language
-    /// * `cookie_jar` - Optional cookie storage implementation
+    /// * `cookie_jar` - Optional cookie store for session management
+    ///
+    /// # Session Management
+    ///
+    /// If a cookie store is provided, the client will:
+    /// * Store authentication tokens
+    /// * Maintain persistent login
+    /// * Handle automatic session renewal
+    /// * Preserve language preferences
     ///
     /// # Errors
     ///
@@ -108,18 +130,19 @@ impl Client {
     /// # Panics
     ///
     /// Panics if rate limit parameters are zero.
-    pub fn new<C>(config: &Config, cookie_jar: Option<C>) -> Result<Self>
-    where
-        C: CookieStore + 'static,
-    {
+    pub fn new(
+        config: &Config,
+        cookie_jar: Option<reqwest_cookie_store::CookieStore>,
+    ) -> Result<Self> {
         // Not having `Accept-Language` set is non-fatal.
         let mut headers = reqwest::header::HeaderMap::new();
         if let Ok(lang) = HeaderValue::from_str(&config.app_lang) {
             headers.insert(ACCEPT_LANGUAGE, lang);
         }
 
-        // Wrap `cookie_jar` in an `Arc` for asynchronous use.
-        let cookie_jar = cookie_jar.map(|jar| Arc::new(jar));
+        // Wrap any `cookie_jar` in an `Arc` for asynchronous use.
+        let cookie_jar =
+            cookie_jar.map(|jar| Arc::new(reqwest_cookie_store::CookieStoreMutex::new(jar)));
 
         let mut http_client = reqwest::Client::builder()
             .tcp_keepalive(Self::KEEPALIVE_TIMEOUT)
@@ -144,34 +167,38 @@ impl Client {
         Ok(Self {
             unlimited: http_client.build()?,
             rate_limiter: governor::RateLimiter::direct(quota),
-            cookie_jar: cookie_jar.map(|jar| jar as _), // coerce compiler to infer type
+            cookie_jar,
         })
     }
 
-    /// Creates a new client with cookie storage.
+    /// Creates a new client with session management.
     ///
-    /// Convenience method for authenticated endpoints that
-    /// require cookie-based session management.
+    /// Convenience method for authenticated endpoints that require:
+    /// * Cookie-based session persistence
+    /// * Token storage and renewal
+    /// * Language preference management
     ///
     /// # Arguments
     ///
     /// * `config` - Client configuration
-    /// * `cookie_jar` - Cookie storage implementation
+    /// * `cookie_jar` - Cookie store for session management
     ///
     /// # Errors
     ///
     /// Returns error if client creation fails.
-    pub fn with_cookies<C>(config: &Config, cookie_jar: C) -> Result<Self>
-    where
-        C: CookieStore + 'static,
-    {
+    pub fn with_cookies(
+        config: &Config,
+        cookie_jar: reqwest_cookie_store::CookieStore,
+    ) -> Result<Self> {
         Self::new(config, Some(cookie_jar))
     }
 
-    /// Creates a new client without cookie storage.
+    /// Creates a new client without session management.
     ///
-    /// Convenience method for public endpoints that don't
-    /// require authentication (e.g., CDN access).
+    /// Convenience method for public endpoints that:
+    /// * Don't require authentication
+    /// * Access public resources (e.g., CDN)
+    /// * Don't need persistent sessions
     ///
     /// # Arguments
     ///
@@ -182,7 +209,7 @@ impl Client {
     /// Returns error if client creation fails.
     pub fn without_cookies(config: &Config) -> Result<Self> {
         // Need to specify a type that satisfies the trait bounds.
-        Self::new(config, None::<reqwest::cookie::Jar>)
+        Self::new(config, None)
     }
 
     /// Builds a request with specified method, URL and body.

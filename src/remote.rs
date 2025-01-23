@@ -3,7 +3,8 @@
 //! This module implements the client side of the Deezer Connect protocol,
 //! enabling remote control functionality between devices. It handles:
 //! * Device discovery and connection
-//! * Authentication and session management
+//! * Authentication with refresh token persistence
+//! * Automatic token renewal and session management
 //! * Command processing
 //! * Queue synchronization and manipulation (shuffle, repeat)
 //! * Playback reporting
@@ -132,7 +133,6 @@ use tokio_tungstenite::{
 use uuid::Uuid;
 
 use crate::{
-    arl::Arl,
     config::{Config, Credentials},
     error::{Error, Result},
     events::Event,
@@ -364,6 +364,15 @@ impl Client {
     /// Set to 256KB to provide adequate buffering while preventing memory exhaustion.
     const MESSAGE_BUFFER_MAX: usize = 2 * 128 * 1024;
 
+    /// Default TTL for refresh tokens in seconds (30 days)
+    const REFRESH_TOKEN_DEFAULT_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+
+    /// Cookie name for refresh token
+    const REFRESH_TOKEN_NAME: &'static str = "refresh-token";
+
+    /// Deezer Connect websocket URL.
+    const WEBSOCKET_URL: &'static str = "wss://live.deezer.com/ws/";
+
     /// Creates a new client instance.
     ///
     /// # Arguments
@@ -455,32 +464,6 @@ impl Client {
         })
     }
 
-    /// Attempts to login using email and password credentials.
-    ///
-    /// # Arguments
-    ///
-    /// * `email` - User's email address
-    /// * `password` - User's password
-    ///
-    /// # Returns
-    ///
-    /// An ARL token for future authentication.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if:
-    /// * Login credentials are invalid
-    /// * Network request fails
-    /// * Gateway response is invalid
-    async fn login(&mut self, email: &str, password: &str) -> Result<Arl> {
-        let arl = self.gateway.login(email, password).await?;
-
-        // Use `arl:?` to print as `Debug`, which is redacted.
-        trace!("arl: {arl:?}");
-
-        Ok(arl)
-    }
-
     /// Retrieves a valid user token from the gateway.
     ///
     /// Repeatedly attempts to get a token that expires after the threshold.
@@ -550,23 +533,58 @@ impl Client {
         self.player.set_media_url(self.gateway.media_url());
     }
 
+    /// Returns cookie string and TTL for refresh token.
+    ///
+    /// Formats cookies from gateway for websocket connection and extracts
+    /// refresh token TTL.
+    ///
+    /// # Returns
+    ///
+    /// Tuple containing:
+    /// * Cookie string for websocket headers
+    /// * Time-to-live for refresh token
+    fn cookie_str_ttl(&mut self) -> (String, Duration) {
+        let mut cookie_str = String::new();
+        let mut cookie_ttl = Self::REFRESH_TOKEN_DEFAULT_TTL;
+
+        if let Some(cookies) = self.gateway.cookies() {
+            for cookie in cookies.iter_unexpired() {
+                if !cookie_str.is_empty() {
+                    cookie_str.push(';');
+                }
+                cookie_str.push_str(&cookie.encoded().to_string());
+
+                if cookie.name() == Self::REFRESH_TOKEN_NAME {
+                    if let Some(max_age) = cookie.max_age().and_then(|ttl| ttl.try_into().ok()) {
+                        cookie_ttl = max_age;
+                    }
+                }
+            }
+        }
+
+        (cookie_str, cookie_ttl)
+    }
+
     /// Starts the client and handles control messages.
     ///
-    /// Establishes websocket connection with configured limits:
-    /// * Frame size: 32KB maximum
-    /// * Message size: 128KB maximum
-    /// * Write buffer: 128KB maximum
+    /// Authentication flow:
+    /// 1. Logs in with email/password or ARL to obtain refresh token
+    /// 2. Gets user token using refresh token
+    /// 3. Renews tokens automatically before expiration
+    /// 4. Maintains persistent login across reconnects
     ///
-    /// Initializes clean state by:
-    /// * Clearing cached discovery sessions
-    /// * Authenticating connection
-    /// * Beginning message processing
+    /// Connection flow:
+    /// 1. Establishes websocket with configured limits
+    /// 2. Authenticates connection
+    /// 3. Clears cached discovery sessions
+    /// 4. Begins message processing
     ///
     /// Processes:
     /// * Controller discovery
     /// * Command messages
     /// * Playback state updates
     /// * Connection maintenance
+    /// * Token renewals
     ///
     /// # Errors
     ///
@@ -574,43 +592,55 @@ impl Client {
     /// * Authentication fails
     /// * Websocket connection fails
     /// * Message handling fails critically
+    /// * Token renewal fails
+    #[allow(clippy::too_many_lines)]
     pub async fn start(&mut self) -> Result<()> {
         // Purge discovery sessions from any previous session to prevent memory exhaustion.
         self.discovery_sessions = HashMap::new();
 
-        if let Credentials::Login { email, password } = &self.credentials.clone() {
-            info!("logging in with email and password");
-            // We can drop the result because the ARL is stored as a cookie.
-            let _arl = self.login(email, password).await?;
-        } else {
-            info!("using ARL from secrets file");
+        let arl = match self.credentials.clone() {
+            Credentials::Login { email, password } => {
+                info!("logging in with email and password");
+                // We can drop the result because the ARL is stored as a cookie.
+                self.gateway.oauth(&email, &password).await?
+            }
+            Credentials::Arl(arl) => {
+                info!("using ARL from secrets file");
+                arl
+            }
+        };
+        if let Err(e) = self.gateway.login_with_arl(&arl).await {
+            error!("unable to get refresh token: {e}");
         }
 
-        let (user_token, time_to_live) = self.user_token().await?;
+        let (user_token, token_ttl) = self.user_token().await?;
         debug!("user id: {}", user_token.user_id);
+
+        let uri = format!(
+            "{}{}?version={}",
+            Self::WEBSOCKET_URL,
+            user_token,
+            self.version
+        );
+        let mut request = ClientRequestBuilder::new(uri.parse::<http::Uri>()?);
+        self.user_token = Some(user_token);
+
+        // Decorate the websocket request with the same cookies as the gateway.
+        let (cookie_str, login_ttl) = self.cookie_str_ttl();
+        request = request.with_header(http::header::COOKIE.as_str(), cookie_str);
 
         // Set timer for user token expiration. Wake a short while before
         // actual expiration. This prevents API request errors when the
         // expiration is checked with only a few seconds on the clock.
-        let expiry = tokio::time::sleep(time_to_live);
-        tokio::pin!(expiry);
+        let token_expiry = tokio::time::sleep(token_ttl);
+        tokio::pin!(token_expiry);
 
-        let uri = format!(
-            "wss://live.deezer.com/ws/{}?version={}",
-            user_token, self.version
-        );
-        let mut request = ClientRequestBuilder::new(uri.parse::<http::Uri>()?);
-
-        self.user_token = Some(user_token);
-
-        // Decorate the websocket request with the same cookies as the gateway.
-        if let Some(cookies) = self.gateway.cookies() {
-            if let Ok(cookie_str) = cookies.to_str() {
-                request = request.with_header("Cookie", cookie_str);
-            } else {
-                warn!("unable to set cookie header on websocket");
-            }
-        }
+        // The user token expiration is much longer than the cookie expiration.
+        // We need to regularly refresh the cookie to keep the user token alive.
+        debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
+        let login_ttl = login_ttl.saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
+        let login_expiry = tokio::time::sleep(login_ttl);
+        tokio::pin!(login_expiry);
 
         let config = Some(
             WebSocketConfig::default()
@@ -655,13 +685,28 @@ impl Client {
                     let _drop = self.disconnect().await;
                 }
 
-                () = &mut expiry => {
+                () = &mut token_expiry => {
                     break Err(Error::deadline_exceeded("user token expired"));
                 }
 
-                Some(time_to_live) = self.time_to_live_rx.recv() => {
-                    if let Some(deadline) = tokio::time::Instant::now().checked_add(time_to_live) {
-                        expiry.as_mut().reset(deadline);
+                () = &mut login_expiry => {
+                    debug!("refreshing login");
+                    match self.gateway.renew_login().await {
+                        Ok(()) => {
+                            let (_, login_ttl) = self.cookie_str_ttl();
+                            if let Some(deadline) = tokio::time::Instant::now().checked_add(login_ttl) {
+                                debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
+                                login_expiry.as_mut().reset(deadline);
+                            }                        }
+                        Err(e) => {
+                            error!("error renewing login: {e}");
+                        }
+                    }
+                }
+
+                Some(token_ttl) = self.time_to_live_rx.recv() => {
+                    if let Some(deadline) = tokio::time::Instant::now().checked_add(token_ttl) {
+                        token_expiry.as_mut().reset(deadline);
                     }
                 }
 
@@ -690,7 +735,8 @@ impl Client {
                                 }
                             }
                         }
-                        Err(e) => break Err(Error::aborted(e.to_string())),
+
+                        Err(e) => break Err(Error::cancelled(e.to_string())),
                     }
                 }
 
@@ -703,6 +749,9 @@ impl Client {
         };
 
         self.stop().await;
+        if let Err(e) = self.gateway.logout().await {
+            error!("error logging out: {e}");
+        }
 
         loop_result
     }
@@ -1274,8 +1323,8 @@ impl Client {
                 // - return a deadline exceeded error
                 // - so that the client can be stopped (and restarted)
                 let result = tokio::time::timeout(Self::NETWORK_TIMEOUT, self.user_token()).await?;
-                let time_to_live = result.as_ref().map_or(Duration::ZERO, |result| result.1);
-                if let Err(e) = self.time_to_live_tx.send(time_to_live).await {
+                let token_ttl = result.as_ref().map_or(Duration::ZERO, |result| result.1);
+                if let Err(e) = self.time_to_live_tx.send(token_ttl).await {
                     error!("failed to send user token time to live: {e}");
                 }
                 self.user_token = Some(result?.0);

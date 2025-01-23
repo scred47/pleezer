@@ -6,7 +6,7 @@
 //! # Error Categories
 //!
 //! Errors are categorized into standard types that map to HTTP status codes:
-//! * Authentication/authorization (401, 403)
+//! * Authentication/authorization failures (401, 403)
 //! * Resource state (404, 409)
 //! * Client errors (400, 429)
 //! * Server errors (500, 501, 503)
@@ -271,13 +271,16 @@ impl Error {
 
     /// Creates an error for operations that exceeded their deadline.
     ///
-    /// Maps to HTTP 504 Gateway Timeout. Use when an operation took
-    /// longer than its allowed time.
+    /// Maps to HTTP 504 Gateway Timeout. Use when:
+    /// * Network operation times out
+    /// * Token refresh times out
+    /// * Cookie expires
+    /// * Any time-bound operation exceeds its limit
     ///
     /// # Examples
     ///
     /// ```rust
-    /// let err = Error::deadline_exceeded("download timed out");
+    /// let err = Error::deadline_exceeded("token refresh timed out");
     /// assert_eq!(err.kind, ErrorKind::DeadlineExceeded);
     /// ```
     pub fn deadline_exceeded<E>(error: E) -> Self
@@ -439,13 +442,16 @@ impl Error {
 
     /// Creates an error for authentication failures.
     ///
-    /// Maps to HTTP 401 Unauthorized. Use when valid credentials
-    /// are required but not provided.
+    /// Maps to HTTP 401 Unauthorized. Use when:
+    /// * Credentials are invalid
+    /// * Token has expired
+    /// * Refresh token is invalid
+    /// * Authentication is required but missing
     ///
     /// # Examples
     ///
     /// ```rust
-    /// let err = Error::unauthenticated("login required");
+    /// let err = Error::unauthenticated("login token expired");
     /// assert_eq!(err.kind, ErrorKind::Unauthenticated);
     /// ```
     pub fn unauthenticated<E>(error: E) -> Self
@@ -858,6 +864,24 @@ impl From<symphonia::core::errors::Error> for Error {
             ResetRequired => Self::internal("reset required"),
             SeekError(e) => Self::unavailable(format!("seek error: {e:?}")),
             Unsupported(e) => Self::unimplemented(e),
+        }
+    }
+}
+
+/// Converts cookie store errors into appropriate error kinds.
+///
+/// Maps cookie errors:
+/// * `Expired` -> `DeadlineExceeded` (token/cookie expired)
+/// * `DomainMismatch` -> `PermissionDenied` (invalid domain)
+/// * `PublicSuffix` -> `PermissionDenied` (invalid domain)
+/// * Others -> `InvalidArgument` (malformed cookie data)
+impl From<cookie_store::CookieError> for Error {
+    fn from(e: cookie_store::CookieError) -> Self {
+        use cookie_store::CookieError::*;
+        match e {
+            Expired => Self::deadline_exceeded(e),
+            DomainMismatch | PublicSuffix => Self::permission_denied(e),
+            _ => Self::invalid_argument(e),
         }
     }
 }
