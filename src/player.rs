@@ -1375,29 +1375,38 @@ impl Player {
     /// # Behavior
     ///
     /// * If progress < 1.0:
-    ///   - Seeks within track
-    ///   - If position is beyond buffered data, seeks to last buffered position
+    ///   - Seeks within track with proper logging of target position
+    ///   - If position is beyond buffered data, seeks to last buffered position with warning
     ///   - Aligns seek to previous frame boundary for clean decoding
+    ///   - Defers seek if track is not yet loaded
     /// * If progress >= 1.0: Skips to next track
-    /// * If track not loaded: Defers seek
+    ///
+    /// # Arguments
+    ///
+    /// * `progress` - Target position as percentage (0.0 to 1.0) of track duration
     ///
     /// # Errors
     ///
     /// Returns error if:
     /// * No track is playing
+    /// * Track duration cannot be determined
     /// * Audio device is not open
-    /// * Seek operation fails
+    /// * Seek operation fails (except for buffering/implementation limitations)
     pub fn set_progress(&mut self, progress: Percentage) -> Result<()> {
         if let Some(track) = self.track() {
-            info!("setting {} progress to {progress}", track.typ());
-
             let duration = track.duration().ok_or_else(|| {
                 Error::unavailable(format!("duration unknown for {} {track}", track.typ()))
             })?;
 
-            let progress = progress.as_ratio_f32();
-            if progress < 1.0 {
-                let mut position = duration.mul_f32(progress);
+            let ratio = progress.as_ratio_f32();
+            if ratio < 1.0 {
+                let mut position = duration.mul_f32(ratio);
+                let minutes = position.as_secs() / 60;
+                let seconds = position.as_secs() % 60;
+                info!(
+                    "seeking {} {track} to {minutes:02}:{seconds:02} ({progress})",
+                    track.typ()
+                );
 
                 // If the requested position is beyond what is buffered, seek to the buffered
                 // position instead. This prevents blocking the player and disconnections.
@@ -1417,6 +1426,10 @@ impl Player {
                         }) {
                             position = position.saturating_sub(frame_duration);
                         }
+
+                        let minutes = position.as_secs() / 60;
+                        let seconds = position.as_secs() % 60;
+                        warn!("limiting seek to {minutes:02}:{seconds:02} due to buffering");
                     }
                 }
 
@@ -1424,7 +1437,12 @@ impl Player {
                 // This prevents stalling the player when seeking in a track that has not started.
                 match track
                     .handle()
-                    .ok_or_else(|| Error::unavailable("download not yet started"))
+                    .ok_or_else(|| {
+                        Error::unavailable(format!(
+                            "download of {} {track} not yet started",
+                            track.typ()
+                        ))
+                    })
                     .and_then(|_| {
                         self.sink_mut()
                             .and_then(|sink| sink.try_seek(position).map_err(Into::into))
@@ -1448,6 +1466,10 @@ impl Player {
             } else {
                 // Setting the progress to 1.0 is equivalent to skipping to the next track.
                 // This prevents `UnexpectedEof` when seeking to the end of the track.
+                info!(
+                    "seeking {} {track} to end: skipping to next track",
+                    track.typ()
+                );
                 self.clear();
                 self.go_next();
             }
