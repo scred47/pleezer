@@ -3,9 +3,9 @@
 //! This module implements the client side of the Deezer Connect protocol,
 //! enabling remote control functionality between devices. It handles:
 //! * Device discovery and connection
-//! * Authentication with refresh token persistence
-//! * Optional JWT login
-//! * Automatic token renewal and session management
+//! * Authentication and session management
+//! * Optional JWT login for enhanced features
+//! * Session persistence using browser-style cookies
 //! * Command processing
 //! * Queue synchronization and manipulation
 //! * Playback reporting
@@ -123,6 +123,7 @@ use std::{
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use log::Level;
 use semver;
+use time::OffsetDateTime;
 use tokio_tungstenite::{
     tungstenite::{
         client::ClientRequestBuilder,
@@ -365,11 +366,11 @@ impl Client {
     /// Set to 256KB to provide adequate buffering while preventing memory exhaustion.
     const MESSAGE_BUFFER_MAX: usize = 2 * 128 * 1024;
 
-    /// Default TTL for refresh tokens in seconds (30 days)
-    const REFRESH_TOKEN_DEFAULT_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+    /// Default session TTL (4 hours)
+    const SESSION_DEFAULT_TTL: Duration = Duration::from_secs(4 * 3600);
 
-    /// Cookie name for refresh token
-    const REFRESH_TOKEN_NAME: &'static str = "refresh-token";
+    /// Cookie name to get session expiration from
+    const SESSION_COOKIE_NAME: &'static str = "bm_sz";
 
     /// Deezer Connect websocket URL.
     const WEBSOCKET_URL: &'static str = "wss://live.deezer.com/ws/";
@@ -547,7 +548,7 @@ impl Client {
     /// * Time-to-live for refresh token
     fn cookie_str_ttl(&mut self) -> (String, Duration) {
         let mut cookie_str = String::new();
-        let mut cookie_ttl = Self::REFRESH_TOKEN_DEFAULT_TTL;
+        let mut cookie_ttl = Self::SESSION_DEFAULT_TTL;
 
         if let Some(cookies) = self.gateway.cookies() {
             for cookie in cookies.iter_unexpired() {
@@ -556,9 +557,16 @@ impl Client {
                 }
                 cookie_str.push_str(&cookie.encoded().to_string());
 
-                if cookie.name() == Self::REFRESH_TOKEN_NAME {
+                if cookie.name() == Self::SESSION_COOKIE_NAME {
                     if let Some(max_age) = cookie.max_age().and_then(|ttl| ttl.try_into().ok()) {
                         cookie_ttl = max_age;
+                    } else if let Some(expires) = cookie.expires_datetime() {
+                        let now = OffsetDateTime::now_utc();
+                        if let Ok(ttl) = (expires - now).try_into() {
+                            cookie_ttl = ttl;
+                        } else {
+                            warn!("session expiry in the past: {expires}");
+                        }
                     }
                 }
             }

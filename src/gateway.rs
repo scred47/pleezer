@@ -4,8 +4,8 @@
 //! * Authentication and session management
 //!   - Email/password login
 //!   - ARL token authentication
-//!   - JWT-based token renewal
-//!   - Automatic session persistence
+//!   - Optional JWT-based token renewal
+//!   - Browser-style session persistence
 //! * User data retrieval
 //! * Media streaming configuration
 //! * Queue and track information
@@ -13,22 +13,22 @@
 //!
 //! # Authentication Flow
 //!
-//! The gateway supports multiple authentication methods with automatic renewal:
+//! The gateway supports multiple authentication methods:
 //!
 //! 1. Initial Authentication
 //!    * Email/password login (preferred)
 //!      - Provides OAuth access token
 //!      - Converts to ARL token
-//!      - Enables automatic renewal
+//!      - Enables session persistence
 //!    * Direct ARL token
 //!      - Manual token management
 //!      - Requires periodic renewal
 //!
 //! 2. Session Management
-//!    * JWT-based authentication
+//!    * Browser-style session cookies
+//!    * Optional JWT authentication
 //!    * Persistent login across restarts
-//!    * Automatic token renewal
-//!    * Cookie-based session storage
+//!    * Automatic session renewal
 //!
 //! # Media Formats
 //!
@@ -121,7 +121,7 @@ impl Gateway {
     const COOKIE_ORIGIN: &'static str = "https://deezer.com";
 
     /// Cookie domain for authentication.
-    const COOKIE_DOMAIN: &'static str = "deezer.com";
+    const COOKIE_DOMAIN: &'static str = ".deezer.com";
 
     /// Language preference cookie name.
     const LANG_COOKIE: &'static str = "dz_lang";
