@@ -658,7 +658,7 @@ impl Client {
         // We need to regularly refresh the cookie to keep the user token alive.
         let mut login_ttl = new_ttl.saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
         debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
-        let login_expiry = tokio::time::sleep(Duration::from_secs(4));
+        let login_expiry = tokio::time::sleep(login_ttl);
         tokio::pin!(login_expiry);
 
         let config = Some(
