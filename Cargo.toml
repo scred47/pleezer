@@ -68,7 +68,6 @@ protobuf = { version = "3", features = ["with-bytes"] }
 regex-lite = "0.1"
 reqwest = { version = "0.12", default-features = false, features = [
     "brotli",
-    "cookies",
     "gzip",
     "rustls-tls-native-roots",
     "stream",
