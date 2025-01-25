@@ -16,6 +16,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Fixed
 - [decoder] Fix calculation of total number of samples for size hint
+- [gateway] Fix user token persistence by handling JWT token renewal
 
 ### Removed
 - [error] Remove remaining Rodio decoder leftovers in favor of direct Symphonia usage
