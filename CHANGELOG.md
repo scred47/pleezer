@@ -13,6 +13,8 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [decoder] Always use accurate seeking mode for reliable position reporting
 - [decoder] Fix logical error in `size_hint()` lower bound calculation
 - [decoder] Remove `ExactSizeIterator` implementation as total samples can't be determined exactly
+- [http] Simplified HTTP client response handling and content type management
+- [http] Added status code checking in HTTP client responses
 - [player] Improve seek logging with more detailed timestamps and progress information
 - [remote] Improve network timeout handling and error messages
 

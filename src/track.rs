@@ -75,8 +75,9 @@
 //! // Create track from gateway data
 //! let mut track = Track::from(track_data);
 //!
-//! // Get media source
-//! let medium = track.get_medium(&client, &media_url, quality, license_token).await?;
+//! // Get media source with proper content type for track metadata
+//! let request = client.json(media_url, track_data);
+//! let response = client.execute(request).await?;
 //!
 //! // Start download
 //! track.start_download(&client, &medium).await?;
@@ -94,7 +95,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use reqwest::header::{HeaderValue, CONTENT_TYPE};
 use stream_download::{
     self, http::HttpStream, source::SourceStream, storage::StorageProvider, StreamDownload,
     StreamHandle, StreamPhase, StreamState,
@@ -709,9 +709,6 @@ impl Track {
         Ok(MediumType::Primary(medium))
     }
 
-    /// Content type for media requests.
-    const JSON_CONTENT: HeaderValue = HeaderValue::from_static("application/json");
-
     /// Retrieves a media source for the track.
     ///
     /// Attempts to get download URLs for the requested quality level,
@@ -731,6 +728,8 @@ impl Track {
     /// * Quality level is unknown
     /// * Media source unavailable
     /// * Network request fails
+    /// * HTTP response status is not successful (not 2xx)
+    /// * Response parsing fails
     ///
     /// # Quality Fallback
     ///
@@ -811,10 +810,7 @@ impl Track {
         let get_url = media_url.join(Self::MEDIA_ENDPOINT)?;
         let body = serde_json::to_string(&request)?;
 
-        let mut request = client.post(get_url, body);
-        let headers = request.headers_mut();
-        headers.insert(CONTENT_TYPE, Self::JSON_CONTENT);
-
+        let request = client.json(get_url, body);
         let response = client.execute(request).await?;
         let body = response.text().await?;
         let items: media::Response = protocol::json(&body, Self::MEDIA_ENDPOINT)?;
@@ -890,9 +886,11 @@ impl Track {
     /// # Errors
     ///
     /// Returns error if:
-    /// * No valid sources available
-    /// * Content unavailable in region
+    /// * No valid source found
+    /// * Track unavailable
     /// * Network error occurs
+    /// * HTTP response status is not successful (not 2xx)
+    /// * Download cannot start
     async fn open_stream(&self, client: &http::Client, medium: &Medium) -> Result<StreamUrl> {
         let now = SystemTime::now();
 

@@ -625,6 +625,8 @@ impl Client {
             Ok(inner) => {
                 if let Err(e) = inner {
                     warn!("jwt login failed: {e}");
+                } else {
+                    debug!("jwt logged in");
                 }
             }
             Err(e) => warn!("jwt login timed out: {e}"),
@@ -643,7 +645,7 @@ impl Client {
         self.user_token = Some(user_token);
 
         // Decorate the websocket request with the same cookies as the gateway.
-        let (cookie_str, login_ttl) = self.cookie_str_ttl();
+        let (cookie_str, new_ttl) = self.cookie_str_ttl();
         request = request.with_header(http::header::COOKIE.as_str(), cookie_str);
 
         // Set timer for user token expiration. Wake a short while before
@@ -654,9 +656,9 @@ impl Client {
 
         // The user token expiration is much longer than the cookie expiration.
         // We need to regularly refresh the cookie to keep the user token alive.
+        let mut login_ttl = new_ttl.saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
         debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
-        let login_ttl = login_ttl.saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
-        let login_expiry = tokio::time::sleep(login_ttl);
+        let login_expiry = tokio::time::sleep(Duration::from_secs(4));
         tokio::pin!(login_expiry);
 
         let config = Some(
@@ -707,23 +709,26 @@ impl Client {
                 }
 
                 () = &mut login_expiry => {
-                    debug!("refreshing login");
                     // Soft failure: JWT logins are not required to interact with the gateway.
                     match tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.renew_login()).await {
                         Ok(inner) => {
                             match inner {
                                 Ok(()) => {
-                                    let (_, login_ttl) = self.cookie_str_ttl();
-                                    if let Some(deadline) = tokio::time::Instant::now().checked_add(login_ttl) {
-                                        debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
-                                        login_expiry.as_mut().reset(deadline);
-                                    }                        }
+                                    debug!("jwt renewed");
+                                    let (_, new_ttl) = self.cookie_str_ttl();
+                                    login_ttl = new_ttl.saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
+                                }
                                 Err(e) => {
                                     error!("jwt renewal failed: {e}");
                                 }
                             }
                         }
                         Err(e) => warn!("jwt login timed out: {e}"),
+                    }
+
+                    debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
+                    if let Some(deadline) = tokio::time::Instant::now().checked_add(login_ttl) {
+                        login_expiry.as_mut().reset(deadline);
                     }
                 }
 
@@ -772,17 +777,6 @@ impl Client {
         };
 
         self.stop().await;
-
-        // Soft failure: JWT logins are not required to interact with the gateway.
-        match tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.logout()).await {
-            Ok(inner) => {
-                if let Err(e) = inner {
-                    warn!("jwt logout failed: {e}");
-                }
-            }
-            Err(e) => warn!("jwt logout timed out: {e}"),
-        }
-
         loop_result
     }
 
@@ -1012,6 +1006,18 @@ impl Client {
             if self.unsubscribe(ident).await.is_ok() {
                 self.subscriptions.remove(&ident);
             }
+        }
+
+        // Soft failure: JWT logins are not required to interact with the gateway.
+        match tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.logout()).await {
+            Ok(inner) => {
+                if let Err(e) = inner {
+                    warn!("jwt logout failed: {e}");
+                } else {
+                    debug!("jwt logged out");
+                }
+            }
+            Err(e) => warn!("jwt logout timed out: {e}"),
         }
     }
 

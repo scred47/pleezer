@@ -41,17 +41,19 @@
 //! // Or without session management for public endpoints
 //! let client = Client::without_cookies(&config)?;
 //!
-//! // Make authenticated requests
-//! let request = client.post(auth_url, credentials);
-//! let response = client.execute(request).await?;
+//! // Make API requests with appropriate content type
+//! let request = client.json(api_url, track_data);  // for JSON data
+//! // or
+//! let request = client.text(api_url, metadata);    // for plain text data
+//! let response = client.execute(request).await?;    // checks HTTP status code
 //!
 //! // Cookies are automatically managed for session persistence
 //! ```
 
-use std::{future::Future, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
-use futures_util::{FutureExt, TryFutureExt};
 use governor::{DefaultDirectRateLimiter, Quota};
+use http::header::CONTENT_TYPE;
 use reqwest::{
     self,
     header::{HeaderValue, ACCEPT_LANGUAGE},
@@ -66,6 +68,7 @@ use crate::{config::Config, error::Result};
 /// * Cookie-based session persistence
 /// * Rate limiting for API quotas
 /// * Consistent configuration
+// TODO: implement builder pattern
 pub struct Client {
     /// Unlimited request client for special cases.
     ///
@@ -116,6 +119,16 @@ impl Client {
     /// * Allow faster recovery from network issues
     /// * Maintain responsive streaming
     const READ_TIMEOUT: Duration = Duration::from_secs(2);
+
+    /// Content type for plain text requests.
+    ///
+    /// Used by `text()` method to set Content-Type header to "text/plain;charset=UTF-8"
+    const CONTENT_TYPE_TEXT: HeaderValue = HeaderValue::from_static("text/plain;charset=UTF-8");
+
+    /// Content type for JSON requests.
+    ///
+    /// Used by `json()` method to set Content-Type header to "application/json"
+    const CONTENT_TYPE_JSON: HeaderValue = HeaderValue::from_static("application/json");
 
     /// Creates a new client with optional session management.
     ///
@@ -257,7 +270,7 @@ impl Client {
         request
     }
 
-    /// Builds a POST request.
+    /// Builds a POST request with plain text body.
     ///
     /// Convenience method for `request()` with POST method.
     ///
@@ -266,12 +279,37 @@ impl Client {
     /// * `url` - Request URL
     /// * `body` - Request body content
     #[inline]
-    pub fn post<U, T>(&self, url: U, body: T) -> reqwest::Request
+    pub fn text<U, T>(&self, url: U, body: T) -> reqwest::Request
     where
         U: Into<Url>,
         T: Into<Body>,
     {
-        self.request(Method::POST, url, body)
+        let mut request = self.request(Method::POST, url, body);
+        request
+            .headers_mut()
+            .insert(CONTENT_TYPE, Self::CONTENT_TYPE_TEXT);
+        request
+    }
+
+    /// Builds a POST request with JSON body.
+    ///
+    /// Convenience method for `request()` with POST method.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Request URL
+    /// * `body` - Request body content
+    #[inline]
+    pub fn json<U, T>(&self, url: U, body: T) -> reqwest::Request
+    where
+        U: Into<Url>,
+        T: Into<Body>,
+    {
+        let mut request = self.request(Method::POST, url, body);
+        request
+            .headers_mut()
+            .insert(CONTENT_TYPE, Self::CONTENT_TYPE_JSON);
+        request
     }
 
     /// Builds a GET request.
@@ -294,7 +332,8 @@ impl Client {
     /// Executes a request with rate limiting.
     ///
     /// Applies rate limiting before executing the request to
-    /// comply with API quotas.
+    /// comply with API quotas. Automatically verifies that the response
+    /// has a successful HTTP status code (2xx range).
     ///
     /// # Arguments
     ///
@@ -305,14 +344,15 @@ impl Client {
     /// Returns error if:
     /// * Rate limiting fails
     /// * Request execution fails
+    /// * Response status code is not successful (not 2xx)
     /// * Network error occurs
-    pub fn execute(
-        &self,
-        request: reqwest::Request,
-    ) -> impl Future<Output = Result<reqwest::Response>> + '_ {
+    pub async fn execute(&self, request: reqwest::Request) -> Result<reqwest::Response> {
         // No need to await with jitter because the level of concurrency is low.
         // TODO : use different rate limiter for each host.
-        let throttle = self.rate_limiter.until_ready();
-        throttle.then(|()| self.unlimited.execute(request).map_err(Into::into))
+        self.rate_limiter.until_ready().await;
+        match self.unlimited.execute(request).await {
+            Ok(response) => response.error_for_status().map_err(Into::into),
+            Err(e) => Err(e.into()),
+        }
     }
 }

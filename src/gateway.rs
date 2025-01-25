@@ -39,6 +39,8 @@
 //!
 //! # Example
 //!
+//! # Example
+//!
 //! ```rust
 //! use pleezer::gateway::Gateway;
 //!
@@ -48,11 +50,10 @@
 //! let arl = gateway.oauth("user@example.com", "password").await?;
 //! gateway.login_with_arl(&arl).await?;
 //!
-//! // Or use existing ARL
-//! gateway.login_with_arl(&existing_arl).await?;
-//!
-//! // Session automatically renews
-//! gateway.refresh().await?;
+//! // Make authenticated requests
+//! let songs = gateway.list_to_queue(&track_list).await?;
+//! let recommendations = gateway.user_radio(user_id).await?;
+//! let user_data = gateway.refresh().await?;
 //! ```
 
 use std::time::SystemTime;
@@ -62,8 +63,7 @@ use futures_util::TryFutureExt;
 use md5::{Digest, Md5};
 use reqwest::{
     self,
-    header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE},
-    Body,
+    header::{HeaderMap, HeaderValue, AUTHORIZATION},
 };
 use serde::Deserialize;
 use url::Url;
@@ -181,12 +181,6 @@ impl Gateway {
     /// URL for performing OAuth login with credentials.
     /// Returns access token on successful authentication.
     const OAUTH_LOGIN_URL: &'static str = "https://connect.deezer.com/oauth/user_auth.php";
-
-    /// Content type for gateway requests.
-    ///
-    /// Although the bodies of all gateway requests are JSON, the
-    /// `Content-Type` is not.
-    const PLAIN_TEXT_CONTENT: HeaderValue = HeaderValue::from_static("text/plain;charset=UTF-8");
 
     /// Default empty JSON body for requests.
     ///
@@ -377,6 +371,7 @@ impl Gateway {
     /// Returns an error if:
     /// * URL construction fails
     /// * Network request fails
+    /// * HTTP status code is not successful (not 2xx)
     /// * Response isn't valid JSON
     /// * Response can't be parsed as type T
     pub async fn request<T>(
@@ -404,19 +399,17 @@ impl Gateway {
             self.client_id,
         );
         let url = url_str.parse::<reqwest::Url>()?;
-        let mut request = self.http_client.post(url, body);
 
-        let request_headers = request.headers_mut();
-        request_headers.try_insert(CONTENT_TYPE, Self::PLAIN_TEXT_CONTENT)?;
-
-        // Add any headers that were passed in.
+        // Although the bodies of all gateway requests are JSON, the
+        // `Content-Type` is not.
+        let mut request = self.http_client.text(url, body);
         if let Some(headers) = headers {
-            request_headers.extend(headers);
+            // Add any headers that were passed in.
+            request.headers_mut().extend(headers);
         }
 
         let response = self.http_client.execute(request).await?;
         let body = response.text().await?;
-
         protocol::json(&body, T::METHOD)
     }
 
@@ -725,7 +718,7 @@ impl Gateway {
         // First get a session ID. The response can be ignored because the
         // session ID is stored in the cookie store.
         let request = self.http_client.get(Url::parse(Self::OAUTH_SID_URL)?, "");
-        let _ = self.http_client.execute(request).await?;
+        self.http_client.execute(request).await?;
 
         // Then login and get an access token.
         let query = Url::parse(&format!(
@@ -742,47 +735,6 @@ impl Gateway {
 
         // Finally use the access token to get an ARL.
         self.get_arl(&result.access_token).await
-    }
-
-    /// Performs JWT authentication request.
-    ///
-    /// Internal helper for JWT operations that:
-    /// * Formats request URL with parameters
-    /// * Sends authenticated request
-    /// * Handles response and cookies
-    ///
-    /// # Arguments
-    ///
-    /// * `endpoint` - JWT endpoint path
-    /// * `body` - Request body content
-    ///
-    /// # Errors
-    ///
-    /// Returns error if:
-    /// * URL construction fails
-    /// * Network request fails
-    /// * Authentication fails
-    async fn jwt_auth<T>(&mut self, endpoint: &str, body: T) -> Result<()>
-    where
-        T: Into<Body>,
-    {
-        // `c` for cookie (headers), `p` for payload (body)
-        let query = Url::parse(&format!(
-            "{}{}?jo=p&rto=c&i=p",
-            Self::JWT_AUTH_URL,
-            endpoint
-        ))?;
-
-        let request = self.http_client.post(query, body);
-        let response = self.http_client.execute(request).await?;
-
-        if !response.status().is_success() {
-            let message = response.text().await?;
-            return Err(Error::permission_denied(message));
-        }
-
-        // When successful, the `refresh-token` cookie is set within the HTTP client's cookie store.
-        Ok(())
     }
 
     /// Authenticates using JWT and ARL token.
@@ -804,12 +756,23 @@ impl Gateway {
     /// * Network request fails
     /// * Authentication fails
     pub async fn login_with_arl(&mut self, arl: &Arl) -> Result<()> {
+        // `c` for cookie (headers), `p` for payload (body)
+        let query = Url::parse(&format!(
+            "{}{}?jo=p&rto=c&i=p",
+            Self::JWT_AUTH_URL,
+            Self::JWT_ENDPOINT_LOGIN
+        ))?;
+
         let auth = auth::Jwt {
             arl: arl.to_string(),
             account_id: self.user_token().await?.user_id.to_string(),
         };
-        self.jwt_auth(Self::JWT_ENDPOINT_LOGIN, serde_json::to_string(&auth)?)
-            .await
+
+        let request = self.http_client.json(query, serde_json::to_string(&auth)?);
+        self.http_client.execute(request).await?;
+
+        // When successful, the `refresh-token` cookie is set within the HTTP client's cookie store.
+        Ok(())
     }
 
     /// Renews the current login session.
@@ -824,7 +787,18 @@ impl Gateway {
     /// * Network request fails
     /// * Token renewal fails
     pub async fn renew_login(&mut self) -> Result<()> {
-        self.jwt_auth(Self::JWT_ENDPOINT_RENEW, "").await
+        // `c` for cookie (headers), `p` for payload (body)
+        let query = Url::parse(&format!(
+            "{}{}?jo=p&rto=c&i=c",
+            Self::JWT_AUTH_URL,
+            Self::JWT_ENDPOINT_RENEW
+        ))?;
+
+        let request = self.http_client.json(query, Self::EMPTY_JSON_OBJECT);
+        self.http_client.execute(request).await?;
+
+        // When successful, the `refresh-token` cookie is set within the HTTP client's cookie store.
+        Ok(())
     }
 
     /// Logs out and invalidates the current session.
