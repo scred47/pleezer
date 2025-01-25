@@ -4,9 +4,10 @@
 //! enabling remote control functionality between devices. It handles:
 //! * Device discovery and connection
 //! * Authentication with refresh token persistence
+//! * Optional JWT login
 //! * Automatic token renewal and session management
 //! * Command processing
-//! * Queue synchronization and manipulation (shuffle, repeat)
+//! * Queue synchronization and manipulation
 //! * Playback reporting
 //! * Event notifications
 //!
@@ -485,7 +486,8 @@ impl Client {
         // threshold. If rate limiting is necessary, then that should be done
         // by the token token_provider.
         loop {
-            let token = self.gateway.user_token().await?;
+            let token =
+                tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.user_token()).await??;
 
             let time_to_live = token
                 .time_to_live()
@@ -601,16 +603,23 @@ impl Client {
         let arl = match self.credentials.clone() {
             Credentials::Login { email, password } => {
                 info!("logging in with email and password");
-                // We can drop the result because the ARL is stored as a cookie.
-                self.gateway.oauth(&email, &password).await?
+                tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.oauth(&email, &password))
+                    .await??
             }
             Credentials::Arl(arl) => {
                 info!("using ARL from secrets file");
                 arl
             }
         };
-        if let Err(e) = self.gateway.login_with_arl(&arl).await {
-            error!("unable to get refresh token: {e}");
+
+        // Soft failure: JWT logins are not required to interact with the gateway.
+        match tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.login_with_arl(&arl)).await {
+            Ok(inner) => {
+                if let Err(e) = inner {
+                    warn!("jwt login failed: {e}");
+                }
+            }
+            Err(e) => warn!("jwt login timed out: {e}"),
         }
 
         let (user_token, token_ttl) = self.user_token().await?;
@@ -691,16 +700,22 @@ impl Client {
 
                 () = &mut login_expiry => {
                     debug!("refreshing login");
-                    match self.gateway.renew_login().await {
-                        Ok(()) => {
-                            let (_, login_ttl) = self.cookie_str_ttl();
-                            if let Some(deadline) = tokio::time::Instant::now().checked_add(login_ttl) {
-                                debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
-                                login_expiry.as_mut().reset(deadline);
-                            }                        }
-                        Err(e) => {
-                            error!("error renewing login: {e}");
+                    // Soft failure: JWT logins are not required to interact with the gateway.
+                    match tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.renew_login()).await {
+                        Ok(inner) => {
+                            match inner {
+                                Ok(()) => {
+                                    let (_, login_ttl) = self.cookie_str_ttl();
+                                    if let Some(deadline) = tokio::time::Instant::now().checked_add(login_ttl) {
+                                        debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
+                                        login_expiry.as_mut().reset(deadline);
+                                    }                        }
+                                Err(e) => {
+                                    error!("jwt renewal failed: {e}");
+                                }
+                            }
                         }
+                        Err(e) => warn!("jwt login timed out: {e}"),
                     }
                 }
 
@@ -749,8 +764,15 @@ impl Client {
         };
 
         self.stop().await;
-        if let Err(e) = self.gateway.logout().await {
-            error!("error logging out: {e}");
+
+        // Soft failure: JWT logins are not required to interact with the gateway.
+        match tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.logout()).await {
+            Ok(inner) => {
+                if let Err(e) = inner {
+                    warn!("jwt logout failed: {e}");
+                }
+            }
+            Err(e) => warn!("jwt logout timed out: {e}"),
         }
 
         loop_result
@@ -1322,12 +1344,11 @@ impl Client {
                 // - assume that the arl expired
                 // - return a deadline exceeded error
                 // - so that the client can be stopped (and restarted)
-                let result = tokio::time::timeout(Self::NETWORK_TIMEOUT, self.user_token()).await?;
-                let token_ttl = result.as_ref().map_or(Duration::ZERO, |result| result.1);
+                let (user_token, token_ttl) = self.user_token().await?;
                 if let Err(e) = self.time_to_live_tx.send(token_ttl).await {
                     error!("failed to send user token time to live: {e}");
                 }
-                self.user_token = Some(result?.0);
+                self.user_token = Some(user_token);
 
                 self.set_player_settings();
                 self.player.start()?;

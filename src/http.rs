@@ -4,7 +4,8 @@
 //! * Cookie-based session management for authentication
 //! * Persistent login across client restarts
 //! * Request rate limiting to respect API quotas
-//! * Consistent timeouts and headers
+//! * Configurable timeouts for connections and reads
+//! * Connection keepalive for performance
 //!
 //! # Session Management
 //!
@@ -20,6 +21,13 @@
 //! * Automatic request throttling
 //! * Allows bursts up to the maximum calls per interval
 //! * Requests that would exceed the limit are delayed
+//!
+//! # Timeouts
+//!
+//! Provides granular timeout control:
+//! * Connection establishment (5 seconds)
+//! * Individual network reads (2 seconds)
+//! * Connection keepalive (60 seconds)
 //!
 //! # Example
 //!
@@ -98,6 +106,9 @@ impl Client {
     /// Prevents frequent reconnection overhead for subsequent requests.
     const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(60);
 
+    /// Duration to wait for connection establishment.
+    const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
     /// Duration to wait for individual network reads.
     ///
     /// Reads that take longer than 2 seconds will timeout to:
@@ -146,6 +157,7 @@ impl Client {
 
         let mut http_client = reqwest::Client::builder()
             .tcp_keepalive(Self::KEEPALIVE_TIMEOUT)
+            .connect_timeout(Self::CONNECT_TIMEOUT)
             .read_timeout(Self::READ_TIMEOUT)
             .default_headers(headers)
             .user_agent(&config.user_agent);

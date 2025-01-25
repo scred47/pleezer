@@ -13,6 +13,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [decoder] Always use accurate seeking mode for reliable position reporting
 - [decoder] Fix logical error in `size_hint()` lower bound calculation
 - [decoder] Remove `ExactSizeIterator` implementation as total samples can't be determined exactly
+- [remote] Improve network timeout handling and error messages
 
 ### Fixed
 - [decoder] Fix calculation of total number of samples for size hint
