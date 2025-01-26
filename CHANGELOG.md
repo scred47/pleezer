@@ -5,7 +5,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
-## [Unreleased]
+## [v0.11.0] - 2025-01-26
 
 ### Changed
 - [codec] Split `frame_duration` into `max_frame_length` and `max_frame_duration`
@@ -265,7 +265,8 @@ Initial release of pleezer, a headless streaming player for the Deezer Connect p
 - Debug and trace logging capabilities
 - Command-line interface with various configuration options
 
-[Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/roderickvd/pleezer/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.11.0
 [0.10.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.10.0
 [0.9.1]: https://github.com/roderickvd/pleezer/releases/tag/v0.9.1
 [0.9.0]: https://github.com/roderickvd/pleezer/releases/tag/v0.9.0
