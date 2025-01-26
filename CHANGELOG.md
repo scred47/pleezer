@@ -15,6 +15,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [decoder] Remove `ExactSizeIterator` implementation as total samples can't be determined exactly
 - [http] Simplified HTTP client response handling and content type management
 - [http] Added status code checking in HTTP client responses
+- [http] Increase read timeout to 5 seconds to accommodate slower devices
 - [player] Improve seek logging with more detailed timestamps and progress information
 - [remote] Improve network timeout handling and error messages
 

@@ -114,11 +114,13 @@ impl Client {
 
     /// Duration to wait for individual network reads.
     ///
-    /// Reads that take longer than 2 seconds will timeout to:
+    /// Reads that take longer than 5 seconds will timeout to:
     /// * Prevent blocking operations
     /// * Allow faster recovery from network issues
     /// * Maintain responsive streaming
-    const READ_TIMEOUT: Duration = Duration::from_secs(2);
+    ///
+    /// The timeout needs to be long enough to allow for slow hardware and network conditions.
+    const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
     /// Content type for plain text requests.
     ///
