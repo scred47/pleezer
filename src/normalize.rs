@@ -328,14 +328,6 @@ where
     }
 }
 
-/// Exact size iterator when inner source provides exact size.
-impl<I> ExactSizeIterator for Normalize<I>
-where
-    I: Source + ExactSizeIterator,
-    I::Item: Sample,
-{
-}
-
 impl<I> Source for Normalize<I>
 where
     I: Source,
