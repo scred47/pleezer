@@ -9,9 +9,11 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Changed
 - [normalize] Remove `ExactSizeIterator` implementation as total samples can't be determined exactly
+- [remote] Improve session renewal reliability with proper cookie expiration handling
 
 ### Fixed
 - [remote] Fix token refresh errors not triggering client restart during connection
+- [remote] Fix malformed `Cookie` header in websocket connection
 
 ## [v0.11.0] - 2025-01-26
 

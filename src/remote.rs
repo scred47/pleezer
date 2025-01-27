@@ -5,7 +5,7 @@
 //! * Device discovery and connection
 //! * Authentication and session management
 //! * Optional JWT login for enhanced features
-//! * Session persistence using browser-style cookies
+//! * Session persistence and automatic renewal
 //! * Command processing
 //! * Queue synchronization and manipulation
 //! * Playback reporting
@@ -372,6 +372,12 @@ impl Client {
     /// Cookie name to get session expiration from
     const SESSION_COOKIE_NAME: &'static str = "bm_sz";
 
+    /// Default JWT TTL (30 days)
+    const JWT_DEFAULT_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+
+    /// Cookie name to get JWT expiration from
+    const JWT_COOKIE_NAME: &'static str = "refresh-token";
+
     /// Deezer Connect websocket URL.
     const WEBSOCKET_URL: &'static str = "wss://live.deezer.com/ws/";
 
@@ -536,43 +542,91 @@ impl Client {
         self.player.set_media_url(self.gateway.media_url());
     }
 
-    /// Returns cookie string and TTL for refresh token.
+    /// Formats cookies from gateway for websocket connection.
     ///
-    /// Formats cookies from gateway for websocket connection and extracts
-    /// refresh token TTL.
+    /// Extracts name-value pairs from cookies and formats them into a single string
+    /// suitable for the Cookie HTTP header.
     ///
     /// # Returns
     ///
-    /// Tuple containing:
-    /// * Cookie string for websocket headers
-    /// * Time-to-live for refresh token
-    fn cookie_str_ttl(&mut self) -> (String, Duration) {
+    /// Semicolon-separated list of "name=value" cookie pairs
+    fn cookie_str(&self) -> String {
         let mut cookie_str = String::new();
-        let mut cookie_ttl = Self::SESSION_DEFAULT_TTL;
-
         if let Some(cookies) = self.gateway.cookies() {
             for cookie in cookies.iter_unexpired() {
                 if !cookie_str.is_empty() {
                     cookie_str.push(';');
                 }
-                cookie_str.push_str(&cookie.encoded().to_string());
+                let (name, value) = cookie.name_value();
+                cookie_str.push_str(&format!("{name}={value}"));
+            }
+        }
 
-                if cookie.name() == Self::SESSION_COOKIE_NAME {
+        cookie_str
+    }
+
+    /// Returns TTL for a specific cookie.
+    ///
+    /// Extracts expiration time from cookie metadata, handling both:
+    /// * `max-age` attribute
+    /// * `expires` attribute
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of cookie to check
+    ///
+    /// # Returns
+    ///
+    /// * `Some(Duration)` - Time until cookie expires
+    /// * `None` - Cookie not found or already expired
+    fn cookie_ttl(&self, name: &str) -> Option<Duration> {
+        let mut cookie_ttl = None;
+        if let Some(cookies) = self.gateway.cookies() {
+            for cookie in cookies.iter_any() {
+                if cookie.name() == name {
                     if let Some(max_age) = cookie.max_age().and_then(|ttl| ttl.try_into().ok()) {
-                        cookie_ttl = max_age;
+                        cookie_ttl = Some(max_age);
                     } else if let Some(expires) = cookie.expires_datetime() {
                         let now = OffsetDateTime::now_utc();
                         if let Ok(ttl) = (expires - now).try_into() {
-                            cookie_ttl = ttl;
+                            cookie_ttl = Some(ttl);
                         } else {
-                            warn!("session expiry in the past: {expires}");
+                            warn!("{name} expiry in the past: {expires}");
                         }
                     }
                 }
             }
         }
 
-        (cookie_str, cookie_ttl)
+        cookie_ttl
+    }
+
+    /// Returns TTL for session cookie, adjusted for token expiration threshold.
+    ///
+    /// Uses `bm_sz` cookie expiration or falls back to default session TTL of 4 hours.
+    /// Subtracts expiration threshold to ensure timely renewal.
+    ///
+    /// # Returns
+    ///
+    /// Duration until session should be renewed
+    fn session_ttl(&self) -> Duration {
+        self.cookie_ttl(Self::SESSION_COOKIE_NAME)
+            .unwrap_or(Self::SESSION_DEFAULT_TTL)
+            .saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD)
+    }
+
+    /// Returns TTL for JWT cookie, adjusted for token expiration threshold.
+    ///
+    /// Uses `refresh-token` cookie expiration or falls back to default JWT TTL of 30 days.
+    /// Subtracts expiration threshold to ensure timely renewal.
+    ///
+    /// # Returns
+    ///
+    /// Duration until JWT should be renewed
+    fn jwt_ttl(&self) -> Duration {
+        self.cookie_ttl(Self::JWT_COOKIE_NAME)
+            .unwrap_or(Self::JWT_DEFAULT_TTL)
+            .saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD)
     }
 
     /// Starts the client and handles control messages.
@@ -645,7 +699,7 @@ impl Client {
         self.user_token = Some(user_token);
 
         // Decorate the websocket request with the same cookies as the gateway.
-        let (cookie_str, new_ttl) = self.cookie_str_ttl();
+        let cookie_str = self.cookie_str();
         request = request.with_header(http::header::COOKIE.as_str(), cookie_str);
 
         // Set timer for user token expiration. Wake a short while before
@@ -654,12 +708,21 @@ impl Client {
         let token_expiry = tokio::time::sleep(token_ttl);
         tokio::pin!(token_expiry);
 
-        // The user token expiration is much longer than the cookie expiration.
-        // We need to regularly refresh the cookie to keep the user token alive.
-        let mut login_ttl = new_ttl.saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
-        debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
-        let login_expiry = tokio::time::sleep(login_ttl);
-        tokio::pin!(login_expiry);
+        // The user token expiration is much longer than the session expiration.
+        // We need to regularly refresh the session to keep the user token alive.
+        let mut session_ttl = self.session_ttl();
+        debug!(
+            "session time to live: {:.0}s",
+            session_ttl.as_secs_f32().ceil()
+        );
+        let session_expiry = tokio::time::sleep(session_ttl);
+        tokio::pin!(session_expiry);
+
+        // The JWT
+        let mut jwt_ttl = self.jwt_ttl();
+        debug!("jwt time to live: {:.0}s", jwt_ttl.as_secs_f32().ceil());
+        let jwt_expiry = tokio::time::sleep(jwt_ttl);
+        tokio::pin!(jwt_expiry);
 
         let config = Some(
             WebSocketConfig::default()
@@ -708,27 +771,49 @@ impl Client {
                     break Err(Error::deadline_exceeded("user token expired"));
                 }
 
-                () = &mut login_expiry => {
+                () = &mut session_expiry => {
+                    // Soft failure: we will try to con
+                    match tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.refresh()).await {
+                        Ok(inner) => {
+                            match inner {
+                                Ok(()) => {
+                                    debug!("session renewed");
+                                    session_ttl = self.session_ttl();
+                                }
+                                Err(e) => {
+                                    error!("session renewal failed: {e}");
+                                }
+                            }
+                        }
+                        Err(e) => error!("session renewal timed out: {e}"),
+                    }
+
+                    debug!("session time to live: {:.0}s", session_ttl.as_secs_f32().ceil());
+                    if let Some(deadline) = tokio::time::Instant::now().checked_add(session_ttl) {
+                        session_expiry.as_mut().reset(deadline);
+                    }
+                }
+
+                () = &mut jwt_expiry => {
                     // Soft failure: JWT logins are not required to interact with the gateway.
                     match tokio::time::timeout(Self::NETWORK_TIMEOUT, self.gateway.renew_login()).await {
                         Ok(inner) => {
                             match inner {
                                 Ok(()) => {
                                     debug!("jwt renewed");
-                                    let (_, new_ttl) = self.cookie_str_ttl();
-                                    login_ttl = new_ttl.saturating_sub(Self::TOKEN_EXPIRATION_THRESHOLD);
+                                    jwt_ttl = self.jwt_ttl();
                                 }
                                 Err(e) => {
-                                    error!("jwt renewal failed: {e}");
+                                    warn!("jwt renewal failed: {e}");
                                 }
                             }
                         }
-                        Err(e) => warn!("jwt login timed out: {e}"),
+                        Err(e) => warn!("jwt renewal timed out: {e}"),
                     }
 
-                    debug!("login time to live: {:.0}s", login_ttl.as_secs_f32().ceil());
-                    if let Some(deadline) = tokio::time::Instant::now().checked_add(login_ttl) {
-                        login_expiry.as_mut().reset(deadline);
+                    debug!("jwt time to live: {:.0}s", jwt_ttl.as_secs_f32().ceil());
+                    if let Some(deadline) = tokio::time::Instant::now().checked_add(jwt_ttl) {
+                        jwt_expiry.as_mut().reset(deadline);
                     }
                 }
 
