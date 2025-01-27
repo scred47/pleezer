@@ -1353,16 +1353,19 @@ impl Client {
                     error!("failed to send connected event: {e}");
                 }
 
-                // Refresh the user token on every reconnection in order to reload the user
-                // configuration, like normalization and audio quality. If this fails, then:
-                // - assume that the arl expired
-                // - return a deadline exceeded error
-                // - so that the client can be stopped (and restarted)
-                let (user_token, token_ttl) = self.user_token().await?;
+                // Refresh user token to reload configuration (normalization, audio quality)
+                // If token refresh fails, assume ARL expired and signal client restart
+                let (user_token, token_ttl) = match self.user_token().await {
+                    Ok((token, ttl)) => (Ok(token), ttl),
+                    Err(e) => (Err(e), Duration::ZERO),
+                };
+
+                // Sending a zero duration will cause the client to restart.
                 if let Err(e) = self.time_to_live_tx.send(token_ttl).await {
                     error!("failed to send user token time to live: {e}");
                 }
-                self.user_token = Some(user_token);
+
+                self.user_token = Some(user_token?);
 
                 self.set_player_settings();
                 self.player.start()?;

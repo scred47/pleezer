@@ -10,6 +10,9 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [normalize] Remove `ExactSizeIterator` implementation as total samples can't be determined exactly
 
+### Fixed
+- [remote] Fix token refresh errors not triggering client restart during connection
+
 ## [v0.11.0] - 2025-01-26
 
 ### Changed
