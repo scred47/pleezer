@@ -236,7 +236,7 @@ impl Player {
     /// Default volume level.
     ///
     /// Constant value of 100% (1.0) used as initial volume setting.
-    const DEFAULT_VOLUME: Percentage = Percentage::from_ratio_f32(UNITY_GAIN);
+    const DEFAULT_VOLUME: Percentage = Percentage::from_ratio(UNITY_GAIN);
 
     /// Logarithmic volume scale factor for a dynamic range of 60 dB.
     ///
@@ -470,10 +470,10 @@ impl Player {
         let (stream, handle) = rodio::OutputStream::try_from_device_config(&device, device_config)?;
         let sink = rodio::Sink::try_new(&handle)?;
 
-        // Set the volume to the last known value.
-        let target_volume =
-            std::mem::replace(&mut self.volume, Percentage::from_ratio_f32(sink.volume()));
-        sink.set_volume(target_volume.as_ratio_f32());
+        // Set the volume to the last known value. Do not use `self.set_volume` because
+        // it will short-circuit when trying to set the volume to what `self.volume` already is.
+        let log_volume = Self::log_volume(self.volume.as_ratio());
+        sink.set_volume(log_volume);
 
         // The output source will output silence when the queue is empty.
         // That will cause the sink to report as "playing", so we need to pause it.
@@ -767,7 +767,7 @@ impl Player {
                 debug!(
                     "normalizing {} {track} by {difference:.1} dB ({})",
                     track.typ(),
-                    Percentage::from_ratio_f32(ratio)
+                    Percentage::from_ratio(ratio)
                 );
                 let normalized = normalize::normalize(
                     decoder,
@@ -1238,6 +1238,46 @@ impl Player {
         self.volume
     }
 
+    /// Applies logarithmic scaling to a linear volume value.
+    ///
+    /// Converts a linear volume input (0.0 to 1.0) to a logarithmic scale that better
+    /// matches human perception of loudness. Uses a 60 dB dynamic range with smooth
+    /// transitions:
+    /// * Main range: Exponential curve for natural volume perception
+    /// * Low range (< 10%): Linear scaling for fine control near silence
+    /// * Full range: Smooth transitions between all volume levels
+    ///
+    /// # Arguments
+    ///
+    /// * `volume` - Linear volume value between 0.0 and 1.0
+    ///
+    /// # Returns
+    ///
+    /// Logarithmically scaled volume value between 0.0 and 1.0
+    ///
+    /// # Formula
+    ///
+    /// For v > 0.0 and v < 1.0:
+    /// ```text
+    /// amplitude = exp(6.908 * v) / 1000
+    /// if v < 0.1: amplitude *= v * 10
+    /// ```
+    ///
+    /// Based on research from: <https://www.dr-lex.be/info-stuff/volumecontrols.html>
+    #[must_use]
+    fn log_volume(volume: f32) -> f32 {
+        let mut amplitude = volume;
+        if amplitude > 0.0 && amplitude < UNITY_GAIN {
+            amplitude =
+                f32::exp(Self::LOG_VOLUME_GROWTH_RATE * volume) / Self::LOG_VOLUME_SCALE_FACTOR;
+            if volume < 0.1 {
+                amplitude *= volume * 10.0;
+            }
+        }
+
+        amplitude
+    }
+
     /// Sets playback volume with logarithmic scaling.
     ///
     /// The volume control uses a logarithmic scale that matches human perception:
@@ -1246,7 +1286,13 @@ impl Player {
     /// * Smooth transitions across the entire range
     /// * Gradual volume ramping to prevent audio popping
     ///
-    /// No effect if new volume equals current volume.
+    /// Volume comparisons use relative epsilon comparison to handle floating-point
+    /// imprecision. This prevents issues like:
+    /// * Duplicate volume setting operations
+    /// * Volume "jitter" during playback
+    /// * Unnecessary volume ramping
+    ///
+    /// No effect if new volume equals current volume (using epsilon comparison).
     ///
     /// # Returns
     ///
@@ -1262,37 +1308,32 @@ impl Player {
     pub fn set_volume(&mut self, target: Percentage) -> Result<Percentage> {
         // Check if the volume is already set to the target value:
         // Deezer sends the same volume on every status update, even if it hasn't changed.
-        let current = self.volume();
+        let current = self.volume;
         if target == current {
             return Ok(current);
         }
 
         info!("setting volume to {target}");
 
-        // Clamp just in case the volume is set outside the valid range.
-        let volume = target.as_ratio_f32().clamp(0.0, UNITY_GAIN);
-        let mut amplitude = volume;
+        // Store the unscaled volume setting for playback reporting.
+        self.volume = target;
 
-        // Apply logarithmic volume scaling with a smooth transition to zero.
-        // Source: https://www.dr-lex.be/info-stuff/volumecontrols.html
-        if amplitude > 0.0 && amplitude < UNITY_GAIN {
-            amplitude =
-                f32::exp(Self::LOG_VOLUME_GROWTH_RATE * volume) / Self::LOG_VOLUME_SCALE_FACTOR;
-            if volume < 0.1 {
-                amplitude *= volume * 10.0;
-            }
+        // Clamp just in case the volume is set outside the valid range.
+        let volume = target.as_ratio().clamp(0.0, UNITY_GAIN);
+        let log_volume = Self::log_volume(volume);
+        if 2.0 * (volume - log_volume).abs() > f32::EPSILON * (volume.abs() + log_volume.abs()) {
             debug!(
                 "volume scaled logarithmically to {}",
-                Percentage::from_ratio_f32(amplitude)
+                Percentage::from_ratio(log_volume)
             );
         }
 
-        match self.ramp_volume(amplitude).map(Percentage::from_ratio_f32) {
-            Ok(previous) => {
-                self.volume = target;
-                Ok(previous)
-            }
-            Err(e) => Err(e),
+        // Apply the volume ramp if playback is active. If not, store the volume
+        // setting for when playback starts.
+        if self.is_started() {
+            self.ramp_volume(log_volume).map(Percentage::from_ratio)
+        } else {
+            Ok(current)
         }
     }
 
@@ -1359,9 +1400,7 @@ impl Player {
                 // The progress is the difference between the current position of the sink, which is the total duration played, and the time the current track started playing.
                 let duration = track.duration()?;
                 let progress = self.get_pos().saturating_sub(self.playing_since);
-                Some(Percentage::from_ratio_f32(
-                    progress.div_duration_f32(duration),
-                ))
+                Some(Percentage::from_ratio(progress.div_duration_f32(duration)))
             }
         })
     }
@@ -1411,7 +1450,7 @@ impl Player {
                 Error::unavailable(format!("duration unknown for {} {track}", track.typ()))
             })?;
 
-            let ratio = progress.as_ratio_f32();
+            let ratio = progress.as_ratio();
             if ratio < 1.0 {
                 let mut position = duration.mul_f32(ratio);
                 let minutes = position.as_secs() / 60;

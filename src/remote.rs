@@ -293,9 +293,9 @@ enum ShuffleAction {
 /// Volume initialization state.
 ///
 /// Controls how initial volume is applied:
-/// * Active - Set volume and remain active until client sets below maximum
-/// * Inactive - Initial volume has been superseded by client control
-/// * Disabled - No initial volume configured
+/// * `Active` - Set volume and remain active until client sets below maximum
+/// * `Inactive` - Initial volume has been superseded by client control
+/// * `Disabled` - No initial volume configured
 ///
 /// The state transitions from Active to Inactive when the client takes control by setting
 /// a volume below maximum. When a connection ends, it transitions back to Active to ensure
@@ -2010,25 +2010,28 @@ impl Client {
         }
 
         if let Some(should_play) = should_play {
-            match self.player.set_playing(should_play) {
-                Ok(()) => {
-                    if should_play {
+            if should_play {
+                // Open the output device ourselves so we can set the initial volume
+                // before starting playback.
+                match self.player.start() {
+                    Ok(()) => {
                         if let InitialVolume::Active(initial_volume) = self.initial_volume {
-                            match self.player.set_volume(initial_volume) {
-                                Ok(_) => debug!("initial volume: {initial_volume}"),
-                                Err(e) => {
-                                    error!("error setting initial volume: {e}");
-                                    result = Err(e);
-                                }
+                            if let Err(e) = self.player.set_volume(initial_volume) {
+                                error!("error setting initial volume: {e}");
+                                result = Err(e);
                             }
                         }
                     }
+                    Err(e) => {
+                        error!("error opening output device: {e}");
+                        result = Err(e);
+                    }
                 }
+            }
 
-                Err(e) => {
-                    error!("error setting playback state: {e}");
-                    result = Err(e);
-                }
+            if let Err(e) = self.player.set_playing(should_play) {
+                error!("error setting playback state: {e}");
+                result = Err(e);
             }
         }
 

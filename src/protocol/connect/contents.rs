@@ -75,7 +75,7 @@ use serde_with::{
 use uuid::Uuid;
 
 use super::{channel::Ident, protos::queue};
-use crate::{error::Error, protocol::Codec, track::TrackId, util::ToF32};
+use crate::{error::Error, protocol::Codec, track::TrackId};
 
 /// A message's contents in the Deezer Connect protocol.
 ///
@@ -1298,7 +1298,7 @@ impl FromStr for AudioQuality {
 ///
 /// # Internal Representation
 ///
-/// Values are stored internally as `f64` ratios between 0.0 and 1.0, but the
+/// Values are stored internally as `f32` ratios between 0.0 and 1.0, but the
 /// type provides methods to work with both ratio and percentage formats.
 ///
 /// # Constants
@@ -1314,27 +1314,27 @@ impl FromStr for AudioQuality {
 /// Creating percentages:
 /// ```rust
 /// // Using const constructors
-/// const HALF: Percentage = Percentage::from_ratio_f32(0.5);
-/// const QUARTER: Percentage = Percentage::from_percent_f32(25.0);
+/// const HALF: Percentage = Percentage::from_ratio(0.5);
+/// const QUARTER: Percentage = Percentage::from_percent(25.0);
 ///
 /// // Using runtime constructors
-/// let progress = Percentage::from_ratio_f64(0.75);
-/// let volume = Percentage::from_percent_f64(80.0);
+/// let progress = Percentage::from_ratio(0.75);
+/// let volume = Percentage::from_percent(80.0);
 /// ```
 ///
 /// Using in messages:
 /// ```rust
 /// let body = Body::PlaybackProgress {
 ///     // ...
-///     progress: Some(Percentage::from_ratio_f32(0.25)), // 25% through track
-///     volume: Percentage::from_ratio_f32(0.8),          // 80% volume
+///     progress: Some(Percentage::from_ratio(0.25)), // 25% through track
+///     volume: Percentage::from_ratio(0.8),          // 80% volume
 ///     // ...
 /// };
 /// ```
 ///
 /// Display formatting:
 /// ```rust
-/// let progress = Percentage::from_ratio_f32(0.753);
+/// let progress = Percentage::from_ratio(0.753);
 /// assert_eq!(progress.to_string(), "75.3%");
 /// ```
 ///
@@ -1344,11 +1344,21 @@ impl FromStr for AudioQuality {
 /// ```rust
 /// use serde_json;
 ///
-/// let half = Percentage::from_ratio_f32(0.5);
+/// let half = Percentage::from_ratio(0.5);
 /// assert_eq!(serde_json::to_string(&half)?, "0.5");
 /// ```
+///
+/// /// # Floating-Point Comparisons
+///
+/// The `PartialEq` implementation uses a relative epsilon comparison method for
+/// floating-point values to handle numerical imprecision.
+///
+/// This ensures that values that are mathematically equal but may have slight
+/// floating-point representation differences (like 0.1 + 0.2 and 0.3) are
+/// considered equal. This is particularly important when comparing volumes and
+/// progress values that may have undergone multiple calculations.
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialOrd)]
-pub struct Percentage(f64);
+pub struct Percentage(f32);
 
 impl Percentage {
     /// Represents 0% (0.0)
@@ -1357,7 +1367,7 @@ impl Percentage {
     ///
     /// ```rust
     /// const MUTED: Percentage = Percentage::ZERO;
-    /// assert_eq!(MUTED.as_percent_f32(), 0.0);
+    /// assert_eq!(MUTED.as_percent(), 0.0);
     /// ```
     pub const ZERO: Self = Self(0.0);
 
@@ -1367,7 +1377,7 @@ impl Percentage {
     ///
     /// ```rust
     /// const MAX_VOLUME: Percentage = Percentage::ONE_HUNDRED;
-    /// assert_eq!(MAX_VOLUME.as_percent_f32(), 100.0);
+    /// assert_eq!(MAX_VOLUME.as_percent(), 100.0);
     /// ```
     pub const ONE_HUNDRED: Self = Self(1.0);
 
@@ -1379,37 +1389,16 @@ impl Percentage {
     ///
     /// ```rust
     /// // Const context
-    /// const HALF: Percentage = Percentage::from_ratio_f32(0.5);
-    /// assert_eq!(HALF.as_percent_f32(), 50.0);
+    /// const HALF: Percentage = Percentage::from_ratio(0.5);
+    /// assert_eq!(HALF.as_percent(), 50.0);
     ///
     /// // Runtime context
-    /// let p = Percentage::from_ratio_f32(0.75);
-    /// assert_eq!(p.as_percent_f32(), 75.0);
+    /// let p = Percentage::from_ratio(0.75);
+    /// assert_eq!(p.as_percent(), 75.0);
     /// ```
     #[must_use]
     #[inline]
-    pub const fn from_ratio_f32(ratio: f32) -> Self {
-        Self(ratio as f64)
-    }
-
-    /// Creates a new percentage from a 64-bit floating point ratio.
-    ///
-    /// Can be used in const contexts.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Const context
-    /// const THIRD: Percentage = Percentage::from_ratio_f64(0.333);
-    /// assert_eq!(THIRD.as_percent_f64(), 33.3);
-    ///
-    /// // Runtime context
-    /// let p = Percentage::from_ratio_f64(0.5);
-    /// assert_eq!(p.as_percent_f64(), 50.0);
-    /// ```
-    #[must_use]
-    #[inline]
-    pub const fn from_ratio_f64(ratio: f64) -> Self {
+    pub const fn from_ratio(ratio: f32) -> Self {
         Self(ratio)
     }
 
@@ -1421,121 +1410,66 @@ impl Percentage {
     ///
     /// ```rust
     /// // Const context
-    /// const HALF: Percentage = Percentage::from_percent_f32(50.0);
-    /// assert_eq!(HALF.as_ratio_f32(), 0.5);
+    /// const HALF: Percentage = Percentage::from_percent(50.0);
+    /// assert_eq!(HALF.as_ratio(), 0.5);
     ///
     /// // Runtime context
-    /// let p = Percentage::from_percent_f32(75.0);
-    /// assert_eq!(p.as_ratio_f32(), 0.75);
+    /// let p = Percentage::from_percent(75.0);
+    /// assert_eq!(p.as_ratio(), 0.75);
     /// ```
     #[must_use]
     #[inline]
-    pub const fn from_percent_f32(percent: f32) -> Self {
-        Self(percent as f64 / 100.0)
-    }
-
-    /// Creates a new percentage from a 64-bit floating point percentage value.
-    ///
-    /// Can be used in const contexts.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// // Const context
-    /// const THIRD: Percentage = Percentage::from_percent_f64(33.3);
-    /// assert_eq!(THIRD.as_ratio_f64(), 0.333);
-    ///
-    /// // Runtime context
-    /// let p = Percentage::from_percent_f64(75.0);
-    /// assert_eq!(p.as_ratio_f64(), 0.75);
-    /// ```
-    #[must_use]
-    #[inline]
-    pub const fn from_percent_f64(percent: f64) -> Self {
+    pub const fn from_percent(percent: f32) -> Self {
         Self(percent / 100.0)
     }
 
     /// Returns the value as a 32-bit floating point ratio (0.0 to 1.0).
     ///
-    /// Note that this may involve loss of precision when converting from
-    /// the internal 64-bit representation.
-    ///
     /// # Examples
     ///
     /// ```rust
-    /// let p = Percentage::from_ratio_f32(0.75);
-    /// assert_eq!(p.as_ratio_f32(), 0.75);
+    /// let p = Percentage::from_ratio(0.75);
+    /// assert_eq!(p.as_ratio(), 0.75);
     /// ```
     #[must_use]
-    pub fn as_ratio_f32(&self) -> f32 {
-        self.0.to_f32_lossy()
-    }
-
-    /// Returns the value as a 64-bit floating point ratio (0.0 to 1.0).
-    ///
-    /// Can be used in const contexts.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// const P: Percentage = Percentage::from_ratio_f64(0.333);
-    /// const RATIO: f64 = P.as_ratio_f64();
-    /// assert_eq!(RATIO, 0.333);
-    /// ```
-    #[must_use]
-    #[inline]
-    pub const fn as_ratio_f64(&self) -> f64 {
+    pub fn as_ratio(&self) -> f32 {
         self.0
     }
 
     /// Returns the value as a 32-bit floating point percentage (0.0 to 100.0).
     ///
-    /// Note that this may involve loss of precision when converting from
-    /// the internal 64-bit representation.
-    ///
     /// # Examples
     ///
     /// ```rust
-    /// let p = Percentage::from_ratio_f32(0.75);
-    /// assert_eq!(p.as_percent_f32(), 75.0);
+    /// let p = Percentage::from_ratio(0.75);
+    /// assert_eq!(p.as_percent(), 75.0);
     /// ```
     #[must_use]
-    pub fn as_percent_f32(&self) -> f32 {
-        self.0.to_f32_lossy() * 100.0
-    }
-
-    /// Returns the value as a 64-bit floating point percentage (0.0 to 100.0).
-    ///
-    /// Can be used in const contexts.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// const P: Percentage = Percentage::from_ratio_f64(0.333);
-    /// const PERCENT: f64 = P.as_percent_f64();
-    /// assert_eq!(PERCENT, 33.3);
-    /// ```
-    #[must_use]
-    #[inline]
-    pub const fn as_percent_f64(&self) -> f64 {
+    pub fn as_percent(&self) -> f32 {
         self.0 * 100.0
     }
 }
 
-/// Compares two percentages for equality.
+/// Compares two percentages using a relative epsilon comparison method.
 ///
-/// Simply delegates to the underlying f64 equality comparison.
+/// This implementation uses a relative epsilon comparison for floating-point values
+/// to handle numerical imprecision. The formula:
+/// `2.0 * |a - b| <= ε * (|a| + |b|)`
+/// accounts for the magnitude of the values being compared.
 ///
 /// # Examples
 /// ```rust
-/// let p1 = Percentage::from_ratio_f64(0.5);
-/// let p2 = Percentage::from_ratio_f64(0.5);
-/// assert_eq!(p1, p2);
+/// let p1 = Percentage::from_ratio(0.1 + 0.2);
+/// let p2 = Percentage::from_ratio(0.3);
+/// assert_eq!(p1, p2);  // Equal despite floating-point arithmetic
+///
+/// let p3 = Percentage::from_ratio(0.5);
+/// let p4 = Percentage::from_ratio(0.5000001);
+/// assert_eq!(p3, p4);  // Equal within epsilon
 /// ```
 impl PartialEq for Percentage {
-    #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.0.eq(&other.0)
+        2.0 * (self.0 - other.0).abs() <= f32::EPSILON * (self.0.abs() + other.0.abs())
     }
 }
 
@@ -1546,15 +1480,15 @@ impl PartialEq for Percentage {
 /// # Examples
 ///
 /// ```rust
-/// let p = Percentage::from_ratio_f32(0.753);
+/// let p = Percentage::from_ratio(0.753);
 /// assert_eq!(p.to_string(), "75.3%");
 ///
-/// let p = Percentage::from_ratio_f32(1.0);
+/// let p = Percentage::from_ratio(1.0);
 /// assert_eq!(p.to_string(), "100.0%");
 /// ```
 impl fmt::Display for Percentage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:.1}%", self.as_percent_f32())
+        write!(f, "{:.1}%", self.as_percent())
     }
 }
 

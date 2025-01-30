@@ -448,7 +448,7 @@ async fn run(args: Args) -> Result<ShutdownSignal> {
             normalization: args.normalize_volume,
             initial_volume: args
                 .initial_volume
-                .map(|volume| Percentage::from_percent_f32(volume as f32)),
+                .map(|volume| Percentage::from_percent(volume as f32)),
 
             hook: args.hook,
 
