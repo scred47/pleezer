@@ -1,55 +1,3 @@
-//! HTTP client with rate limiting and session management for Deezer APIs.
-//!
-//! This module provides a wrapper around `reqwest::Client` that adds:
-//! * Cookie-based session management for authentication
-//! * Persistent login across client restarts
-//! * Request rate limiting to respect API quotas
-//! * Configurable timeouts for connections and reads
-//! * Connection keepalive for performance
-//!
-//! # Session Management
-//!
-//! Handles authentication cookies for:
-//! * ARL tokens for initial authentication
-//! * Refresh tokens for session renewal
-//! * Language preferences
-//!
-//! # Rate Limiting
-//!
-//! Implements Deezer's rate limits:
-//! * 50 calls per 5-second interval
-//! * Automatic request throttling
-//! * Allows bursts up to the maximum calls per interval
-//! * Requests that would exceed the limit are delayed
-//!
-//! # Timeouts
-//!
-//! Provides granular timeout control:
-//! * Connection establishment (5 seconds)
-//! * Individual network reads (2 seconds)
-//! * Connection keepalive (60 seconds)
-//!
-//! # Example
-//!
-//! ```rust
-//! use pleezer::http::Client;
-//! use reqwest::Url;
-//!
-//! // Create client with session management for authenticated endpoints
-//! let client = Client::with_cookies(&config, cookie_jar)?;
-//!
-//! // Or without session management for public endpoints
-//! let client = Client::without_cookies(&config)?;
-//!
-//! // Make API requests with appropriate content type
-//! let request = client.json(api_url, track_data);  // for JSON data
-//! // or
-//! let request = client.text(api_url, metadata);    // for plain text data
-//! let response = client.execute(request).await?;    // checks HTTP status code
-//!
-//! // Cookies are automatically managed for session persistence
-//! ```
-
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use governor::{DefaultDirectRateLimiter, Quota};
@@ -68,7 +16,6 @@ use crate::{config::Config, error::Result};
 /// * Cookie-based session persistence
 /// * Rate limiting for API quotas
 /// * Consistent configuration
-// TODO: implement builder pattern
 pub struct Client {
     /// Unlimited request client for special cases.
     ///
@@ -356,5 +303,93 @@ impl Client {
             Ok(response) => response.error_for_status().map_err(Into::into),
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+/// Builder for `Client`.
+pub struct ClientBuilder {
+    config: Config,
+    cookie_jar: Option<reqwest_cookie_store::CookieStore>,
+    keepalive_timeout: Option<Duration>,
+    connect_timeout: Option<Duration>,
+    read_timeout: Option<Duration>,
+}
+
+impl ClientBuilder {
+    /// Creates a new `ClientBuilder` with default settings.
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            cookie_jar: None,
+            keepalive_timeout: None,
+            connect_timeout: None,
+            read_timeout: None,
+        }
+    }
+
+    /// Sets the cookie jar for session management.
+    pub fn cookie_jar(mut self, cookie_jar: reqwest_cookie_store::CookieStore) -> Self {
+        self.cookie_jar = Some(cookie_jar);
+        self
+    }
+
+    /// Sets the keepalive timeout.
+    pub fn keepalive_timeout(mut self, timeout: Duration) -> Self {
+        self.keepalive_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the connect timeout.
+    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
+        self.connect_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the read timeout.
+    pub fn read_timeout(mut self, timeout: Duration) -> Self {
+        self.read_timeout = Some(timeout);
+        self
+    }
+
+    /// Builds the `Client`.
+    pub fn build(self) -> Result<Client> {
+        let keepalive_timeout = self.keepalive_timeout.unwrap_or(Client::KEEPALIVE_TIMEOUT);
+        let connect_timeout = self.connect_timeout.unwrap_or(Client::CONNECT_TIMEOUT);
+        let read_timeout = self.read_timeout.unwrap_or(Client::READ_TIMEOUT);
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Ok(lang) = HeaderValue::from_str(&self.config.app_lang) {
+            headers.insert(ACCEPT_LANGUAGE, lang);
+        }
+
+        let cookie_jar = self
+            .cookie_jar
+            .map(|jar| Arc::new(reqwest_cookie_store::CookieStoreMutex::new(jar)));
+
+        let mut http_client = reqwest::Client::builder()
+            .tcp_keepalive(keepalive_timeout)
+            .connect_timeout(connect_timeout)
+            .read_timeout(read_timeout)
+            .default_headers(headers)
+            .user_agent(&self.config.user_agent);
+
+        if let Some(ref jar) = cookie_jar {
+            http_client = http_client.cookie_provider(Arc::clone(jar));
+        }
+
+        let replenish_interval =
+            Client::RATE_LIMIT_INTERVAL / u32::from(Client::RATE_LIMIT_CALLS_PER_INTERVAL);
+        let quota = Quota::with_period(replenish_interval)
+            .expect("quota time interval is zero")
+            .allow_burst(
+                NonZeroU32::new(Client::RATE_LIMIT_CALLS_PER_INTERVAL.into())
+                    .expect("calls per interval is zero"),
+            );
+
+        Ok(Client {
+            unlimited: http_client.build()?,
+            rate_limiter: governor::RateLimiter::direct(quota),
+            cookie_jar,
+        })
     }
 }
