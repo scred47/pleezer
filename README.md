@@ -2,9 +2,18 @@
 
 **pleezer** is an open-source, headless streaming player built around the [Deezer Connect](https://support.deezer.com/hc/en-gb/articles/5449309457949-Deezer-Connect) protocol. "Headless" means it runs without a graphical interface, making it ideal for DIY setups, server-based systems, or custom integrations where flexibility is key.
 
-## Project Status
+**Important:** A paid [Deezer subscription](https://deezer.com/offers) is required to use **pleezer**. The player will not appear as an available device in the Deezer app if you're using a Deezer Free account.
 
-**pleezer** is a new project and is actively being developed. We welcome contributions and feedback from the community. For more details, see the [Contributing](#contributing) section.
+## Important Disclaimer
+
+**pleezer** is an independent project and is not affiliated with, endorsed by, or created by Deezer. It is developed to provide a streaming player that is fully compatible with the Deezer Connect protocol.
+
+**pleezer** **does not and will not support** saving or extracting music files for offline use. This project is committed to respecting artists' rights and strongly opposes piracy. Users must not use **pleezer** to infringe on intellectual property rights.
+
+To ensure compliance with [Deezer's Terms of Service](https://www.deezer.com/legal/cgu):
+- No decryption keys are included in the code
+- All playback is properly reported to Deezer for accurate artist monetization
+- Only legitimate streaming through the Deezer Connect protocol is supported
 
 ## Table of Contents
 
@@ -19,15 +28,12 @@
   - [Signal Handling](#signal-handling)
   - [Configuring the Secrets File](#configuring-the-secrets-file)
 - [Troubleshooting](#troubleshooting)
-- [Setting Up Your Build Environment](#setting-up-your-build-environment)
+- [Building pleezer](#building-pleezer)
 - [Contributing](#contributing)
 - [Support My Work](#support-my-work)
 - [Related Projects](#related-projects)
-- [License](#license)
-- [Important Information](#important-information)
-  - [Important Disclaimer](#important-disclaimer)
-  - [Deezer Terms of Service](#deezer-terms-of-service)
-  - [Security](#security)
+- [Legal Information](#legal-information)
+- [Security](#security)
 - [Contacting the Author](#contacting-the-author)
 
 ## Features
@@ -37,33 +43,35 @@
 - **Playback Controls**:
   - Queue management with shuffle and repeat modes
   - Gapless playback for seamless transitions
-- **High-Quality Audio**: Stream in basic, HQ, or lossless formats depending on your [Deezer subscription](http://www.deezer.com/offers).
+- **High-Quality Audio**:
+  - Stream in basic, HQ, or lossless formats (subscription-dependent)
+  - Music tracks at 44.1 kHz sample rate
+  - Podcasts and radio at native sample rates (including 48 kHz)
+  - Various bit depths supported
+  - Linear resampling when needed
 - **Volume Controls**:
   - Logarithmic volume scaling for natural-feeling volume control
   - Volume normalization to maintain consistent levels across tracks
   - Configurable initial volume level with automatic fallback to client control
 - **Content Support**:
-  - **Songs**: Stream regular music tracks and your uploaded MP3s
-  - **Podcasts**: Listen to your favorite shows with direct streaming
-  - **Livestreams**: Tune in to live radio stations and broadcasts
-  - **Flow and Mixes**: Access personalized playlists and [mixes](https://www.deezer.com/explore/mixes) tailored to your preferences
-  - **User MP3s**: Play your [uploaded MP3 files](https://support.deezer.com/hc/en-gb/articles/115004221605-Upload-MP3s) alongside streamed content
-  - **Playback Reporting**: Contribute to accurate artist monetization metrics
+  - **Songs**: Stream regular music tracks
+  - **Podcasts**: Listen to your favorite shows
+  - **Livestreams**: Tune in to radio stations and broadcasts
+  - **Flow and Mixes**: Access personalized playlists and mixes
+  - **User MP3s**: Play your [uploaded MP3 files](https://support.deezer.com/hc/en-gb/articles/115004221605-Upload-MP3s)
+  - **Playback Reporting**: Reports playback data to Deezer's services
 - **Audio Backends**:
-  - [JACK](https://jackaudio.org/) backend for audio routing between applications (Linux only)
-  - [ASIO](https://helpcenter.steinberg.de/hc/en-us/articles/17863730844946-Steinberg-built-in-ASIO-Driver-information-download) backend for low-latency audio with direct hardware access (Windows only)
+  - Default audio output on all platforms
+  - [JACK](https://jackaudio.org/) backend for audio routing (Linux)
+  - [ASIO](https://helpcenter.steinberg.de/hc/en-us/articles/17863730844946-Steinberg-built-in-ASIO-Driver-information-download) backend for low-latency output (Windows)
 - **Connection Options**:
-  - Authentication via Deezer email/password or [ARL token](https://www.deezer.com/desktop/login/electron/callback)
+  - Authentication via email/password or ARL token
   - HTTPS proxy support using system environment variables
-
-### Planned Features
-
-- Device registration
-- RAM-backed storage
-
-## Installation
-
-**pleezer** can be installed in several ways:
+- **Integration Features**:
+  - Headless operation for server/embedded use
+  - Hook scripts for external automation
+  - Signal handling for proper shutdown
+  - Stateless operation for reliability
 
 ## Installation
 
@@ -98,7 +106,7 @@
 
       1. Clone the repository:
          ```bash
-         git clone https://github.com/your-repo/pleezer.git
+         git clone https://github.com/roderickvd/pleezer.git
          cd pleezer
          ```
 
@@ -118,8 +126,6 @@
 
 ## Usage
 
-**Important:** A paid Deezer subscription is required to use pleezer. The player will not appear as an available device in the Deezer app if you're using a Deezer Free account.
-
 **pleezer** acts as a remote playback device that can be controlled from the Deezer mobile app using [Deezer Connect](https://support.deezer.com/hc/en-gb/articles/5449309457949-Deezer-Connect). Note that Deezer Connect only works *from* mobile devices - you cannot control **pleezer** from desktop apps or the web player.
 
 Following the official Deezer Connect instructions, here's how to control **pleezer** from your mobile device:
@@ -135,7 +141,7 @@ Your music will then play through **pleezer** while being controlled from your m
 - Be connected to the internet
 - Use the same Deezer account as your mobile device
 
-**pleezer** will use the quality setting you've chosen for Google Cast. To control audio quality:
+**pleezer** will use the quality setting you've chosen for [Google Cast](https://support.deezer.com/hc/en-gb/articles/201330961-Deezer-on-Google-Chromecast). To control audio quality:
 1. In the Deezer mobile app, go to Settings > Audio
 2. Under "Google Cast", select your preferred quality:
    - Basic Quality (64 kbps CBR MP3)
@@ -222,15 +228,9 @@ Your music will then play through **pleezer** while being controlled from your m
     ```
 
     **Notes:**
-    - Deezer streams audio at 44100 Hz exclusively. Sampling rates other than
-      44100 Hz are not recommended and provided for compatibility only.
-      Resampling is done using linear interpolation.
-    - 32-bit sample formats (i32/f32) are recommended when using volume control
-      or normalization, as they preserve more precision in the audio output.
-    - Advanced: While device enumeration shows only common configurations
-      (44.1/48 kHz, I16/I32/F32), other sample rates (e.g., 96 kHz) and
-      formats (e.g., U16) are supported when explicitly specified in the
-      device string.
+    - Music tracks stream at 44.1 kHz exclusively, while podcasts and radio stations may use different rates (including 48 kHz). When the hardware sample rate differs from the content's native rate, linear resampling is used.
+    - 32-bit sample formats (i32/f32) are recommended when using volume control or normalization, as they preserve more precision in the audio output.
+    - Advanced: While device enumeration shows only common configurations (44.1/48 kHz, I16/I32/F32), other sample rates (e.g., 96 kHz) and formats (e.g., U16) are supported when explicitly specified in the device string.
 
 - `--normalize-volume`: Enable volume normalization to maintain consistent volume levels across tracks. This operates independently from the "Normalize audio" setting in Deezer apps. Example:
     ```bash
@@ -475,9 +475,22 @@ You can start with the [`secrets.toml.example`](https://github.com/roderickvd/pl
 
 If you encounter any issues while using **pleezer**, visit our [GitHub Discussions](https://github.com/roderickvd/pleezer/discussions) for help and advice.
 
-Common volume-related issues:
-- Volume at maximum when connecting: Use `--initial-volume` to set a lower starting level
-- Volume variations between tracks: Enable `--normalize-volume` for consistent playback levels
+Common issues and solutions:
+
+### Authentication Issues
+- **pleezer won't start**: Make sure you have created a `secrets.toml` file with valid credentials. By default, **pleezer** looks for this file in the current working directory, but you can specify a different location using the `-s` or `--secrets` option. See [Configuring the Secrets File](#configuring-the-secrets-file) for setup instructions.
+
+### Volume Issues
+- **Volume at maximum when connecting**: Use `--initial-volume` to set a lower starting level
+- **Volume variations between tracks**: Enable `--normalize-volume` for consistent playback levels
+
+### Build Issues
+- **Build fails with older Rust**: **pleezer** requires a recent Rust version. To check your current Rust version:
+  ```bash
+  rustc --version
+  ```
+
+For build environment setup instructions, see [Setting Up Your Build Environment](#setting-up-your-build-environment).
 
 ## Building pleezer
 
@@ -593,16 +606,16 @@ There are several projects that have influenced **pleezer**. Here are a few:
 - [librespot](https://github.com/librespot-org/librespot): An open-source client library for Spotify with support for Spotify Connect.
 - [lms-deezer](https://github.com/philippe44/lms-deezer): A plugin for Logitech Media Server to stream music from Deezer.
 
-## License
+## Legal Information
+
+### License
 
 **pleezer** is licensed under the [Sustainable Use License](https://github.com/roderickvd/pleezer/blob/main/LICENSE.md). This license promotes [fair use](https://faircode.io) and sustainable development of open-source software while preventing unregulated commercial exploitation.
 
-### Non-Commercial Use
-
+#### Non-Commercial Use
 You may use, modify, and distribute **pleezer** freely for non-commercial purposes. This includes integrating it into other software or hardware as long as these offerings are available at no cost to users.
 
-### Commercial Use
-
+#### Commercial Use
 If you intend to use **pleezer** in a commercial context—such as incorporating it into paid software or hardware products, or any offering that requires payment—you must obtain a separate commercial license. Commercial use includes:
 
 - Bundling **pleezer** with software or hardware that requires payment to unlock features or access.
@@ -612,24 +625,22 @@ For example, **pleezer** can be included in free software or hardware, but if it
 
 This approach addresses challenges seen with projects like [librespot](https://github.com/librespot-org/librespot), which, despite widespread use, has seen limited contributions. By requiring commercial users to obtain a separate license, we aim to promote fair contributions and support the ongoing development of **pleezer**.
 
-## Important Information
-
-### Important Disclaimer
-
-**pleezer** is an independent project and is not affiliated with, endorsed by, or created by Deezer. It is developed to provide a streaming player that is fully compatible with the Deezer Connect protocol.
-
-**pleezer** **does not and will not support** saving or extracting music files for offline use. This project is committed to respecting artists' rights and strongly opposes piracy. Users must not use **pleezer** to infringe on intellectual property rights.
-
 ### Deezer Terms of Service
 
-When using **pleezer**, you must comply with [Deezer's Terms of Service](https://www.deezer.com/legal/cgu). This includes, but is not limited to:
+When using **pleezer**, you must comply with [Deezer's Terms of Service](https://www.deezer.com/legal/cgu). This includes:
 
-- Using the software only for permitted purposes, such as personal or family use.
-- Avoiding any activities that violate Deezer's policies or terms.
+- Using the software only for permitted purposes, such as personal or family use
+- Avoiding any activities that violate Deezer's policies or terms
+- Maintaining a valid paid Deezer subscription
+- Not attempting to extract or save content for offline use
+- Allowing proper playback reporting for artist monetization
 
-It is your responsibility to thoroughly understand and adhere to Deezer's Terms of Service while using **pleezer**.
+It is your responsibility to thoroughly understand and adhere to Deezer's Terms of Service while using **pleezer**. The project implements several measures to ensure compliance:
+- No decryption keys are included in the code
+- All playback is properly reported to Deezer for accurate artist monetization
+- Only legitimate streaming through the Deezer Connect protocol is supported
 
-### Security
+## Security
 
 For information on how security is handled, including how to report vulnerabilities, please refer to the [Security Policy](https://github.com/roderickvd/pleezer/blob/main/SECURITY.md).
 
