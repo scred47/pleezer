@@ -7,6 +7,10 @@ use reqwest::{
     header::{HeaderValue, ACCEPT_LANGUAGE},
     Body, Method, Url,
 };
+use trust_dns_resolver::{
+    config::{ResolverConfig, ResolverOpts},
+    TokioAsyncResolver,
+};
 
 use crate::{config::Config, error::Result};
 
@@ -117,12 +121,24 @@ impl Client {
         let cookie_jar =
             cookie_jar.map(|jar| Arc::new(reqwest_cookie_store::CookieStoreMutex::new(jar)));
 
+        // Configure the DNS resolver to only look up IPv4 addresses
+        let resolver_config = ResolverConfig::from_parts(
+            None,
+            vec![],
+            ResolverOpts {
+                ipv4_only: true,
+                ..Default::default()
+            },
+        );
+        let resolver = TokioAsyncResolver::tokio_from_config(resolver_config)?;
+
         let mut http_client = reqwest::Client::builder()
             .tcp_keepalive(Self::KEEPALIVE_TIMEOUT)
             .connect_timeout(Self::CONNECT_TIMEOUT)
             .read_timeout(Self::READ_TIMEOUT)
             .default_headers(headers)
-            .user_agent(&config.user_agent);
+            .user_agent(&config.user_agent)
+            .resolver(resolver);
 
         if let Some(ref jar) = cookie_jar {
             http_client = http_client.cookie_provider(Arc::clone(jar));
@@ -366,12 +382,24 @@ impl ClientBuilder {
             .cookie_jar
             .map(|jar| Arc::new(reqwest_cookie_store::CookieStoreMutex::new(jar)));
 
+        // Configure the DNS resolver to only look up IPv4 addresses
+        let resolver_config = ResolverConfig::from_parts(
+            None,
+            vec![],
+            ResolverOpts {
+                ipv4_only: true,
+                ..Default::default()
+            },
+        );
+        let resolver = TokioAsyncResolver::tokio_from_config(resolver_config)?;
+
         let mut http_client = reqwest::Client::builder()
             .tcp_keepalive(keepalive_timeout)
             .connect_timeout(connect_timeout)
             .read_timeout(read_timeout)
             .default_headers(headers)
-            .user_agent(&self.config.user_agent);
+            .user_agent(&self.config.user_agent)
+            .resolver(resolver);
 
         if let Some(ref jar) = cookie_jar {
             http_client = http_client.cookie_provider(Arc::clone(jar));
