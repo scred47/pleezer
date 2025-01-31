@@ -103,6 +103,7 @@ toml = "0.8"
 url = { version = "2.5", features = ["serde"] }
 uuid = { version = "1.11", features = ["serde", "v4"] }
 veil = "0.2"
+trust-dns = "0.17"
 
 [[bin]]
 name = "pleezer"
