@@ -40,6 +40,7 @@ fn main() {
 
     let proto_dir = Path::new("src/protocol/connect/protos");
     protobuf_codegen::Codegen::new()
+        .pure()
         .cargo_out_dir("protos")
         .include(proto_dir)
         .input(proto_dir.join("queue.proto"))
