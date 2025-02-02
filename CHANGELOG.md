@@ -9,6 +9,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Fixed
 - [build] Enable building on 32-bit ARM by removing vendored protoc compiler dependency (#55)
+- [http] Move AAAA record resolution timeout handling from connect to read timeout (#58)
 
 ## [v0.12.0] - 2025-01-31
 
