@@ -19,8 +19,8 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [http] Support binding outgoing connections to specific network interfaces
 
 ### Fixed
-- [http] Fix connection timeouts in dual-stack network environments
-- [player] Fix audio device being held before playback starts
+- [http] Fix connection timeouts in dual-stack network environments (#52)
+- [player] Fix audio device being held before playback starts (#56)
 
 ## [v0.11.1] - 2025-01-27
 
@@ -126,7 +126,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ### Changed
 - [docs] Enhanced documentation for signal handling and lifecycle management
 - [main] Improved signal handling and graceful shutdown
-- [remote] Remove automatic shell escaping from hook script variables
+- [remote] Remove automatic shell escaping from hook script variables (#46)
 - [remote] Improve error handling and ignore progress updates for livestreams
 - [remote] Renamed `ALBUM_COVER` to `COVER_ID` in the `track_changed` event
 - [track] Renamed `album_cover` to `cover_id` for consistency
@@ -233,7 +233,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 ## [0.3.0] - 2024-11-28
 
 ### Added
-- [chore] Add Debian package metadata
+- [chore] Add Debian package metadata (#29)
 - [docs] Add ALSA device examples to the README
 - [main] Add `--device-type` option to control device identification
 
@@ -246,11 +246,11 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ### Fixed
 - [config] Hexademical base does not correlate to key length
-- [gateway] Parse user data without all fields present
+- [gateway] Parse user data without all fields present (#31)
 - [gateway] Incorrect user token expiry
-- [player] Use pipe separator in device specs for ALSA compatibility
-- [player] Clean up audio device enumeration output
-- [player] Playback progress not updating correctly after third track
+- [player] Use pipe separator in device specs for ALSA compatibility (#33)
+- [player] Clean up audio device enumeration output (#32)
+- [player] Playback progress not updating correctly after third track (#38)
 - [player] Delay reporting playback progress after a track change
 - [repo] Fix pull request template format
 - [remote] Trigger connected and disconnected events
@@ -261,7 +261,7 @@ and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 - [main] Support for configuring all command-line options via environment variables with `PLEEZER_` prefix
 - [proxy] HTTPS proxy support via the `HTTPS_PROXY` environment variable
 - [remote] Websocket monitoring mode for Deezer Connect protocol analysis
-- [remote] Hook script support to execute commands on playback and connection events
+- [remote] Hook script support to execute commands on playback and connection events (#27)
 
 ### Changed
 - [docs] Enhanced documentation clarity and consistency across all policy documents
